@@ -1,0 +1,16 @@
+echo "This script will only work on IBM AIX systems"
+echo "creates two executables: migrate-single for single node threaded execution"
+echo "                         migrate-n for MPI-based parallel execution"
+echo ""
+export CC=xlC_r 
+export CXX=xlC_r 
+./configure
+make thread
+cp migrate-n migrate-single
+make test
+make clean
+make mpis
+make mpis "MPICC=mpCC_r"
+echo "If there was no error this created a MPI-parallel migrate: migrate-n"
+echo "and the single-node (threaded) migrate-n was copied into migrate-single"
+echo "done"

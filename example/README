@@ -1,0 +1,35 @@
+README
+======
+Migrate version 4.5
+
+This directory contains a few examples and some timings using
+different compiled versions of migrate 4.5
+
+infile.ep        Allozyme dataset with output outfile_allozyme.txt and outfile_allozyme.pdf   
+infile.gap       Data set using 5 indpendent sequence loci of a single population
+infile.msat      Data set using 10 msat loci (this dataset was used in the speed tests below.
+infile.seq       Sequence data with two indendent loci (using the old data organization,
+                 but new syntax)
+twoswisstowns    Mixture of new and old syntax first old-style locus uses two different
+                 mutation models for two partitions, second oldstyle locus is treated as
+                 two partitions, 5 individuals are not assigned to a particular population,
+                 and their assignment wil be estimated (this may lead to an underestimate
+                 of the migration rates)
+
+
+Timing
+======
+using
+machine: a. macbook pro 2.9 GHz 8 virtual core i7 CPU
+         b. CentOS/SLURM cluster running Redhat linux, i7 CPUs
+	 c. macbook pro 13" M1 2020 8 virtual cores 
+single_cpu compile:
+a. 670.4sec ../migrate-n parmfile.msat -nomenu  581.38s user 430.10s system 150% cpu 11:10.40 total
+parallel MPI compile:
+a. 348.7sec mpirun -n 4 ../migrate-n-mpi parmfile.msat -nomenu  (971.55s user 540.50s system 433% cpu 5:48.70 total)
+b. 105.4sec mpirun -n 9 ../migrate-n-mpi parmfile.msat -nomenu (real	1m45.405s user	9m42.870s sys	0m0.540s)
+b.  64.6sec mpirun -n 21 ../migrate-n-mpi parmfile.msat -nomenu (real	1m4.614s user	12m21.994s sys	0m1.223s)
+c. 172.95 mpirun -n 9 --oversubscribe ../migrate-n-mpi parmfile.msat -nomenu  (257.11s user 445.70s system 406% cpu 2:52.95 total)
+c. 149.88 mpirun -n 11 --oversubscribe ../migrate-n-mpi parmfile.msat -nomenu  249.55s user 394.18s system 429% cpu 2:29.88 total
+
+

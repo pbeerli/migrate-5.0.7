@@ -1,0 +1,15 @@
+#!/bin/csh
+# from Shenglong 
+setenv CC icc
+setenv CXX icpc
+
+setenv CFLAGS   "-O3 -fPIC -align -Zp8 -xP -axP -unroll -Wno-deprecated -ip -msse3"
+setenv CXXFLAGS "-O3 -fPIC -align -Zp8 -xP -axP -unroll -Wno-deprecated -ip -msse3"
+
+setenv STDCPLUS "-lstdc++"
+
+setenv CC "icc $CFLAGS"
+setenv CXX "icpc $CXXFLAGS"
+
+./configure --build=x86_64-redhat-linux
+make mpis

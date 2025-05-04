@@ -1,0 +1,196 @@
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ sea urchin (single population; split along a gap)                
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ +                                                                +
+ +   POPULATION SIZE, MIGRATION, DIVERGENCE, ASSIGNMENT, HISTORY  +
+ +   Bayesian inference using the structured coalescent           +
+ +                                                                +
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  PDF output enabled [Letter-size]
+  Version 5.0.7   [May-01-2025]
+  Program started at   Sat May  3 12:14:14 2025
+         finished at Sat May  3 12:22:58 2025
+                          
+
+
+Options in use:
+---------------
+
+Analysis strategy is BAYESIAN INFERENCE
+    - Population size estimation: Theta [Exponential Distribution]
+
+Proposal distribution:
+Parameter group          Proposal type
+-----------------------  -------------------
+Population size (Theta)       Slice sampling
+Genealogy                Metropolis-Hastings
+
+
+Prior distribution (Proposal-delta will be tuned to acceptance frequency 0.440000):
+Parameter group            Prior type   Minimum    Mean(*)    Maximum    Delta      Bins   Updatefreq
+-------------------------  ------------ ---------- ---------- ---------- ---------- ------ -------
+Population size (Theta_1)   Uniform        0.000000   0.050000   0.100000    0.010000   1500  0.50000
+
+Inheritance multipliers in use for Thetas (specified # 1)
+All inheritance multipliers are the same [1.000000]
+
+Pseudo-random number generator: Mersenne-Twister                                
+Random number seed (with internal timer)           1183202194
+
+Start parameters:
+   First genealogy was started using a random tree
+   Start parameter values were generated
+Connection matrix:
+m = average (average over a group of Thetas or M,
+s = symmetric migration M, S = symmetric 4Nm,
+0 = zero, and not estimated,
+* = migration free to vary, Thetas are on diagonal
+d = row population split off column population
+D = split and then migration
+   1 urchins        * * 
+   1 nogap          * * 
+
+
+
+Mutation rate is constant for all loci
+
+Markov chain settings:
+   Long chains (long-chains):                              1
+      Steps sampled (inc*samples*rep):               1000000
+      Steps recorded (sample*rep):                     10000
+   Combining over replicates:                              2
+   Static heating scheme
+      4 chains with  temperatures
+       1.00, 1.50, 3.00,100000.00
+      Swapping interval is 1
+   Burn-in per replicate (samples*inc):              1000000
+
+Print options:
+   Data file:                                     infile.gap
+   Parameter file:                              parmfile.gap
+   Haplotyping is turned on:                              NO
+   Output file (ASCII text):                     outfile-gap
+   Output file (PDF):                        outfile-gap.pdf
+   All values of Post.Dist:                 bayesallfile-gap
+   Print data:                                            No
+   Print genealogies:                                     No
+
+Summary of data:
+Title:     sea urchin (single population; split along a gap)
+Data file:                                        infile.gap
+Datatype:                                     Haplotype data
+Number of loci:                                            5
+Mutationmodel:
+ Locus  Sublocus  Mutationmodel   Mutationmodel parameter
+-----------------------------------------------------------------
+     1         1 Jukes-Cantor    [Basefreq: =0.25]
+     2         1 Jukes-Cantor    [Basefreq: =0.25]
+     3         1 Jukes-Cantor    [Basefreq: =0.25]
+     4         1 Jukes-Cantor    [Basefreq: =0.25]
+     5         1 Jukes-Cantor    [Basefreq: =0.25]
+
+
+Sites per locus
+---------------
+Locus    Sites
+     1     252
+     2     921
+     3     425
+     4     459
+     5     713
+
+Population                   Locus   Gene copies    
+----------------------------------------------------
+  1 urchins                      1        24
+  1                              2        24
+  1                              3        24
+  1                              4        24
+  1                              5        24
+  1 nogap                        1        34
+  1                              2        34
+  1                              3        34
+  1                              4        34
+  1                              5        34
+    Total of all populations     1        58
+                                 2        58
+                                 3        58
+                                 4        58
+                                 5        58
+
+
+
+
+Bayesian estimates
+==================
+
+Locus Parameter        2.5%      25.0%    mode     75.0%   97.5%     median   mean
+-----------------------------------------------------------------------------------
+    1  Theta_1         0.00800  0.01260  0.01557  0.01933  0.02960  0.01717  0.01797
+    2  Theta_1         0.03013  0.03913  0.04403  0.05120  0.06547  0.04623  0.04703
+    3  Theta_1         0.04067  0.05200  0.06090  0.06827  0.08693  0.06183  0.06274
+    4  Theta_1         0.01673  0.02333  0.02817  0.03273  0.04473  0.02937  0.03009
+    5  Theta_1         0.05313  0.06427  0.07103  0.08227  0.09847  0.07410  0.07441
+  All  Theta_1         0.00893  0.01587  0.02263  0.02667  0.03660  0.03737  0.04226
+-----------------------------------------------------------------------------------
+
+
+
+Log-Probability of the data given the model (marginal likelihood = log(P(D|thisModel))
+--------------------------------------------------------------------
+[Use this value for Bayes factor calculations:
+BF = Exp[log(P(D|thisModel) - log(P(D|otherModel)]
+shows the support for thisModel]
+
+
+
+Locus          TI(1a)       BTI(1b)         HS(2)
+-------------------------------------------------
+      1       -554.37       -521.67       -453.23
+      2      -2187.57      -2046.29      -1972.33
+      3      -1374.57      -1239.62      -1167.46
+      4      -1109.73      -1059.75       -996.65
+      5      -3226.10      -2678.17      -2537.17
+---------------------------------------------------------------
+  All        -8460.76      -7553.90      -7251.53
+[Scaling factor = -8.406196]
+
+
+(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures
+(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!
+(2)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance
+
+
+
+MCMC run characteristics
+========================
+
+
+
+
+Acceptance ratios for all parameters and the genealogies
+---------------------------------------------------------------------
+
+Parameter           Accepted changes               Ratio
+Theta_1                2498040/2498040           1.00000
+Genealogies             484381/2501960            0.19360
+
+
+
+Autocorrelation for all parameters and the genealogies
+-------------------------------------------------------------------
+
+Parameter           Autocorrelation           Effective Sample size
+Theta_1                   0.480                 17849.293
+Genealogies               0.878                  3328.218
+(*) averaged over loci.
+
+
+
+Temperatures during the run using the standard heating scheme
+===========================================================================
+
+Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)
+    1    1.00000          -1425.37017  -596.67368
+    2    0.66667          -1444.72594  -808.73032
+    3    0.33333          -1534.24595  -419.37607
+    4    0.00001          -2759.63563    16.49738

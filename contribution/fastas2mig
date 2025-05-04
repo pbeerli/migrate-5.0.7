@@ -1,0 +1,51 @@
+#!/usr/bin/env python
+
+import optparse
+import string
+import sys
+
+def read_fasta(file):
+   f = open(file,'r')
+   lines = []
+   seq=[]
+   for fi in f:
+      if fi[0]=='>':
+         if len(seq)>0:
+            lines.append(seq)
+         lines.append(fi)
+         seq = []
+      else:
+         seq += fi.rstrip()
+   if len(seq)>0:
+      lines.append(seq)
+
+   f.close()
+   return lines
+
+def main():
+   if len(sys.argv) < 2:
+      print "Syntax: fastas2mig fastafile1 fastafile2 .... > migratefile"
+      sys.exit()
+      
+   numpop = len(sys.argv) - 1
+   print numpop,1,"conversion fasta to mig"
+   print "SITES"
+   second = False
+   for i in range(numpop):
+      lines = read_fasta(sys.argv[i+1])
+      print len(lines[1])
+      print len(lines)/2,sys.argv[i+1]
+      for line in lines:
+         if (line[0] == '>'):
+            if second:
+               print 
+            second = True
+            label= line[1:]
+            print "%-10.10s " % label.strip(),
+         else:
+            print "%s" % "".join(line),
+      print
+      second = False
+
+if __name__ == '__main__':
+    main()

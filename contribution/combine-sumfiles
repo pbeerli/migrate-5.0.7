@@ -1,0 +1,454 @@
+#!/usr/bin/perl -w
+# combine single locus sumfiles into a combined sumfile
+# 
+# Syntax: combine-sumfiles
+# Options: none
+#
+# Use this perl script to join the sumfiles of independent loci once
+# you have done all of the runs.  Then run the program using the new
+# genealogy summaries as input (I have defaulted this new filename to
+# "sumfile.combined").
+#
+# Running on multiple machines has cut my (Steven Irvin) run time 
+# from 45 days on a single machine to 5 to 6 days on 36 machines 
+# (12 to 24 hours per  microsatellite locus and 4 to 5 days to combine 
+# estimates of  parameters across al loci).  
+# See the note "HOW-TO PARALLEL" in migrate directory  about how to do this.
+#
+#
+# tested using Perl 5.005-003 on LINUX (PPC, Intel), 
+#                                SUN Solaris, True64 UNIX, 
+# does not work yet on
+# Macintosh (MacPerl), Windows (?????)
+#
+# created by Steven Irvin October 2000, Cornell
+#            email: sdi1@cornell.edu
+# modified by Peter Beerli October 2000, Seattle 
+#             email: beerli@genetics.washington.edu
+#---------------------------------------------------------
+# $Id: combine-sumfiles 1111 2008-01-09 22:20:08Z beerli $
+$combined = "sumfile.combined";
+
+#print "This combine-sumfile program needs sumfiles\n";
+#print "from migrate-n version 0.9.7\n";
+
+@dirlist     = &directories();
+@sumfilelist = &sumfiles();
+
+$has_dirs = scalar(@dirlist);
+$has_sumfiles = scalar(@sumfilelist);
+if($has_dirs>1 && $has_sumfiles>1)
+{
+    print "You have sumfiles in the working directory\n";
+    print "and in its subdirectories\n";
+    print "Which sumfile sets do you want to combine?\n";
+    print "0 = sumfiles, 1=subdirectories\n";
+    $answer = <STDIN>;
+#-------this needs revision, I don't have a perl book here
+    if($answer == 0)
+    {
+	$has_dirs=0;
+    }
+    else
+    {
+	if($answer != 1) 
+	{
+	    die "Please start again and give either  0 (zero) or 1 (one)\n"; 
+	}
+	$has_sumfiles=0;
+    }
+#--------end problematic code
+} 
+if($has_dirs) 
+{    
+    &combine(@dirlist);
+}
+else
+{
+#    print @sumfilelist;
+    &combine(@sumfilelist);
+}
+print "done\n";
+exit(0);
+
+
+#======================================================
+# subroutines
+#
+sub directories
+{
+    opendir(THEDIR, '.');       # open current directory
+    local(@dirlist) = grep {!/^\.\.?$/ && -d "./$_"}  readdir(THEDIR);
+    local($z)=0;
+    local(@list)=();
+    foreach $the_dir (@dirlist) 
+    {
+	    # open each subdirectory (from the listing) directory
+	    @temp = <$the_dir/sumfile*>;
+	    @temp = grep !/~/, @temp;
+	    $list[$z] = join ',', @temp; 
+	    $z++;
+    }
+    @list = split ',',(join ',', @list) ;
+    closedir(THEDIR);
+    #shift @list;
+    return (@list);
+}
+
+sub sumfiles
+{
+    opendir(THEDIR, '.');       # open current directory
+    local(@sumfilelist) = grep {/^sumfile/ && !/sumfile\.combined/ && -f "./$_"}  readdir(THEDIR);
+    print @sumfilelist;
+    @sumfilelist = grep !/~/, @sumfilelist;
+    return (@sumfilelist);
+}
+
+sub combine
+{
+    my @list =  @_;
+    print @list;
+# a.  1 different locus per sumfile k replicate
+# b.  m different loci, k replicates
+# c.  1 same locus, k replicate
+# d.  m same loci, k replicates
+    print "\n\n\nWhat kind of combination you want to do?\n";
+    print "       EACH LOCUS TREATED AS A DIFFERENT LOCUS\n"; 
+    print "   a.  1 locus per sumfile, k replicates\n";
+    print "   b.  m different loci, k replicates\n";
+    print "       EACH LOCUS TREATED AS THE SAME LOCUS\n"; 
+    print "   c.  1 locus per sumfile, k replicates\n";
+    print "   d.  m same loci, k replicates\n\n>>>>";
+    $answer = <STDIN>;
+    print $answer ;
+    chop $answer;
+    if($answer eq "a") 
+     {
+	 &standard_convert(@list);
+	 exit;
+     }
+    if($answer eq "b") 
+     {
+	 print "huhu\n";
+	 &different_convert(@list);
+         exit;
+     }
+    if($answer eq "c") 
+     {
+	 &same_convert(@list);
+         exit;
+     }
+    if($answer eq "d") 
+     {
+	 &samecomplex_convert(@list);
+         exit;
+     }
+    print "Wrong answer please restart and give either a, b, c, d";
+    exit;
+}
+
+sub samecomplex_convert
+{
+    my @list =  @_;
+    open SUMFILE, ">".$combined || 
+	die "unable to write to sumfile.combined: $!\n"; 
+    open SUMTEMPFILE, ">"."gaga" || 
+	die "unable to write to tempfile gaga: $!\n"; 
+    my $sumrep = 0;
+    my @reps = ();
+    my @locis = ();
+    my $zz=0;
+    my $sumloci = 0;
+    foreach $ii (@list)
+    {
+	$header="";
+	open INFILE, "<".$ii;
+	local(@lines) = <INFILE>;
+	close INFILE;
+	($loci, $numpop, $replicates, $replicatenum, 
+	 $header, $tail) = &analyze(@lines);
+	$sumrep += $replicatenum;
+	$locis[$zz] = $loci;
+	if($sumloci < $loci)
+	{
+	    $sumloci = $loci;
+	}
+	$reps[$zz++] = $replicatenum;
+    }
+    $numpop2 = $numpop * $numpop;
+    printf SUMFILE "$header";
+    $loci = $sumloci;
+    $replicatenum = $sumrep;
+    print "loci=$loci\n";
+    $locus = 0;
+    printf SUMFILE "$loci $numpop $numpop2 1 $replicatenum\n";
+    $linenum=0;
+	$rep = -1;
+	$locus = 0;
+    foreach $i (@list)
+    {
+	open INFILE, "<".$i;
+	@lines = <INFILE>;
+	close INFILE;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines; # remove the first 5 lines
+	pop @lines;   # remove last line
+	foreach $line (@lines)
+	{
+	    if(index( $line,"\#\#\#") >= 0)
+	    {		
+		$rep++;
+		if($rep==$replicatenum)
+		{
+		    print "resetting rep\n";
+		    $rep=0;
+		    $locus++;
+		}
+		print "$locus $rep $linenum\n";
+		#printf SUMFILE  "%s %s \#\#\#\#\#\# locus %s, ",$locus,$rep,$locus; 
+                printf SUMTEMPFILE  "%10.10s %10.10s %10.10s @@@ %s %s \#\#\#\#\#\# locus %s, ",$locus,$rep,$linenum++, $locus,$rep,$locus; 
+		printf SUMTEMPFILE "replicate %s \#\#\#\#\#\#\#\#\n",$rep;
+	    }
+	    else
+	    {
+		#printf SUMFILE "%s", $line;
+		printf SUMTEMPFILE "%10.10s %10.10s %10.10s @@@ %s", $locus, $rep, $linenum++, $line;
+	    }
+	}
+
+    }
+    close(SUMTEMPFILE);
+    close(SUMFILE);
+    system("sort -n gaga | awk '{ print substr(\$0,38)}' >> sumfile.combined");
+    open SUMFILE, ">>".$combined || 
+	die "unable to append to sumfile.combined: $!\n"; 
+    printf SUMFILE "%s\n", $tail;
+    close(SUMFILE);
+}
+
+sub same_convert
+{
+    my @list =  @_;
+    open SUMFILE, ">".$combined || 
+	die "unable to write to sumfile.combined: $!\n"; 
+    my $sumrep = 0;
+    my @reps = ();
+    my @locis = ();
+    my $zz=0;
+    my $sumloci = 0;
+    foreach $ii (@list)
+    {
+	$header="";
+	open INFILE, "<".$ii;
+	local(@lines) = <INFILE>;
+	close INFILE;
+	($loci, $numpop, $replicates, $replicatenum, 
+	 $header, $tail) = &analyze(@lines);
+	$sumrep += $replicatenum;
+	$locis[$zz] = $loci;
+	if($sumloci < $loci)
+	{
+	    $sumloci = $loci;
+	}
+	$reps[$zz++] = $replicatenum;
+    }
+    $numpop2 = $numpop * $numpop;
+    printf SUMFILE "$header";
+    $loci = $sumloci;
+    $replicatenum = $sumrep;
+    print "loci=$loci\n";
+    $locus = 0;
+    printf SUMFILE "$loci $numpop $numpop2 1 $replicatenum\n";
+    $linenum=0;
+	$rep = -1;
+	$locus = 0;
+    foreach $i (@list)
+    {
+	open INFILE, "<".$i;
+	@lines = <INFILE>;
+	close INFILE;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines; # remove the first 5 lines
+	pop @lines;   # remove last line
+	foreach $line (@lines)
+	{
+	    if(index( $line,"\#\#\#") >= 0)
+	    {		
+		if($rep==$replicatenum)
+		{
+		    print "resetting rep\n";
+		    $rep=0;
+		    $locus++;
+		}
+		$rep++;
+		print "$locus $rep $linenum\n";
+		printf SUMFILE  "%s %s \#\#\#\#\#\# locus %s, ",$locus,$rep,$locus; 
+                # printf SUMFILE  "%10.10s %10.10s %10.10s @@@ %s %s \#\#\#\#\#\# locus %s, ",$locus,$rep,$linenum++, $locus,$rep,$locus; 
+		printf SUMFILE "replicate %s \#\#\#\#\#\#\#\#\n",$rep;
+	    }
+	    else
+	    {
+		printf SUMFILE "%s", $line;
+#		printf SUMFILE "%10.10s %10.10s %10.10s @@@ %s", $locus, $rep, $linenum++, $line;
+	    }
+	}
+
+    }
+    printf SUMFILE "$tail\n";
+    close(SUMFILE);
+}
+
+sub different_convert
+{
+    my @list =  @_;
+    open SUMFILE, ">".$combined || 
+	die "unable to write to sumfile.combined: $!\n"; 
+    $sumloci = 0;
+    foreach $ii (@list)
+    {
+	$header="";
+	open INFILE, "<".$ii;
+	local(@lines) = <INFILE>;
+	close INFILE;
+	($loci, $numpop, $replicates, $replicatenum, 
+	 $header, $tail) = &analyze(@lines);
+	$sumloci += $loci;
+	
+    }
+    $numpop2 = $numpop * $numpop;
+    printf SUMFILE "$header";
+    $loci = $sumloci;
+    print "loci=$loci\n";
+    $locus = 0;
+    printf SUMFILE "$loci $numpop $numpop2 $replicates $replicatenum\n";
+    foreach $i (@list)
+    {
+	open INFILE, "<".$i;
+	@lines = <INFILE>;
+	close INFILE;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines; # remove the first 5 lines
+	pop @lines;   # remove last line
+	$rep = 0;
+	foreach $line (@lines)
+	{
+	    if(index( $line,"\#\#\#") >= 0)
+	    {		
+		if($rep==$replicatenum)
+		{
+		    $rep=0;
+		    $locus++;
+		}
+		printf SUMFILE  "$locus $rep \#\#\#\#\#\# locus $locus, "; 
+		printf SUMFILE "replicate $rep \#\#\#\#\#\#\#\#\n";
+		$rep++;
+	    }
+	    else
+	    {
+		printf SUMFILE "$line";
+	    }
+	}
+	$locus++;
+    }
+    printf SUMFILE "$tail\n";
+    close(SUMFILE);
+}
+
+# in switch statement a.
+sub standard_convert
+{
+    my @list = @_;
+    my $ii = $list[0];
+    print "****** $ii\n";
+    open SUMFILE, ">".$combined || 
+	die "unable to write to sumfile.combined: $!\n"; 
+    open INFILE, "<".$ii;
+    foreach $ii (@list) {
+	print "######## $ii\n";
+    }
+    local(@lines) = <INFILE>;
+    close INFILE;
+    ($loci, $numpop, $replicates, $replicatenum, 
+     $header, $tail) = &analyze(@lines);
+    
+    $numpop2 = $numpop * $numpop;
+    printf SUMFILE "$header";
+    $loci = scalar(@list);
+    print "loci=$loci\n";
+    $locus = 0;
+    printf SUMFILE "$loci $numpop $numpop2 $replicates $replicatenum\n";
+    foreach $i (@list)
+    {
+	open INFILE, "<".$i;
+	@lines = <INFILE>;
+	close INFILE;
+       @lines =  grep(!/^\#/,@lines); 
+	#shift @lines;
+	#shift @lines;
+	shift @lines;
+	shift @lines;
+	shift @lines; # remove the first 5 lines
+	#pop @lines;   # remove last line
+	$rep = 0;
+	foreach $line (@lines)
+	{
+	    if(index( $line,"\#\#\#") >= 0)
+	    {		
+		if($rep==$replicatenum)
+		{
+		    $rep=0;
+		    $locus++;
+		}
+		printf SUMFILE  "$locus $rep \#\#\#\#\#\# locus $locus, "; 
+		printf SUMFILE "replicate $rep \#\#\#\#\#\#\#\#\n";
+		$rep++;
+	    }
+	    else
+	    {
+		printf SUMFILE "$line";
+	    }
+	}
+	$locus++;
+    }
+    printf SUMFILE "$tail\n";
+    close(SUMFILE);
+}
+
+sub analyze
+{
+    my @lines = @_;
+    local($i)=0;
+    while((substr($lines[0],0,1) eq "#" || substr($lines[0],0,1) eq "M") && $i<scalar(@lines))
+    {
+	$header .= $lines[0];
+	print $lines[$i];
+	$i++;
+	shift @lines;
+    }
+    #print "*****\n$header\n*****\n";
+
+    #local($header) = $lines[0].$lines[1];
+    (local($loci), local($numpop), local($numpop2), local($replicates), local($replicatenum)) =
+	split ' ', $lines[0]; 
+    local($tail) = $lines[scalar(@lines)-1];
+    print "Loci   " . $loci;
+    print "N-pop  " . $numpop;
+    print "Repli  " . $replicates;
+    print "Repnu  " . $replicatenum;
+    print "Header " . $header;
+    print "Tail   " . $tail;
+    return ($loci,$numpop, $replicates, $replicatenum, 
+	    $header, $tail);
+}
+
+
+

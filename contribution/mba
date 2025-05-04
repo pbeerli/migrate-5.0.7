@@ -1,0 +1,266 @@
+#!/usr/bin/perl -w
+# mba: manipulate bayesallfile
+# syntax:
+#    mba <options> filename1 filename2 ...
+# options:
+#
+#     -l  or --loci         treat loci
+#     -nl or --noloci       do not check loci
+#     -r  or --replicates   treat replicates
+#     -nr or --noreplicates do not check replicates 
+##
+#     -s  or --split    split a file into multiple files [1]
+#     -m  or --merge    merge mutiple files into one file [1]
+#
+# [1] defaults: for all loci and all replicates
+#
+# -m
+# This command allows to combine multiple sampling files from migrate-n 
+# in Bayesian inference mode into one file, this will eventually allow 
+# restarting and continuation of
+# a run to (not with this version of migrate-n 2.3) recreate the 
+# PDF file and the bayesfile with the histogram information. This bayesallfile
+# contains all information to recreate the posterior histogram. Combination will
+# allow to remedy convergence problems by combining shorter runs as additional
+# additional replicates, this does not replace long runs but might help to achieve 
+# good results on difficult problems by using a divide and conquer strategy.
+# The integrity of the parameters are not checked, the command assumes that the files
+# merged are compatible, aka come from the same model, do not mix 3 parameter runs with 5 parameters etc.
+# Example: mba -m bayesallfile1 bayesallfile2
+#          mba -m -nl bayesallfile1 bayesallfile2 
+#          mba -m -nl -nr bayesallfile1 bayesallfile2 
+#
+# -s
+# This command also allows to split the file into multiple files so that one can
+# run TRACER on the individual files: split all loci, split all replicates.
+# Example: mba -s bayesallfile
+#          mba -s -l bayesallfile
+#
+# Peter Beerli, Tallahassee FL 2007
+@opt = (1,1,1);
+#$file = "../bayesallfile";
+@files = ();
+read_options();
+
+$splitdir = $file . "_splits";
+
+if($opt[0]==1) # split
+{
+    # make directory for split files
+    `mkdir -p $splitdir`;
+    # get header from bayesallfile for tracer
+    $header = `grep ^"Steps\tLocus" $file  `; # old version and incorrect now: `grep \\# $file | tail -1 | tr -d '#' `;
+    chop $header;
+    if($opt[1]==1) # loci
+    {
+	@loci = split(' ', `grep \-v \\# $file | awk \'\{print \$2\} \' \| sort -n \| uniq`);
+	@replicates = split(' ', `grep \-v \\# $file | awk \'\{print \$3\} \' \| sort -n \| uniq`);
+	if($opt[2]==1) # replicates
+	{
+	    	@replicates = split(' ', `grep \-v \\# $file | awk \'\{print \$3\} \' \| sort -n \| uniq`);
+		foreach $l (@loci)
+		{
+		    foreach $r (@replicates)
+		    {
+			$filex = $splitdir . "/l" . $l . "-r" . $r;
+			`echo \"$header\" > $filex `;
+			`grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | tr '\@' '\t' >> $filex`;
+		    }
+		}
+	}
+	else
+	{
+	    foreach $l (@loci)
+	    {
+		$filex = $splitdir . "/l" . $l;
+		`echo \"$header\" > $filex `;
+		foreach $r (@replicates)
+		{
+		    `grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | tr '\@' '\t' >> $filex`;
+		}
+	    }
+	}
+    }
+    else
+    {
+	if($opt[2]==1) # replicates
+	{
+	    @replicates = split(' ', `grep \-v \\# $file | awk \'\{print \$3\} \' \| sort -n \| uniq`);
+	    foreach $r (@replicates)
+	    {
+		$filex = $splitdir . "/r" . $r;
+		`echo \"$header\" > $filex `;
+		foreach $l (@loci)
+		{
+		    `grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | tr '\@' '\t' >> $filex`;
+		}
+	    }	    
+	}
+	else
+	{
+	    print "I did nothing, as requested!";
+	}
+    }
+}
+else # merge
+{
+    print @files;
+    @headers=();
+    print "\n\n\ndoes not work correctly yet\n\n\n";	
+    # get header from bayesallfiles
+    for($i=0;$i<=$#files;$i++)
+    {
+	$header = `grep \\# $file `;
+	chop $header;
+	$headers[$i] = $header;
+    }
+    $filex = $files[0] . "_merged";
+    write_all_headers();
+    $newlocus = 0;
+    $newreplicate = 0;
+
+# find the loci numbers then record and write them so that the next file will have different number,
+# same for replicates
+    foreach $file (@files)
+    {
+	@loci = split(' ', `grep \-v \\# $file | awk \'\{print \$2\} \' \| sort -n \| uniq`);
+	@replicates = split(' ', `grep \-v \\# $file | awk \'\{print \$3\} \' \| sort -n \| uniq`);
+	if($opt[1]==1) # loci
+	{
+	    if($opt[2]==1) # replicates
+	    {
+		foreach $l (@loci)
+		{
+		    $newlocus++;
+		    foreach $r (@replicates)
+		    {
+			$newreplicate++;
+			`grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | sed 's/\@$l\@$r\@/\@$newlocus\@$newreplicate\@/' | tr '\@' '\t' >> $filex`;
+			print "$l,$r\n";
+		    }
+		}
+	    }
+	    else
+	    {
+		foreach $l (@loci)
+		{
+		    $newlocus++;
+		    foreach $r (@replicates)
+		    {
+			`grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | sed 's/\@$l\@$r\@/\@$newlocus\@$r\@/' | tr '\@' '\t' >> $filex`;
+		    }
+		}
+	    }
+	}
+	else
+	{
+	    if($opt[2]==1) # replicates
+	    {
+		foreach $r (@replicates)
+		{
+		    $newreplicate++;
+		    foreach $l (@loci)
+		    {
+			`grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | sed 's/\@$l\@$r\@/\@$l\@$newreplicate\@/' | tr '\@' '\t' >> $filex`;
+		    }
+		}	    
+	    }
+	    else
+	    {
+		foreach $l (@loci)
+		{
+		    foreach $r (@replicates)
+		    {
+			`grep \-v \\# $file | tr '\t' '\@' | grep \"\@$l\@$r\@" | tr '\@' '\t' >> $filex`;
+		    }
+		}	    
+	    }
+	}
+    }
+}
+
+sub write_all_headers
+{
+    `rm -i $filex`;
+    foreach $i (@headers)
+    {
+	`echo \"$i\" >> $filex `;	
+    }
+}
+
+sub read_options
+{    
+    @def = ("-s");
+    my $c=0;
+#   opt = (split, loci, replicates)
+    splice(@def,0,scalar(@ARGV),@ARGV);
+    foreach $d (@def)
+    {
+	if ($d eq "-h") {help(); exit};
+	if ($d eq "--help") {help(); exit};
+	if ($d eq "-s") { $c+=1; $opt[0] = 1 };
+	if ($d eq "--split") { $c += 1; $opt[0] = 1 };
+	if ($d eq "-m") { $c += 1; $opt[0] = 0 };
+	if ($d eq "--merge") { $c += 1; $opt[0] = 0 };
+
+	if ($d eq "-l") { $c += 1; $opt[1] = 1 };
+	if ($d eq "--loci") { $c += 1; $opt[1] = 1 };
+	if ($d eq "-nl") { $c += 1; $opt[1] = 0 };
+	if ($d eq "--noloci") { $c += 1; $opt[1] = 0 };
+
+	if ($d eq "-r") { $c += 1; $opt[2] = 1 };
+	if ($d eq "--replicates") { $c += 1; $opt[2] = 1 };
+	if ($d eq "-nr") { $c += 1; $opt[2] = 0 };
+	if ($d eq "--noreplicates") { $c += 1; $opt[2] = 0 };
+    }
+    my $z=0;
+    printf "> %li,%li < \n",$c, $#def;
+    for($i=$c;$i<=$#def;$i++)
+    {
+	$file = $def[$i];
+	$files[$z++] = $file;
+    }
+}
+
+
+sub help
+{
+    print " mba: manipulate bayesallfile\n";
+print " syntax:\n";
+print "    mba <options> filename1 filename2 ...\n";
+print " options:\n";
+print "\n";
+print "     -s  or --split    split a file into multiple files [1]\n";
+print "     -m  or --merge    merge multiple files into one file [1]\n";
+print "\n";
+print "     -h  or --help         this text\n";
+print "     -l  or --loci         treat loci (change locus number if necessary)\n";
+print "     -nl or --noloci       do not check loci \n";
+print "     -r  or --replicates   treat replicates (change replicate number if necessary)\n";
+print "     -nr or --noreplicates do not check replicates \n";
+print "\n";
+print "\n";
+print " [1] defaults assume -l -r :  for all loci and all replicates\n";
+print "\n";
+print " -m\n";
+print " This command allows to combine multiple sampling files from migrate-n \n";
+print " in Bayesian inference mode into one file, this will eventually allow \n";
+print " restarting and continuation of\n";
+print " a run to (not with this version of migrate-n 2.3) recreate the \n";
+print " PDF file and the bayesfile with the histogram information. This bayesallfile\n";
+print " contains all information to recreate the posterior histogram. Combination will\n";
+print " allow to remedy convergence problems by combining shorter runs as additional\n";
+print " additional replicates, this does not replace long runs but might help to achieve\n"; 
+print " good results on difficult problems by using a divide and conquer strategy.\n";
+print " The integrity of the parameters are not checked, the command assumes that the files\n";
+print " merged are compatible, aka come from the same model, do not mix 3 parameter runs with 5 parameters etc.\n";
+print " Example: mba -m bayesallfile1 bayesallfile2\n";
+print "          mba -m -nl bayesallfile1 bayesallfile2\n"; 
+print "          mba -m -nl -nr bayesallfile1 bayesallfile2\n"; 
+print "\n";
+print " -s\n";
+print " This command also allows to split the file into multiple files so that one can\n";
+print " run TRACER on the individual files: split all loci, split all replicates.\n";
+print " Example: mba -s bayesallfile\n";
+print "          mba -s -l bayesallfile\n";
+}

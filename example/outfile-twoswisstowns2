@@ -1,0 +1,124 @@
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ two (fake) Swiss towns                                           
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ +                                                                +
+ +   POPULATION SIZE, MIGRATION, DIVERGENCE, ASSIGNMENT, HISTORY  +
+ +   Bayesian inference using the structured coalescent           +
+ +                                                                +
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  PDF output enabled [Letter-size]
+  Version 5.0.7   [May-01-2025]
+  Program started at   Fri May  2 09:56:28 2025
+                                                                        
+
+
+Options in use:
+---------------
+
+Analysis strategy is BAYESIAN INFERENCE
+    - Population size estimation: Theta [Exponential Distribution]
+    - Population growth estimation: Growth [Exponential]
+    - Geneflow estimation: Migration [Exponential Distribution]
+
+Proposal distribution:
+Parameter group          Proposal type
+-----------------------  -------------------
+Population size (Theta)  Metropolis sampling
+Migration rate      (M)  Metropolis sampling
+Divergence Time (D)  Metropolis sampling
+Divergence time spread (STD) Metropolis sampling
+Population growth   Metropolis sampling
+Genealogy                Metropolis-Hastings
+
+
+Prior distribution:
+Parameter group            Prior type   Minimum    Mean(*)    Maximum    Delta      Bins   Updatefreq
+-------------------------  ------------ ---------- ---------- ---------- ---------- ------ -------
+Population size (Theta_1)   Exponential    0.000000   0.010000   0.100000           -   1500  0.10000
+Population size (Theta_2)   Exponential    0.000000   0.010000   0.100000           -   1500  0.10000
+Migration 1 to 2   (M)      Gamma          0.000000  100.000000 10000.0000  (a=2.000)   2000  0.10000
+Population growth (Growth_1)   Uniform       -1000.0000  0.000000  1000.00000 100.000000   1500  0.10000
+Population growth (Growth_2)   Uniform       -1000.0000  0.000000  1000.00000 100.000000   1500  0.10000
+
+Inheritance multipliers in use for Thetas (specified # 1)
+All inheritance multipliers are the same [1.000000]
+
+Pseudo-random number generator: Mersenne-Twister                                
+Random number seed (with internal timer)            483560454
+
+Start parameters:
+   First genealogy was started using a random tree
+   Start parameter values were generated
+Connection matrix:
+m = average (average over a group of Thetas or M,
+s = symmetric migration M, S = symmetric 4Nm,
+0 = zero, and not estimated,
+* = migration free to vary, Thetas are on diagonal
+d = row population split off column population
+D = split and then migration
+   1 Aadorf         * 0 
+   2 Bern           * * 
+
+
+   1 Aadorf         growing/shrinking [1]
+   2 Bern           growing/shrinking [2]
+
+
+
+Mutation rate is constant for all loci
+
+Markov chain settings:
+   Long chains (long-chains):                              1
+      Steps sampled (inc*samples*rep):              10000000
+      Steps recorded (sample*rep):                     20000
+   Combining over replicates:                              2
+   Adaptive_Standard heating scheme
+      4 chains with start temperatures
+       1.00, 1.50, 3.00,1000000.00
+      Swapping interval is 1
+   Burn-in per replicate (samples*inc):              2500000
+
+Print options:
+   Data file:                                  twoswisstowns
+   Parameter file:                   parmfile.twoswisstowns2
+   Haplotyping is turned on:                              NO
+   Output file (ASCII text):          outfile-twoswisstowns2
+   Output file (PDF):             outfile-twoswisstowns2.pdf
+   Print data:                                            No
+   Print genealogies:                     Yes, only the best
+
+Summary of data:
+Title:                                two (fake) Swiss towns
+Data file:                                     twoswisstowns
+Datatype:                                     Haplotype data
+Number of loci:                                            3
+Mutationmodel:
+ Locus  Sublocus  Mutationmodel   Mutationmodel parameter
+-----------------------------------------------------------------
+     1         1 Tamura-Nei      [Bf:0.30 0.25 0.24 0.22, k1=1.300, k2=0.800]
+     1         2 Felsenstein 84  [Bf:0.24 0.28 0.22 0.27, t/t ratio=2.000]
+     2         1 Tamura-Nei      [Bf:0.27 0.23 0.24 0.26, k1=1.300, k2=2.000]
+     3         1 Jukes-Cantor    [Basefreq: =0.25]
+
+
+Sites per locus
+---------------
+Locus    Sites
+     1     200 800
+     2     500
+     3     500
+
+Population                   Locus   Gene copies    
+----------------------------------------------------
+  1 Aadorf                       1        10
+  1 Aadorf                       1        10
+  1                              2        10
+  1                              3        10
+  2 Bern                         1        10
+  2 Bern                         1        10
+  2                              2        10
+  2                              3        10
+    Total of all populations     1        40
+                                 2        20
+                                 3        20
+

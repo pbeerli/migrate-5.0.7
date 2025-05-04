@@ -1,0 +1,36 @@
+# Normalize all text files to use LF line endings in the repo
+* text=auto
+
+# Explicitly declare C/C++/header files as text
+*.c     text
+*.h     text
+*.cpp   text
+*.hpp   text
+*.cc    text
+*.hh    text
+
+# Make sure shell scripts use LF
+*.sh    text eol=lf
+configure text eol=lf
+Makefile.am text eol=lf
+Makefile.in text eol=lf
+aclocal.m4 text eol=lf
+
+# Treat build system files as text
+*.m4    text
+*.in    text
+
+# Ignore diff for binary files (e.g., PDF or built libs)
+*.pdf   binary
+*.a     binary
+*.o     binary
+*.so    binary
+*.dylib binary
+
+# Prevent language stats misclassification on GitHub
+*.c linguist-language=C
+*.cpp linguist-language=C++
+
+# Ensure .gitignore and this file are always normalized
+.gitattributes text
+.gitignore     text

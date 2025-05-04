@@ -1,0 +1,271 @@
+# (c) Paul Maier
+# May 2, 2016
+# fasta2genotype.py
+# V 1.9
+# Written for Python 2.7.5
+#
+# This program takes a fasta file listing all alleles of all individuals at all loci
+# as well as a list of individuals/populations and list of variable loci
+# then outputs sequence data in one of five formats:
+# (1) migrate-n, (2) Arlequin, (3) DIYabc, (4) LFMM, (5) Phylip, (6) G-Phocs, or (8) Treemix
+# (8) Additionally, the data can be coded as unique sequence integers (haplotypes)
+#     in Structure/Genepop/SamBada/Bayescan/Arlequin/GenAlEx format
+#     or summarized as allele frequencies by population
+#
+# Execute program in the following way:
+# python fasta2genotype.py [fasta file] [whitelist file] [population file] [VCF file] [output name]
+#
+# The fasta headers should be formatted exactly the way done by populations.pl in Stacks v. 1.12
+# e.g. >CLocus_#_Sample_#_Locus_#_Allele_#
+# Where the CLocus is the locus number in the catalog produced by cstacks
+# Sample is the individual number from denovo_map.pl, in the same order specified with -s flags
+# Locus refers to the locus number called for that individual; this information is not used
+# Allele must be 0 or 1; this script assumes diploid organisms; homozygote is assumed if only 0
+# Restriction enzyme sites can be removed if requested, for either single- or double-digest setups.
+# Simply select this option and provide the 5' sequence(s). It might help to examine the fasta file.
+#
+# The list of "white" loci is a column vector of catalog loci that are variable and should thus be retained
+# This can be extracted from many of the stacks output files, including the vcf and structure files
+# If all loci are desired, include numbers for all loci and select option to retain all.
+#
+# The populations file should have three columns:
+# [1] Sample ID from stacks, [2] Individual ID, [3] Population ID
+# These can be named anything, e.g.
+# SampleID	IndID	        PopID
+# 1	        Y120037	        Wawona
+# 2	        Y120048	        Westfall
+# etc...
+# Use tabs, don't use any spaces.
+# Individual IDs must be 9 characters or shorter for [1] Migrate option.
+# Population IDs must start with an alphabetical character (not a number) for [1] Migrate option.
+#
+# Loci can be pruned using a coverage threshold, or missing data threshold.
+# A .vcf file from the SAME run of populations.pl must be provided in this case.
+# If no pruning is desired, simply use 'NA' as the input argument.
+# e.g. python fasta2genotype.py ./fasta ./whitelist ./populations NA MyOutput
+# If pruning is desired, IndividualID spelling in VCF file must match that in populations file.
+#       This also means there should be the same list of IndividualIDs in both files.
+# This program assumes the same VCF format found in Stacks v. 1.12
+#       Data should consist of three elements separated by colons: genotype, coverage, likelihood
+# Note: Coverage info is not provided for consensus (non-variable) sequences by STACKS
+#       Therefore, these loci are removed if coverage pruning is chosen.
+#       This will be true even if "All Loci" is chosen.
+# Additionally, the LFMM format relies on SNP genotypes found in the VCF file.
+#       A VCF file must be included for this option.
+#
+# In addition to coverage filtering, several other quality control measures can be selected.
+#       Alleles under a locus-wide frequency can be removed
+#       Alleles represented under a given frequency of populations can be removed (e.g. 4 pops of 16, frequency of 0.25)
+#       Monomorphic loci can be removed.
+#       Loci under a given locus-wide missing data threshold can be removed.
+#       Loci can be removed from populations where those populations fall under a missing data threshold for those loci
+#       Individuals missing a threshold proportion of loci can be removed.
+#
+# TO DO:
+# Speed up 'remove by coverage' part of Seqs ... way too slow
+# Allow LFMM format to operate free of VCF file, (this has been accomplished already for Phylip format)
+# Allow Phylip format to summarize at the population, instead of individual, level
+# Allow order of individuals and pops to be specified from input files
+#
+#
+#
+#
+#
+# What follows is a brief demo of a single sample dataset in all available output formats.
+#
+# Migrate file format:
+#
+# <Number of populations> <number of loci>
+# <number of sites for locus1> <number of sites for locus 2> ...
+# <Number of gene copies> <title for population>
+# Ind1a <locus 1 gene copy 1 sequence>
+# Ind1b <locus 1 gene copy 2 sequence>
+# Ind2a <locus 1 gene copy 1 sequence>
+# Ind2b <locus 1 gene copy 2 sequence>
+# Ind1a <locus 2 gene copy 1 sequence>
+# Ind1b <locus 2 gene copy 2 sequence>
+# Ind2a <locus 2 gene copy 1 sequence>
+# Ind2b <locus 2 gene copy 2 sequence>
+# <Number of gene copies> <title for population>
+# Ind1a <locus 1 gene copy 1 sequence>
+# Ind1b <locus 1 gene copy 2 sequence>
+# Ind2a <locus 1 gene copy 1 sequence>
+# Ind2b <locus 1 gene copy 2 sequence>
+# Ind1a <locus 2 gene copy 1 sequence>
+# Ind1b <locus 2 gene copy 2 sequence>
+# Ind2a <locus 2 gene copy 1 ????????>
+# Ind2b <locus 2 gene copy 2 ????????>
+# ...   ...
+#
+#
+# Arlequin file format:
+#
+# [Profile]
+#       "ProjectName"
+#              Project
+#              NbSamples=#
+#              GenotypicData=1
+#              GameticPhase=0
+#              DataType=DNA
+#              LocusSeparator=TAB
+#              MissingData="?"
+# [Data]
+#       [[Samples]]
+#               SampleName="PopID"
+#               SampleSize=#
+#               SampleData={
+# Ind1  1       <Locus 1 copy 1>        <Locus 2 copy 1> ...
+#               <Locus 1 copy 2>        <Locus 2 copy 2> ...
+# Ind1  2       <Locus 1 copy 1>        <Locus 2 copy 1> ...
+#               <Locus 1 copy 2>        <Locus 2 copy 2> ...
+# }
+#               SampleName="PopID"
+#               SampleSize=#
+#               SampleData={
+# Ind1  1       <Locus 1 copy 1>        <Locus 2 copy 1> ...
+#               <Locus 1 copy 2>        <Locus 2 copy 2> ...
+# Ind1  2       <Locus 1 copy 1>        <??????????????> ...
+#               <Locus 1 copy 2>        <??????????????> ...
+# ...   ...     ...                     ...
+# }
+#
+#
+# DIYabc file format:
+#
+# <Project Name> <NF=NF>
+# Locus 1 <A>
+# Locus 2 <A>
+# Pop
+# Ind1  ,       <[Locus 1 copy 1][Locus 1 copy 2]>      <[Locus 2 copy 1][Locus 2 copy 2]> ...
+# Ind2  ,       <[Locus 1 copy 1][Locus 1 copy 2]>      <[Locus 2 copy 1][Locus 2 copy 2]> ...
+# Pop
+# Ind1  ,       <[Locus 1 copy 1][Locus 1 copy 2]>      <[Locus 2 copy 1][Locus 2 copy 2]> ...
+# Ind2  ,       <[Locus 1 copy 1][Locus 1 copy 2]>      <[??????????????][??????????????]> ...
+# ...           ...              ...                    ...              ...
+#
+#
+# LFMM format (assuming 1 snp at first locus, 2 snps at second locus):
+#
+# Ind1  Pop1    0       0       0       0       A       A       C       T       G       G ...
+# Ind2  Pop1    0       0       0       0       T       T       C       C       G       G ...
+# Ind1  Pop2    0       0       0       0       A       T       C       T       T       T ...
+# Ind1  Pop2    0       0       0       0       T       T       0       0       0       0 ...
+# ...   ...     ...     ...     ...     ...     ...     ...     ...     ...     ...     ...
+#
+#
+# Phylip format (assuming 1 snp at first locus, 2 snps at second locus):
+# (Only SNPs will be output, and loci will be concatenated in the order supplied in the whitelist.)
+#
+# <number of individuals> <number of base pairs>
+# Ind1_Pop1 AYG ...
+# Ind2_Pop1 TCG ...
+# Ind1_Pop2 WYT ...
+# Ind1_Pop2 TNN ...
+# ...       ...    ...
+#
+#
+# G-Phocs format:
+#
+# <Number of loci>
+#
+# <Locus name> <number of individuals> <number of sites for locus 1>
+# Ind1 <locus 1 sequence>
+# Ind2 <locus 1 sequence>
+# Ind1 <locus 1 sequence>
+# Ind2 <locus 1 sequence>
+#
+# <Locus name> <number of individuals> <number of sites for locus 2>
+# Ind1 <locus 1 sequence>
+# Ind2 <locus 1 sequence>
+# Ind1 <locus 1 sequence>
+# Ind2 <locus 1 ????????>
+# ...   ...
+#
+#
+# Treemix format:
+#
+# Pop1     Pop2
+# 2,2      1,3 ...
+# 3,1      1,1 ...
+# 4,0      2,0 ...
+# ...      ...
+#
+#
+# Structure format:
+#
+#               Loc1    Loc2 ...
+# Ind1  Pop1    1       1 ...
+# Ind1  Pop1    1       2 ...
+# Ind2  Pop1    2       1 ...
+# Ind2  Pop1    2       1 ...
+# Ind1  Pop2    1       3 ...
+# Ind1  Pop2    2       4 ...
+# Ind2  Pop2    2       0 ...
+# Ind2  Pop2    2       0 ...
+# ...   ...     ...     ...
+#
+#
+# Genepop format (six digit):
+#
+# <Project Name>
+# Locus 1
+# Locus 2
+# Pop
+# Ind1 ,  001001        001002 ...
+# Ind2 ,  002002        001001 ...
+# Pop
+# Ind1 ,  001002        003004 ...
+# Ind2 ,  002002        000000 ...
+#
+#
+# Allele Frequency:
+#
+#       Loc1_1          Loc1_2          Loc2_1          Loc2_2          Loc2_3          Loc2_4 ...
+# Pop1  0.50000         0.50000         0.75000         0.25000         0.00000         0.00000 ...
+# Pop2  0.25000         0.75000         0.00000         0.00000         0.50000         0.50000 ...
+# ...   ...             ...             ...             ...             ...             ...
+#
+#
+# SamBada format:
+#
+#       Loc1_1  Loc1_2  Loc2_1  Loc2_2  Loc2_3  Loc2_4 ...
+# Ind1a 1       0       1       0       0       0 ...
+# Ind1b 1       0       0       1       0       0 ...
+# Ind2a 0       1       1       0       0       0 ...
+# Ind2b 0       1       1       0       0       0 ...
+# Ind1a 1       0       0       0       1       0 ...
+# Ind1b 0       1       0       0       0       1 ...
+# Ind2a 0       1       0       0       NaN     NaN ...
+# Ind2b 0       1       0       0       NaN     NaN ...
+# ...   ...     ...     ...     ...     ...     ...
+#
+#
+# Bayescan format:
+#
+# [loci]=2
+#
+# [populations]=2
+#
+# [pop]=1
+# 1     4       2       2       2
+# 2     4       4       3       1       0       0
+#
+# [pop]=2
+# 1     4       2       1       3
+# 2     2       4       0       0       1       1
+#
+#
+# GenAlEx format:
+#
+# 2     4       2       2       2
+#                       Pop1    Pop2
+# IndID PopID   Loc1            Loc2
+# Ind1  Pop1    1       1       1       2 ...
+# Ind2  Pop1    2       2       1       1 ...
+# Ind1  Pop2    1       2       3       4 ...
+# Ind2  Pop2    2       2       0       0 ...
+# ...   ...     ...     ...     ...     ...
+#
+#
+#
+#

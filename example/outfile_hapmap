@@ -1,0 +1,299 @@
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ Japan                                                            
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ +                                                                +
+ +   POPULATION SIZE, MIGRATION, DIVERGENCE, ASSIGNMENT, HISTORY  +
+ +   Bayesian inference using the structured coalescent           +
+ +                                                                +
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  PDF output enabled [Letter-size]
+  Version 5.0.7   [May-01-2025]
+  Program started at   Sat May  3 12:25:39 2025
+         finished at Sat May  3 12:30:10 2025
+                          
+
+
+Options in use:
+---------------
+
+Analysis strategy is BAYESIAN INFERENCE
+    - Population size estimation: Theta [Exponential Distribution]
+
+Proposal distribution:
+Parameter group          Proposal type
+-----------------------  -------------------
+Population size (Theta)  Metropolis sampling
+Genealogy                Metropolis-Hastings
+
+
+Prior distribution (Proposal-delta will be tuned to acceptance frequency 0.440000):
+Parameter group            Prior type   Minimum    Mean(*)    Maximum    Delta      Bins   Updatefreq
+-------------------------  ------------ ---------- ---------- ---------- ---------- ------ -------
+Population size (Theta_1)   Uniform        0.000000   0.050000   0.100000    0.010000   1500  0.50000
+Datatype: Hapmap Single nucleotide polymorphism data
+
+Inheritance multipliers in use for Thetas (specified # 1)
+All inheritance multipliers are the same [1.000000]
+
+Pseudo-random number generator: Mersenne-Twister                                
+Random number seed (with internal timer)             79826771
+
+Start parameters:
+   First genealogy was started using a random tree
+   Start parameter values were generated
+Connection matrix:
+m = average (average over a group of Thetas or M,
+s = symmetric migration M, S = symmetric 4Nm,
+0 = zero, and not estimated,
+* = migration free to vary, Thetas are on diagonal
+d = row population split off column population
+D = split and then migration
+   1 Japan          * 
+
+
+
+Mutation rate is constant for all loci
+
+Markov chain settings:
+   Long chains (long-chains):                              1
+      Steps sampled (long-inc*samples):              1000000
+      Steps recorded (long-sample):                    10000
+   Static heating scheme
+      4 chains with  temperatures
+       1.00, 1.50, 3.00,1000000.00
+      Swapping interval is 1
+   Burn-in per replicate (samples*inc):               100000
+
+Print options:
+   Data file:                                  infile.hapmap
+   Parameter file:                           parmfile.hapmap
+   Haplotyping is turned on:                              NO
+   Output file (ASCII text):                  outfile_hapmap
+   Output file (PDF):                     outfile_hapmap.pdf
+   Print data:                                            No
+   Print genealogies:                                     No
+
+Summary of data:
+Title:                                                 Japan
+Data file:                                     infile.hapmap
+Datatype:                             SNP data (Hapmap data)
+Number of loci:                                            9
+Mutationmodel:
+ Locus  Sublocus  Mutationmodel   Mutationmodel parameter
+-----------------------------------------------------------------
+     1         1 Jukes-Cantor    [Basefreq: =0.25]
+     2         1 Jukes-Cantor    [Basefreq: =0.25]
+     3         1 Jukes-Cantor    [Basefreq: =0.25]
+     4         1 Jukes-Cantor    [Basefreq: =0.25]
+     5         1 Jukes-Cantor    [Basefreq: =0.25]
+     6         1 Jukes-Cantor    [Basefreq: =0.25]
+     7         1 Jukes-Cantor    [Basefreq: =0.25]
+     8         1 Jukes-Cantor    [Basefreq: =0.25]
+     9         1 Jukes-Cantor    [Basefreq: =0.25]
+
+
+Sites per locus
+---------------
+Locus    Sites
+     1     1
+     2     1
+     3     1
+     4     1
+     5     1
+     6     1
+     7     1
+     8     1
+     9     1
+
+Population                   Locus   Gene copies    
+----------------------------------------------------
+  1 Japan                        1        72
+  1                              2        90
+  1                              3        88
+  1                              4        90
+  1                              5        90
+  1                              6        88
+  1                              7        90
+  1                              8        90
+  1                              9        90
+    Total of all populations     1        72
+                                 2        90
+                                 3        88
+                                 4        90
+                                 5        90
+                                 6        88
+                                 7        90
+                                 8        90
+                                 9        90
+
+Allele frequency spectra
+========================
+
+Locus 1
+Allele  Pop1   All
+---------------------
+     G  0.542  0.542
+     C  0.458  0.458
+Alleles    2      2
+Samples   72     72
+H_exp   0.497  0.497
+
+Locus 2
+Allele  Pop1   All
+---------------------
+     G  1.000  1.000
+     A    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 3
+Allele  Pop1   All
+---------------------
+     C  1.000  1.000
+     A    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 4
+Allele  Pop1   All
+---------------------
+     G  0.125  0.125
+     A  0.875  0.875
+Alleles    2      2
+Samples   72     72
+H_exp   0.219  0.219
+
+Locus 5
+Allele  Pop1   All
+---------------------
+     T  1.000  1.000
+     C    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 6
+Allele  Pop1   All
+---------------------
+     C  1.000  1.000
+     T    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 7
+Allele  Pop1   All
+---------------------
+     C  1.000  1.000
+Alleles    1      1
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 8
+Allele  Pop1   All
+---------------------
+     G  1.000  1.000
+     T    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Locus 9
+Allele  Pop1   All
+---------------------
+     A  1.000  1.000
+     G    -    0.000
+Alleles    1      2
+Samples   72     72
+H_exp   0.000  0.000
+
+Average expected heterozygosity
+Pop1   All
+--------------
+0.079  0.079
+
+
+
+
+Bayesian estimates
+==================
+
+Locus Parameter        2.5%      25.0%    mode     75.0%   97.5%     median   mean
+-----------------------------------------------------------------------------------
+    1  Theta_1         0.04427  0.06433  0.07523  0.08753  0.09993  0.07397  0.07296
+    2  Theta_1         0.03273  0.05293  0.06503  0.07827  0.09460  0.06337  0.06295
+    3  Theta_1         0.04900  0.08867  0.09610  0.09873  0.09993  0.08383  0.08096
+    4  Theta_1         0.04927  0.07367  0.08370  0.09247  0.09993  0.07810  0.07663
+    5  Theta_1         0.05213  0.07407  0.08263  0.08853  0.09887  0.07650  0.07491
+    6  Theta_1         0.05000  0.07193  0.07623  0.08753  0.09993  0.07723  0.07620
+    8  Theta_1         0.05933  0.09013  0.09530  0.09880  0.09993  0.07943  0.07904
+    9  Theta_1         0.05080  0.08200  0.09210  0.09627  0.09993  0.08050  0.07860
+  All  Theta_1         0.06773  0.07713  0.08257  0.08667  0.09700  0.08223  0.08219
+-----------------------------------------------------------------------------------
+
+
+
+Log-Probability of the data given the model (marginal likelihood = log(P(D|thisModel))
+--------------------------------------------------------------------
+[Use this value for Bayes factor calculations:
+BF = Exp[log(P(D|thisModel) - log(P(D|otherModel)]
+shows the support for thisModel]
+
+
+
+Locus          TI(1a)       BTI(1b)         HS(2)
+-------------------------------------------------
+      1        -61.38        -39.68         -5.74
+      2         -8.20         -8.04         -7.16
+      3        -43.69        -36.15         -6.78
+      4        -34.27        -31.28         -6.39
+      5        -16.70        -16.29         -7.03
+      6        -16.67        -16.33         -6.87
+      8        -24.45        -23.01         -7.33
+      9        -28.86        -26.96         -6.43
+---------------------------------------------------------------
+  All         -238.99       -202.50       -120.52
+[Scaling factor = -4.763097]
+
+
+(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures
+(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!
+(2)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance
+
+
+
+MCMC run characteristics
+========================
+
+
+
+
+Acceptance ratios for all parameters and the genealogies
+---------------------------------------------------------------------
+
+Parameter           Accepted changes               Ratio
+Theta_1                2516714/3998514           0.62941
+Genealogies            3342303/4001486            0.83527
+
+
+
+Autocorrelation for all parameters and the genealogies
+-------------------------------------------------------------------
+
+Parameter           Autocorrelation           Effective Sample size
+Theta_1                   0.785                 10388.933
+Genealogies               0.540                 24226.821
+(*) averaged over loci.
+
+
+
+Temperatures during the run using the standard heating scheme
+===========================================================================
+
+Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)
+    1    1.00000            -6.71709   296.89092
+    2    0.66667           -11.73221   196.90995
+    3    0.33333           -35.13001   106.05065
+    4    0.00000           -75.22828    15.51959

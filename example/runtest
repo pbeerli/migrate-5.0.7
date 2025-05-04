@@ -1,0 +1,15 @@
+#
+echo "Start Migrate test" 1>&2
+date 1>&2
+echo "Sequences, 2 population, several loci" 1>&2
+(migrate-n parmfile.gap -nomenu) > example.log
+echo "Sequences, 2 populations, multiple mutation models, assignment" 1>&2
+(migrate-n parmfile.twoswisstowns -nomenu) >> example.log
+echo "Microsatellite data" 1>&2
+(migrate-n parmfile.msat -nomenu) >> example.log
+echo "SNP data" 1>&2
+(migrate-n parmfile.snp -nomenu ) >> example.log
+echo "Hapmap data" 1>&2
+(migrate-n parmfile.hapmap -nomenu) >> example.log
+echo "done" 1>&2
+date 1>&2

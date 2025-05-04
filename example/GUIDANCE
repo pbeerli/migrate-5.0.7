@@ -1,0 +1,78 @@
+How to experiment with MIGRATE:
+
+- use the tutorials mentioned at the end of this README.
+
+- if you have many loci, try to use a Linux system with many cores
+  or a cluster
+
+- if you have many sampling locations, make sure that you do not
+  run the largest model first; for example, a dataset with 8 sampling
+  locations rarely needs a model that has 8 population size and 56
+  migration parameters! Good approaches start with 2 (two!) populations
+  (pool your sampling locations using the population-relabel option).
+
+- do not use many individuals to learn about migrate, if you have
+  more than 10 diploid individuals, reduce the number using the option
+  random-subset=number:random_numberseed (an example: random-subset=10:19823)
+
+- If you use microsatellite data, make sure that the prior settings
+  are so that you consider the high mutation rate of the marker, for
+  Theta use a range from 0 to 100 (this may be too large upper bound,
+  but is a good start). For the immigration rate, use a similar range
+  from 0 to 100.
+
+- Make sure you understand the parameters in MIGRATE I: Theta =
+  x*N*mu, Theta is the mutation-scaled effective population size,
+  where x is an inheritance scalar: 4=diploid, 2=haploid,
+  1=mtDNA-female-transmission-sex-ratio1:1; more exotic ones:x=3 for
+  the X chromosome in humans, x=1 for Y chromosome in humans; x=8 for
+  tetraploid organisms.
+
+- Make sure you understand the parameters in MIGRATE II: M is the
+  mutation-scaled immigration rate (it is NOT x*N*m), it is m/mu.
+  Usually, I write M_i->j, which is m_i->j/mu, using the
+  Wright-interpretation of m where m_i->j is the fraction of
+  genes/individuals that came in the last generation from population
+  i into the population j. if you insist on calculating x*N*m then
+  this is x*N*m = Theta * M, in more detail:
+  x*N_j*m_i->j = Theta_j * M_i->j, pay attention to the
+  population labels.
+
+- if your input file is misformatted: check whether you use 10
+  characters for the individual names, whether you counted the number
+  of nucleotide sites, the number individuals, or the number of
+  populations correctly. Refrain from using tab character; they may
+  lead to errors. If all fails, ask on the migrate-support google
+  group, you will need to give details of your infile, your parmfile,
+  your computer operating system, your version of MIGRATE.
+
+- if you want to use the source code, but have never compiled a
+  program before, talk to a friend or a system administrator who has
+  done so, because you and your computer will lack the needed
+  understanding to do this. There most likely will be troubleshooting
+  need to compile migrate on a new system: most easily this will work
+  on a Mac (because I program MIGRATE on one); almost as easy on Linux
+  (1. because I run my simulations on a large Unix cluster, but is
+  more problematic because there are many different flavors of Linux
+  with their own little quirks); if you insist on running windows use
+  the supplied binary, compiling yourself you will need to be programming
+  person on windows (I am not, I struggle every time I compile migrate
+  on windows -- if you want to compile the parallel version on windows,
+  there are some instructions, but they are most likely
+  incomplete/misleading, etc. -- if you have a better way to do this,
+  please let me know!).
+
+- if you have read to here and have not found an answer to your
+  question, send me your question, and I will improve this document.
+
+Essential Tutorials:
+
+Current Protocols in Biofinformatics:
+https://currentprotocols.onlinelibrary.wiley.com/doi/10.1002/cpbi.87
+
+Workshop for Molecular Evolution at the Marine Biology Lab, Woods
+Hole MA http://peterbeerli.com/workshops/mbl/2018/tutorial
+
+
+
+(c) Peter Beerli May 1, 2025
