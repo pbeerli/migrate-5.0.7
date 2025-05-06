@@ -3138,8 +3138,9 @@ find_tipdate(char * id, long pop, world_fmt *world)
     {
       if(sampledates[ind].name != NULL)
 	{
-	  slen = (long) strlen(sampledates[ind].name);
-	  if(!strncmp(sampledates[ind].name,id, (size_t) slen))
+	  //slen = (long) strlen(sampledates[ind].name);
+	  //if(!strncmp(sampledates[ind].name,id, (size_t) slen))
+	  if(!strcmp(sampledates[ind].name,id))
 	    {
 	      date = (sampledates[ind].date     
 		      * world->options->generation_year 
