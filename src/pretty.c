@@ -2314,7 +2314,7 @@ void pdf_bayes_factor_rawscores_header(world_fmt *world, option_fmt *options)
 void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo, MYREAL ss, MYREAL harmo)
 {
   (void) ss;
-  (void) harmo;
+
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
     if(locus<0)
@@ -2325,6 +2325,23 @@ void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo,
     }
     else
         pdf_printf_right(left_margin+20, page_height,"%5li", locus+1);
+    pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
+    pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
+    //pdf_printf_right(407, page_height,"   %12.2f", ss);
+    //pdf_printf_right(520, page_height,"   %12.2f", harmo);
+    pdf_printf_right(407, page_height,"   %12.2f", harmo);
+    pdf_advance(&page_height);
+}
+void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL beziertermo, double harmo)
+{
+    double page_width;
+    page_width = (double) HPDF_Page_GetWidth(page);
+    pdf_draw_line(50, page_height,  page_width-50, page_height);
+    pdf_advance(&page_height);
+    if (minmax<0)
+      pdf_printf_right(left_margin+20, page_height,"Lowest");
+    else
+      pdf_printf_right(left_margin+20, page_height,"Highest");
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
     //pdf_printf_right(407, page_height,"   %12.2f", ss);
@@ -4096,7 +4113,15 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     pdf_print_contents_at(left_margin+90, page_height,"Mutationmodel");
     pdf_print_contents_at(left_margin+200, page_height,"Mutationmodel parameters");
     pdf_advance(&page_height);
-    for (locus=0; locus < data->loci; locus++)
+    boolean terse = options->tersepdf;
+    long printloci = data->loci;
+    if(terse)
+      {
+	printloci = TEN;
+	pdf_advance(&page_height);
+	pdf_printf(left_margin, page_height,'L', "Only the first 10 loci are shown\n");
+      }
+    for (locus=0; locus < printloci; locus++)
       {
 	long   sublocus;
 	long   sublocistart = world->sublocistarts[locus];

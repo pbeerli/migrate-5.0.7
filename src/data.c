@@ -2908,6 +2908,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
   char modelparam[LINESIZE];
   long *total;
   long *totalmiss;
+  boolean terse = options->tersepdf;
   total = (long *) mycalloc(data->loci,sizeof(long));
   totalmiss = (long *) mycalloc(data->loci,sizeof(long));
   set_datatype_string(options->datatype, dstring);
@@ -2949,9 +2950,16 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
     }
   fprintf (file, "Number of loci:                         %20li\nMutationmodel:\n",
 	   data->loci);
+  
   fprintf(file," Locus  Sublocus  Mutationmodel   Mutationmodel parameter\n");
   fprintf(file,"-----------------------------------------------------------------\n");
-  for (locus=0; locus < data->loci; locus++)
+  long printloci = data->loci;
+  if(terse)
+    {
+      printloci = TEN;
+      fprintf(file,"Only the first 10 loci are shown\n");
+    }
+  for (locus=0; locus < printloci; locus++)
     {
       long   sublocus;
       long   sublocistart = world->sublocistarts[locus];
@@ -2991,7 +2999,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 	boolean print_siterates = FALSE;
 	fprintf (file,"Sites per locus\n");
 	fprintf (file,"---------------\n");
-	if (data->loci > 500)
+	if (data->loci > TEN)
 	  compressed=TRUE;
 	if (compressed)
 	  {

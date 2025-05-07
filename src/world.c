@@ -1479,7 +1479,7 @@ free_world(world_fmt *world, option_fmt *options)
 // this fails with MPI, since this cleaning up step after everything
 // is finished fails. with threading and standard runs it seems to work
 #ifdef DISPENSER
-    warning ("check me because with MPI this will not be done")
+    warning ("check me because with MPI this will not be done");
     stop_node_collection(world);
 #endif
     #endif

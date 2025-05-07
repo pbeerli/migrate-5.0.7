@@ -664,6 +664,7 @@ long chains is used */
 #define LRATIO_STRINGS      1000 /*+ */
 #define HUNDRED             100
 #define EIGHTY              80
+#define TEN                 10
 /* profile likelihood stuff*/
 /* ALL and NONE are alread defined*/
 #define TABLES                 2 /*+ */
@@ -758,6 +759,10 @@ long chains is used */
 #define AVERAGE 3
 #define SAVITZKY 4
 #define DEFAULTKERNELWINDOW 20
+
+// used for large number of loci in the bayes factor reporting
+#define BFMIN -1
+#define BFMAX +1
 
 #ifdef powerpc
 #ifndef IBM

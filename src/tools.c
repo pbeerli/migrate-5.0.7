@@ -837,7 +837,7 @@ node *  dispense_nodelet(world_fmt *world)
 /// 
 void swap_node_collection(world_fmt * tthis, world_fmt * tthat)
 {
-#ifdef DEBUG
+#ifdef SPECIALDEBUG
   fprintf(stdout,"%i> swapping node_collection parts between temps: %f %f\n",myID,tthis->heat, tthat->heat);
 #endif
   node **temp;

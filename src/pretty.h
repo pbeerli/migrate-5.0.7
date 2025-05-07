@@ -81,6 +81,7 @@ extern void pdf_bayes_print_ess(world_fmt *world);
 extern void pdf_bayes_factor_header(world_fmt *world, option_fmt *options);
 extern void pdf_bayes_factor_rawscores_header(world_fmt *world, option_fmt *options);
 extern void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo, MYREAL ss, MYREAL harmo);
+extern void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL beziertermo, MYREAL harmo);
 void pdf_bayes_factor_rawscores_harmo(long locus, MYREAL harmo);
 extern void pdf_bayes_factor_comment(world_fmt *world, MYREAL scaling_factor);
 extern void pdf_burnin_stops(world_fmt *world, long maxreplicate);

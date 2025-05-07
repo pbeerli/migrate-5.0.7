@@ -44,6 +44,13 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
   MYREAL sallratio = 0.0;
   MYREAL scaling_factor = 0.0;
   MYREAL *locusweight = world->data->locusweight;//invariant loci treatment
+  double min_bf = -HUGE;
+  double min_bfb = -HUGE;
+  double min_ratio = -HUGE;
+  double max_bf = -HUGE;
+  double max_bfb = -HUGE;
+  double max_ratio = -HUGE;
+    
   // calculate the harmonic mean score
   for(locus=0;locus < world->loci; locus++)
     {
@@ -143,14 +150,41 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 	  ratio += val1;
 
 	  //fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
-	  //	  sratio, ratio); 
-	  fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
-		  ratio); 
-	  pdf_bayes_factor_rawscores(locus, lsum, lsum-lsum0+approxlsum, sratio, world->hmscale[locus] - log (world->hm[locus]));
+	  //	  sratio, ratio);
+	  if (options->tersepdf)
+	    {
+	      if (min_bf > (lsum - lsum0+approxlsum))
+		{
+		  min_bf  = lsum;
+		  min_bfb = lsum - lsum0+approxlsum;
+		  min_ratio = ratio;
+		}
+	      if (max_bf < (lsum - lsum0+approxlsum))
+		{
+		  max_bf  = lsum;
+		  max_bfb = lsum - lsum0+approxlsum;
+		  max_ratio = ratio;
+		}
+	      //lsum, lsum-lsum0+approxlsum, ratio 
+	    }
+	  else
+	    {
+	      fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
+		      ratio); 
+	      pdf_bayes_factor_rawscores(locus, lsum, lsum-lsum0+approxlsum, sratio, world->hmscale[locus] - log (world->hm[locus]));
+	    }
 	  bfsum2 += approxlsum + lsum - lsum0;  	  
 	  bfsum += lsum; //+ world->bfscale[locus];
 	  allratio += ratio;
 	  sallratio += sratio;
+	}
+
+      if (options->tersepdf)
+	{
+	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f\n", "Lowest", min_bf, min_bfb, min_ratio);
+	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f\n", "Highest", max_bf, max_bfb, max_ratio);
+	  pdf_bayes_factor_rawscores_minmax(BFMIN, min_bf, min_bfb, min_ratio);
+	  pdf_bayes_factor_rawscores_minmax(BFMAX, max_bf, max_bfb, max_ratio);
 	}
       // print out "ALL" row for both multiloci and single loci run (the single locus run has the same
       // form as the multilocus run so that I can grep the results more easily for model comparison
