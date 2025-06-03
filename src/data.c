@@ -359,6 +359,9 @@ get_new_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *w
   long locus;
   long genomes=1;
   boolean saved_option_murate=FALSE;
+
+  char datatype;
+  long counter;
   data->hasghost = FALSE;
   // read how many populations and loci and delimiter and title
   // if we have the new haplotype input then there should be no delimiter
@@ -421,6 +424,20 @@ get_new_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *w
             data->maxalleles[pop] = options->micro_stepnum;
         break;
     case '@':
+      datatype = data->datatype[pop];
+      counter = 0;
+      for (pop = 0; pop < data->loci; pop++)
+	{
+	  fprintf(stdout,"datatype=%c\n",data->datatype[pop]);
+	  if (datatype == data->datatype[pop])
+	    counter +=1;
+	  if (strchr (SEQUENCETYPES, data->datatype[pop]) )
+	    {
+	      data->maxalleles[pop] = 4;
+	    }
+	}
+      //issue with '@' and datatypeif (counter == data->loci)
+      //options->datatype = datatype;
       // mixed input
       //printf ("mixed input");
       //mean = create_mixed_data(data, options);
@@ -1468,6 +1485,13 @@ void read_sites_new(data_fmt * data, world_fmt *world, option_fmt *options)
 	  data->regions[region+1].endlocus = data->regions[region].endlocus; 
 	}
     }
+  char datatype = data->datatype[0];
+  long counter = 1;
+  for (locus=1; locus<data->loci;locus++)
+    if (datatype==data->datatype[locus])
+      counter++;
+  if (counter>=data->loci)
+    options->datatype = datatype;
   myfree(input);
   //myfree(tmp);
   myfree(word);
@@ -1530,7 +1554,9 @@ long read_sublocus(char *input, long *z, long locus, data_fmt * data, world_fmt 
 	}
     }
   data->seq[0]->sites[*z] = world->mutationmodels[*z].numsites; 
-  data->totalsites[data->loci] += world->mutationmodels[*z].numsites; 
+  data->totalsites[*z] = world->mutationmodels[*z].numsites;
+  data->totalsites[data->loci] += world->mutationmodels[*z].numsites;
+  data->datatype[*z] = world->mutationmodels[*z].datatype;
   *z += 1;
   myfree(word);
 
@@ -2972,7 +2998,11 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
     }
   if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
     {
-      fprintf(file,"[On average there are %li invariant sites per locus]\n",options->totalsites);
+      long invar = 0;
+      for (locus=0;locus<data->loci;locus++)
+	invar += data->totalsites[locus];
+      invar = (long) invar / data->loci;
+      fprintf(file,"[On average there are %li invariant sites per locus]\n",options->totalsites-invar);
     }
     
   // 

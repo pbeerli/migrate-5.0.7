@@ -4136,7 +4136,11 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     pdf_advance(&page_height);
     if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
       {
-	pdf_printf(left_margin, page_height,'L', "[On average there are %li invariant sites per locus]\n",options->totalsites);
+	long invar = 0;
+        for (locus=0;locus<data->loci;locus++)
+          invar += data->totalsites[locus];
+        invar = (long) invar / data->loci;     
+	pdf_printf(left_margin, page_height,'L', "[On average there are %li invariant sites per locus]\n",options->totalsites - invar);
 	pdf_advance(&page_height);
       }
     

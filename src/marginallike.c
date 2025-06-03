@@ -256,11 +256,13 @@ void      print_marginal_like(float *temp, long *z, world_fmt * world)
 #endif
     }
   temp[(*z)++] =  (float) (world->hmscale[locus] - log(world->hm[locus]));
+#ifdef STEPPINGSTONE
   for(t=0; t < hc; t++)
     {
       temp[(*z)++] = (float) world->steppingstones[locus * hc + t];
       temp[(*z)++] = (float) world->steppingstone_scalars[locus * hc + t];
     }
+#endif
 }
 #else /*not MPI or MPI & PARALIO*/
 void      print_marginal_like(char *temp, long *c, world_fmt * world)
@@ -292,10 +294,12 @@ void      print_marginal_like(char *temp, long *c, world_fmt * world)
       *c += sprintf(temp + *c,"\t%f", lsum);
     }
   *c += sprintf(temp + *c,"\t%f", world->hmscale[locus] - log(world->hm[locus]));
+#ifdef STEPPINGSTONE
   for(t=0; t < hc; t++)
     {
       *c += sprintf(temp+ *c,"\t%f", world->steppingstones[locus * hc + t]);
       *c += sprintf(temp+ *c,"\t%f",world->steppingstone_scalars[locus * hc + t]);
     }
+#endif
 }
 #endif /*not MPI*/

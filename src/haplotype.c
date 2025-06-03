@@ -14,7 +14,7 @@ the main function in this file is:
 
  replaced with the function data.c: 
  read_comments(): read_individuals_dictionary(data, options)
- insert_individual_inlist(...)
+ insert_individual_inlist(...) the pick variable needs to be checked and removed?
 
 
 Copyright 2010 Peter Beerli, Tallahassee FL
@@ -55,7 +55,12 @@ void debug_states(individualDB_fmt *w);
 
 void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options)
 {
-  // read name
+  // eventually it will be this but there are complications downstream
+  // read name 
+  // read a list of site location separated by ';' where we would need to haplotype
+  // it will go through all loci that have locations for each mentioned individual
+  //
+  // old and still current working:
   // read subloci model: use 0 for no haplotyping and * for haplotyping
   // an example  looks like this: #% rid1324: *0*00*** 0 0 
   // the name is delimited with a colon, there are 8 subloci in locus 1
@@ -64,11 +69,16 @@ void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options)
   // a particular locus then use a - (minus sign)
   // for example:  #% rid1324: *0*00-** - 0
   // important: #% name forces that there are 3 characters before the name starts.
+  long locus;
+  long s = 0;
   if(data->haplotyping_list == NULL)
     {
       data->haplotyping_list = (haplotyping_orderform_fmt *) mycalloc((data->numhaplotyping+1), sizeof(haplotyping_orderform_fmt));
       data->haplotyping_list[0].key  = (char *) calloc(LINESIZE, sizeof(char));
-      charvec2d(&data->haplotyping_list[0].pick, data->loci, LINESIZE);
+      s = 0;
+      for (locus=0; locus<data->loci; locus++)
+	s += data->subloci[locus];
+      charvec2d(&data->haplotyping_list[0].pick, s, LINESIZE);
     }
   else
     {
@@ -100,13 +110,16 @@ void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options)
       if(i<data->numhaplotyping)
 	error("Identical individual is twice in the haplotyping list");
       strncpy (data->haplotyping_list[data->numhaplotyping].key,tmp, (size_t) options->nmlength);
-      for(i=0;i<data->loci;i++)
+      for(locus=0;locus<data->loci;locus++)
 	{
-	  tmp = strtok (NULL, " ");
-	  if(tmp == NULL)
-	    continue;
-	  tmplen = (size_t) strlen(tmp);
-	  strncpy (data->haplotyping_list[data->numhaplotyping].pick[i],tmp, tmplen);
+	  for(i=0;i<data->subloci[locus];i++)
+	    {
+	      tmp = strtok (NULL, " ");
+	      if(tmp == NULL)
+		continue;
+	      tmplen = (size_t) strlen(tmp);
+	      //strncpy (data->haplotyping_list[data->numhaplotyping].pick[i],tmp, tmplen);
+	    }
 	}
     }
   else
@@ -163,7 +176,7 @@ void  set_individuals_request_haplotyping(world_fmt * world, data_fmt * data, lo
 #endif
 	    }
 	}
-      for(id=0; id<last; id++) 
+      /*      for(id=0; id<last; id++) 
 	{
 	  if(world->data->individuals[id].targeted>0)
 	    {
@@ -181,7 +194,7 @@ void  set_individuals_request_haplotyping(world_fmt * world, data_fmt * data, lo
 	    {
 	      world->data->individuals[id].checksum=0;
 	    }
-	}
+	    }*/
     }
   else
     {
@@ -195,7 +208,7 @@ void  set_individuals_request_haplotyping(world_fmt * world, data_fmt * data, lo
     }
 }
 
-/// add a count to a particular hapltype configuration
+/// add a count to a particular haplotype configuration
 /// assumes that a key os a string of 01011010 etc
 void add_state_counter(hash_fmt **hash, size_t *numhash, float *total, int *states, long numstates, int count)
 {
@@ -860,6 +873,7 @@ long swap_haplotypes(world_fmt *world)
   long count=0;
   individualDB_fmt *winner = &(world->data->individuals[winnerid]);
   long rh = RANDINT(0, winner->checksum-1);
+  fprintf(stderr,"rh=%li\n",rh);
   count = 0;
   long i=0;
 #ifdef DEBUG
