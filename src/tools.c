@@ -1766,6 +1766,7 @@ void get_filename(char **store, char * value)
   long ls;
   long lv;
   remove_trailing_blanks(&value);
+ 
   ls = (long) strlen(*store)+1;
   lv = (long) strlen(value)+1;
       if (ls < lv)

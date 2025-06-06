@@ -338,8 +338,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
 	optnumpop2 = (long) strlen(options->custm);
 	if(optnumpop2>numpop2)
 	  optnumpop2=numpop2;
-	sprintf (wopt->custm, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm);
-	sprintf (wopt->custm2, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm2);
+	snprintf(wopt->custm,LINESIZE, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm);
+	snprintf(wopt->custm2,LINESIZE, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm2);
       }//1229
     if(wopt->thetag==NULL)
       wopt->thetag = (MYREAL *) mycalloc (numpop2 + 2, sizeof (MYREAL));
@@ -1504,14 +1504,14 @@ print_menu_locus (FILE *file, world_fmt * world, long locus)
     buffer = (char *) mycalloc(STRSIZE,sizeof(char));
     bufptr = buffer;
 #ifdef MPI
-    bufsize = sprintf(buffer, "[%3i] ",myID);
+    bufsize = snprintf(buffer,LINESIZE, "[%3i] ",myID);
 #endif
     get_time (nowstr, "%H:%M:%S");
     if (world->options->replicate)
-      sprintf(buffer + bufsize, "%s   Locus %li: Replicate %li\n", nowstr, locus + 1,
+      snprintf(buffer + bufsize,LINESIZE, "%s   Locus %li: Replicate %li\n", nowstr, locus + 1,
                                world->replicate + 1);
     else
-      sprintf(bufptr + bufsize, "%s   Locus %li:\n", nowstr, locus + 1);
+      snprintf(bufptr + bufsize,LINESIZE, "%s   Locus %li:\n", nowstr, locus + 1);
     FPRINTF(file,"%s",buffer); //with MPI it send this to the master
     myfree(buffer);
 }
@@ -1680,7 +1680,7 @@ prognose_time (char *nowstr, world_fmt * world,
 	    strftime (nowstr, STRSIZE, "%H:%M %B %d %Y", nowstruct);
         }
         
-        bufsize += sprintf(buffer+bufsize, "%sPrognosed end of sampling is    %s\n", spacer, nowstr);
+        bufsize += snprintf(buffer+bufsize,LINESIZE, "%sPrognosed end of sampling is    %s\n", spacer, nowstr);
         if(!tobuffer)
         {
             if (progress)
@@ -2115,14 +2115,14 @@ print_menu_equilib (world_fmt * world)
 	  buffer = (char *) mycalloc(STRSIZE,sizeof(char));
 	  get_time (nowstr, "%H:%M:%S");
 #ifdef MPI
-	  bufsize = sprintf(buffer,
+	  bufsize = snprintf(buffer,LINESIZE,
 		  "[%3i] %8.8s   Burn-in of %li steps (Locus: %li/%li, Replicate: %li/%li) \n",
 		  myID, nowstr, 
 		  world->options->burn_in * world->increment, 
 		  1+world->locus, world->loci, 
 		  1+world->rep, world->maxreplicate);
 #else
-	  bufsize = sprintf(buffer,
+	  bufsize = snprintf(buffer,LINESIZE,
 		  "%8.8s   Burn-in of %li steps (Locus: %li/%li, Replicate: %li/%li) \n", 
 		  nowstr, 
 		  world->options->burn_in * world->increment, 
@@ -2573,7 +2573,7 @@ print_results (world_fmt ** universe, option_fmt * options, data_fmt * data)
         if (world->atl[rep][world->loci].param[world->numpop2] < 10e-9)
             strcpy (cva, "0");
         else
-            sprintf (cva, "%f",
+            snprintf(cva,50, "%f",
                      sqrt (1. /
                            world->atl[rep][world->loci].param[world->numpop2]));
         FPRINTF (outfile,
@@ -2639,30 +2639,30 @@ void
 prepare_print_nu (MYREAL nu, char *str)
 {
     if (nu <= -999)
-        sprintf (str, "-");
+        snprintf(str,LINESIZE, "-");
     else
-        sprintf (str, "% 12.6f", nu);
+        snprintf(str,LINESIZE, "% 12.6f", nu);
 }
 
 void
 prepare_print_nm (MYREAL nm, MYREAL nmu, char *strllike)
 {
     if ((fabs (nmu) > 10e-20) && (fabs (nm) > 10e-20))
-        sprintf (strllike, "% 10.5f", nm * nmu);
+        snprintf(strllike,LINESIZE, "% 10.5f", nm * nmu);
     else
     {
         if ((fabs (nmu) < 10e-20) && (fabs (nm) < 10e-20))
         {
-            sprintf (strllike, "0/0");
+            snprintf(strllike,LINESIZE, "0/0");
         }
         else
         {
             if ((fabs (nmu) < 10e-20) && (fabs (nm) > 10e-20))
-                sprintf (strllike, "% 10.5f/0", nm);
+                snprintf(strllike,LINESIZE, "% 10.5f/0", nm);
             else
             {
                 if ((fabs (nmu) > 10e-20) && (fabs (nm) < 10e-20))
-                    sprintf (strllike, "0");
+                    snprintf(strllike,LINESIZE, "0");
             }
         }
     }
@@ -2708,20 +2708,20 @@ print_menu_coalnodes (FILE * file, world_fmt * world, long G, long rep)
                     minp = g;
             }
         }
-        sprintf (tmp, "           Coalescent nodes: ");
+        snprintf(tmp,LINESIZE, "           Coalescent nodes: ");
 	add_to_buffer(tmp, &bufsize, &buffer, &allocbufsize);
 	maxp1 = maxp + 1;
         for (g = minp; g < maxp1; g++)
         {
-            sprintf (tmp, "%2li ", g);
+            snprintf(tmp,LINESIZE, "%2li ", g);
 	    add_to_buffer(tmp, &bufsize, &buffer, &allocbufsize);
 		
         }
-        sprintf (tmp, "\n");
+        snprintf(tmp,LINESIZE, "\n");
 	add_to_buffer(tmp, &bufsize, &buffer, &allocbufsize);
 	for (pop = 0; pop < world->numpop; pop++)
         {
-            sprintf (tmp, "             population %3li: ", pop);
+            snprintf(tmp,LINESIZE, "             population %3li: ", pop);
 	    add_to_buffer(tmp, &bufsize, &buffer, &allocbufsize);
             for (g = minp; g < maxp1; g++)
             {
@@ -2734,11 +2734,11 @@ print_menu_coalnodes (FILE * file, world_fmt * world, long G, long rep)
                     if (contribution[pop][g] >= 100)
                         strcpy (ss, "*");
                     else
-                        sprintf (ss, "%-6li", contribution[pop][g]);
+                        snprintf(ss,10, "%-6li", contribution[pop][g]);
                 }
 		add_to_buffer(ss, &bufsize, &buffer, &allocbufsize);
             }
-	    sprintf (tmp,"\n");
+	    snprintf(tmp,LINESIZE,"\n");
 	    add_to_buffer(ss, &bufsize, &buffer, &allocbufsize);
         }
         LARGEFPRINTF(file, bufsize, "%s",buffer);
@@ -2868,12 +2868,12 @@ print_cov2 (world_fmt * world, long numpop, long loci, MYREAL ***cov)
       {
 	if (i<world->numpop)
 	  {
-	    sprintf(head,"Q%li",i+1);
+	    snprintf(head,LINESIZE,"Q%li",i+1);
 	  }
 	else
 	  {
 	    m2mm(i, numpop, &frompop, &topop);
-	    sprintf(head,"M%li%li",frompop+1,topop+1);
+	    snprintf(head,LINESIZE,"M%li%li",frompop+1,topop+1);
 	  }
 	FPRINTF(outfile,"%5.5s ",head);
       }
@@ -3035,7 +3035,7 @@ print_CV (world_fmt * world)
             strcpy (temp, "-");
             if (world->cov[world->loci][i][i] >= 0)
             {
-                sprintf (temp, "%20.20g",
+                snprintf(temp,100, "%20.20g",
                          (sqrt (world->cov[world->loci][i][i])) /
                          world->atl[0][world->loci].param[i]);
             }
@@ -3062,7 +3062,7 @@ print_CV (world_fmt * world)
             strcpy (temp, "-");
             if (world->cov[0][i][i] >= 0)
             {
-                sprintf (temp, "%20.20g",
+                snprintf(temp,100, "%20.20g",
                          (sqrt (world->cov[0][i][i])) /
                          world->atl[0][1].param[i]);
             }
@@ -3108,39 +3108,39 @@ print_param (char ** file, long *bufsize, long *allocbufsize, boolean usem, worl
 	*file = (char *) myrealloc(*file, sizeof(char)* (size_t) newbufsize);
 	*allocbufsize = newbufsize;
       }
-    *bufsize += sprintf (*file + *bufsize, "%sPop. Theta    %s\n", spacer, usem ? "M" : "Theta*M");
+    *bufsize += snprintf(*file + *bufsize,LINESIZE, "%sPop. Theta    %s\n", spacer, usem ? "M" : "Theta*M");
     for (i = 0; i < nn; i++)
     {
         //FPRINTF (file, " ");
         counter = 0;
-        *bufsize += sprintf (*file + *bufsize, "%s%3li % 7.5f", spacer, i + 1, param[i]);
+        *bufsize += snprintf(*file + *bufsize,LINESIZE, "%s%3li % 7.5f", spacer, i + 1, param[i]);
         for (j = 0; j < nn; j++)
         {
             if (i != j)
             {
                 if (usem)
-                    *bufsize += sprintf (*file + *bufsize, "% 7.1f", param[tt++]);
+                    *bufsize += snprintf(*file + *bufsize,LINESIZE, "% 7.1f", param[tt++]);
                 else
-                    *bufsize += sprintf (*file + *bufsize, "% 7.5f", param[i] * param[tt++]);
+                    *bufsize += snprintf(*file + *bufsize,LINESIZE, "% 7.5f", param[i] * param[tt++]);
             }
             else
-                *bufsize += sprintf (*file + *bufsize, " ------");
+                *bufsize += snprintf(*file + *bufsize,LINESIZE, " ------");
             if (counter++ > 10)
             {
                 counter = 0;
-                *bufsize += sprintf (*file + *bufsize, "\n%s         ", spacer);
+                *bufsize += snprintf(*file + *bufsize,LINESIZE, "\n%s         ", spacer);
             }
         }
-        *bufsize += sprintf (*file + *bufsize, " \n"); //, spacer);
+        *bufsize += snprintf(*file + *bufsize,LINESIZE, " \n"); //, spacer);
     }
-    *bufsize += sprintf (*file + *bufsize, " \n");
+    *bufsize += snprintf(*file + *bufsize,LINESIZE, " \n");
 #ifdef LONGSUM
     // this needs to be fixed when I revisit LONGSUM -- not on top ten list
-    bufsize += sprintf (file + bufsize,"\nRates (at specific times):\n");
+    bufsize += snprintf(file + bufsize,LINESIZE,"\nRates (at specific times):\n");
     for(i=0;i<nn; i++ )
     {
         j = i*3; //because we use only 3 different rates per pop
-        bufsize += sprintf (file + bufsize,"Pop %li: %g (%g) %g (%g) %g (%g)\n", i+1,
+        bufsize += snprintf(file + bufsize,LINESIZE,"Pop %li: %g (%g) %g (%g) %g (%g)\n", i+1,
                             world->flucrates[j],world->flucrates[j+nn*3],
                             world->flucrates[j+1], world->flucrates[j+1+nn*3],
                             world->flucrates[j+2], world->flucrates[j+2+nn*3]);
@@ -3204,11 +3204,11 @@ void print_popstring(long pop, world_fmt *world, option_fmt *options, data_fmt *
     char popstring[LINESIZE];
     if (options->readsum)
     {
-        sprintf (popstring, "%2li: ", pop + 1);
+        snprintf(popstring,LINESIZE, "%2li: ", pop + 1);
     }
     else
     {
-        sprintf (popstring, "%2li: %s", pop + 1, data->popnames[options->newpops[pop]-1]);
+        snprintf(popstring,LINESIZE, "%2li: %s", pop + 1, data->popnames[options->newpops[pop]-1]);
     }
     FPRINTF (world->outfile, "%-14.14s ", popstring);
 }
@@ -3218,7 +3218,7 @@ void print_popstring(long pop, world_fmt *world, option_fmt *options, data_fmt *
 void print_replicate(world_fmt *world, long maxrep, long rep, long locus)
 {
     char repstring[LINESIZE];
-    sprintf (repstring, "%2li", rep + 1);
+    snprintf(repstring,LINESIZE, "%2li", rep + 1);
     FPRINTF (world->outfile, "%s%2li%2s ", locus == 0
              && rep == 0 ? "" : "               ", locus + 1,
              maxrep > 1 ? (rep ==
@@ -3332,7 +3332,7 @@ print_result_fst (long pop, world_fmt * world, data_fmt * data)
     
     char popstring[LINESIZE];
     long skipped = 0, locus;
-    sprintf (popstring, "%2li: %s", pop + 1, data->popnames[pop]);
+    snprintf(popstring,LINESIZE, "%2li: %s", pop + 1, data->popnames[pop]);
     FPRINTF (world->outfile, "%14.14s ", popstring);
     for (locus = 0; locus < world->loci; locus++)
     {
@@ -3862,8 +3862,8 @@ long get_numparam(world_fmt* world)
 		  long bufsize;
 		  if(myID!=MASTER)
 		    {
-		      bufsize = sprintf(p,"%li %f %f %li\n",world->locus, *var, *oldvar,step);
-		      sprintf(p1,"B%li",bufsize);
+		      bufsize = snprintf(p,LINESIZE,"%li %f %f %li\n",world->locus, *var, *oldvar,step);
+		      snprintf(p1,LINESIZE, "B%li",bufsize);
 		      MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+BURNTAG, comm_world);
 		      MYMPISEND (p, bufsize, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+BURNTAG, comm_world);
 		    }

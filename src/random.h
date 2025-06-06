@@ -90,5 +90,6 @@ extern double get_quasi();
 extern MYREAL random_beta(MYREAL a, MYREAL b);
 extern MYREAL gamma_rand(MYREAL a, MYREAL b);
 extern MYREAL trunc_gamma_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper);
+extern MYREAL trunc_beta_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper);
 extern void assign_random_startsites(long **random_startsites, long fulllength, long shortsites, long rrepeats);
 extern long random_from_freqlist(double *l, long nl);

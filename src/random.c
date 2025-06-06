@@ -100,6 +100,8 @@ long random_integer(long low, long high);
 
 long random_from_freqlist(double *l, long nl);
 
+MYREAL trunc_gamma_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper);
+MYREAL trunc_beta_rand(MYREAL a, MYREAL b, MYREAL lower, MYREAL upper);
 
 #ifdef QUASIRANDOM
 #define MYINDEX 0
@@ -974,6 +976,21 @@ MYREAL trunc_gamma_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper)
 	return x;
     }
 }
+
+MYREAL trunc_beta_rand(MYREAL a, MYREAL b, MYREAL lower, MYREAL upper)
+{
+  MYREAL x,y;
+  double s = -1.0;
+  do
+    {
+      x = gamma_rand(a,1.0); 
+      y = gamma_rand(b,1.0);
+      s = x/(x+y);
+    }
+  while((s < lower) || (s > upper));
+  return s;
+}
+
 
 MYREAL random_beta(MYREAL a, MYREAL b)
 {

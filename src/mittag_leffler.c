@@ -461,7 +461,7 @@ MYCOMPLEX mittag_leffler(double alpha, double beta, MYCOMPLEX z)
     }
 #ifndef MLF_SLOW
   MYCOMPLEX b;
-  if (beta==1.0 || fabs(alpha-beta)>EPSILON)
+  if (beta==1.0 || fabs(alpha-beta)<EPSILON)
     b = MLinterpol(z,alpha, beta, Q, X0);
   else
     b = clog(ML(z,alpha, beta, Q, X0));

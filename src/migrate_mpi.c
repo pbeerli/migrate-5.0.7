@@ -3425,7 +3425,7 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
     {
       long allocbufsize = LINESIZE;
       char *charbuf = (char *) calloc(allocbufsize, sizeof(char));
-      printf("PACK HAPLOTYPES===================================================\n");
+      printf("%i: %li> PACK HAPLOTYPES===================================================\n",myID, locus);
       char * newname;
       char * oldname;
       oldname = (char *) calloc(LINESIZE,sizeof(char));
@@ -3441,7 +3441,7 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
 	}
       for(pop=0;pop<numpop;pop++)
 	{
-  for(ind=0; ind<world->data->numind[pop][locus]; ind++)	   
+	  for(ind=0; ind<world->data->numind[pop][locus]; ind++)	   
 	    {
 	      // hooks into data->indnames
 	      //printf("%s\n",world->indnames[pop][ind][locus]);
@@ -3455,11 +3455,11 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
 		strncpy(oldname,newname,ll);
 	      //printf("%s   %s\n",oldname,newname);	      
 	      long id = find_inDB(world->indnames[pop][ind][locus], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
-	      //printf("id=%li\n",id);
+	      printf("id=%li\n",id);
 	      if( id != -1)
 		{
 		  print_haplotypes2(&charbuf, &allocbufsize, &bufsize, world, locus, pop, id, FALSE);
-		  //printf("%i>PACK:%s\n", myID, charbuf);
+		  printf("%i>PACK:%s\n", myID, charbuf);
 		  z++;
 		}
 	    }
@@ -3485,6 +3485,7 @@ void unpack_haplotypes_buffer(MYREAL *buffer, world_fmt * world,
   //get number of individuals
   if(world->data->haplotyping_report)
     {
+      printf("%i: %li> UNPACK %s\n",myID,locus,charbuf);
       word = (char *) calloc(LINESIZE,sizeof(char));
       longword = (char *) calloc(LONGLINESIZE,sizeof(char));
       while(charbuf[readpos]!='\0')

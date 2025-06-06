@@ -504,7 +504,7 @@ long chains is used */
 #define RANDOMPRIOR 100
 #define VERBOSE  (boolean) 1 
 /* prior kind */
-#define NUMPRIORKIND 7
+#define NUMPRIORKIND 8
 #define PRIORKINDLENGTH 15
 #define TUNIFORMPRIOR "Uniform      "
 #define TEXPPRIOR     "Exponential  "
@@ -512,6 +512,7 @@ long chains is used */
 #define TMULTPRIOR    "Multiplier   "
 #define TGAMMAPRIOR   "Gamma        "
 #define TNORMALPRIOR  "Trunc. Normal"
+#define TBETAPRIOR    "Trunc. Beta  "
 #define TOTHER        "-            "
 #define UNIFORMPRIOR 0
 #define EXPPRIOR     1
@@ -519,7 +520,8 @@ long chains is used */
 #define MULTPRIOR    3
 #define GAMMAPRIOR   4
 #define NORMALPRIOR  5
-#define SLICE        6
+#define BETAPRIOR    6
+#define SLICE        7
 /* prior type*/
 #define THETAPRIOR 0
 #define MIGPRIOR   1

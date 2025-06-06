@@ -59,6 +59,7 @@ MYREAL propose_expb_newparam (MYREAL param,long which, world_fmt *world, MYREAL 
 MYREAL propose_mult_newparam (MYREAL param,long which, world_fmt *world, MYREAL *r);
 MYREAL propose_normal_newparam (MYREAL param,long which, world_fmt *world, MYREAL *r);
 MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+MYREAL propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 
 MYREAL log_prior_ratio_uni  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 MYREAL log_prior_ratio_exp  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
@@ -66,6 +67,7 @@ MYREAL log_prior_ratio_wexp (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes,
 MYREAL log_prior_ratio_mult (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 MYREAL log_prior_ratio_normal (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 MYREAL log_prior_ratio_gamma(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which);
+MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which);
 
 
 MYREAL log_prior_uni  (world_fmt * world, long numparam);//for heating
@@ -74,6 +76,7 @@ MYREAL log_prior_wexp (world_fmt * world, long numparam);//for heating
 MYREAL log_prior_mult (world_fmt * world, long numparam);//for heating
 MYREAL log_prior_normal (world_fmt * world, long numparam);//for heating
 MYREAL log_prior_gamma(world_fmt *world, long numparam);
+MYREAL log_prior_beta(world_fmt *world, long numparam);
 
 MYREAL log_prior_uni1  (world_fmt * world, long numparam, MYREAL);
 MYREAL log_prior_exp1  (world_fmt * world, long numparam, MYREAL);
@@ -81,7 +84,11 @@ MYREAL log_prior_wexp1 (world_fmt * world, long numparam, MYREAL);
 MYREAL log_prior_mult1 (world_fmt * world, long numparam, MYREAL);
 MYREAL log_prior_normal1 (world_fmt * world, long numparam, MYREAL);
 MYREAL log_prior_gamma1(world_fmt *world, long numparam, MYREAL val);
+MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val);
 
+MYREAL logpdf_beta(MYREAL a, MYREAL b, MYREAL x);
+MYREAL logpdf_truncbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x);
+MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x);
 
 MYREAL hastings_ratio_uni(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_exp(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
@@ -89,6 +96,7 @@ MYREAL hastings_ratio_expb(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
 MYREAL hastings_ratio_mult(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_normal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_gamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
+MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 
 void init_hyperpriorrecord(hyper_fmt ** hyperp,long numparam);
 void hyper_gamma_record(MYREAL alpha, MYREAL beta, hyper_fmt * hg);
@@ -381,7 +389,7 @@ MYREAL cdf_gamma(MYREAL a, MYREAL b, MYREAL x)
   return incompletegamma(x/b,a);
 }
 
-static MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
+MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
 {
   if((x > xmin) && (x <= xmax))
     return logpdf_gamma(a,b,x)-log(cdf_gamma(a,b,xmax)-cdf_gamma(a,b,xmin));
@@ -593,6 +601,24 @@ MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREA
   return rr;
 }
 
+///
+/// Beta prior retrieve a new value from a truncated beta between lower and upper
+/// currently does not use the old parameter 
+MYREAL
+propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  (void) param;
+  (void) r;
+  bayes_fmt *bayes = world->bayes;
+  MYREAL minparam = bayes->minparam[which];
+  //MYREAL delta = bayes->delta[which];
+  MYREAL maxparam = bayes->maxparam[which];
+  MYREAL alpha = bayes->alphaparam[which];
+  MYREAL beta = bayes->betaparam[which];
+  MYREAL np = trunc_beta_rand(alpha,beta,minparam,maxparam);
+  //printf("betaprior: %f %f - %f %f %f\n",np,minparam,maxparam,alpha, beta);
+  return np;
+}
 
 ///
 /// Hastings ratio calculator for gamma distribution
@@ -983,8 +1009,8 @@ void set_option_prior(prior_fmt **p, int type, MYREAL mini, MYREAL maxi, MYREAL 
 
 void is_priorkind(prior_fmt *p, char *priorkind)
 {
-  const char text[7][20] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TOTHER};
-  const int numkind = NUMPRIORKIND;
+  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER};
+  //const int numkind = NUMPRIORKIND;
   if (p->kind < NUMPRIORKIND)
     strncpy(priorkind,text[p->kind],PRIORKINDLENGTH);
   else

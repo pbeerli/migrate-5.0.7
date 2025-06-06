@@ -71,20 +71,20 @@ void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options)
   // important: #% name forces that there are 3 characters before the name starts.
   long locus;
   long s = 0;
+  s = 0;
+  for (locus=0; locus<data->loci; locus++)
+    s += data->subloci[locus];
   if(data->haplotyping_list == NULL)
     {
       data->haplotyping_list = (haplotyping_orderform_fmt *) mycalloc((data->numhaplotyping+1), sizeof(haplotyping_orderform_fmt));
       data->haplotyping_list[0].key  = (char *) calloc(LINESIZE, sizeof(char));
-      s = 0;
-      for (locus=0; locus<data->loci; locus++)
-	s += data->subloci[locus];
       charvec2d(&data->haplotyping_list[0].pick, s, LINESIZE);
     }
   else
     {
       data->haplotyping_list = (haplotyping_orderform_fmt *) realloc(data->haplotyping_list,sizeof(haplotyping_orderform_fmt)* (size_t) (data->numhaplotyping+1));
       data->haplotyping_list[data->numhaplotyping].key  = (char *) calloc(LINESIZE, sizeof(char));
-      charvec2d(&data->haplotyping_list[data->numhaplotyping].pick, data->loci, LINESIZE);
+      charvec2d(&data->haplotyping_list[data->numhaplotyping].pick, s, LINESIZE);
     }
   char *tmp;
   char *input2 = (char *) strdup(input);
@@ -597,7 +597,7 @@ void link_individual_node(char *rawname, node *thenode, long region, world_fmt *
   printf("%i> wdata->individuals[%li].nodep[]=[%s %s %c]\n",myID,id,thenode->truename,thenode->nayme,thenode->tip);
 #endif
   if(wdata->individuals[id].nodep == NULL)
-    wdata->individuals[id].nodep = (node **) mycalloc(wdata->numindividuals, sizeof(node*));
+    wdata->individuals[id].nodep = (node **) mycalloc(2*wdata->numindividuals, sizeof(node*));
   nnum = wdata->individuals[id].nodenum;
   wdata->individuals[id].nodep[nnum] = thenode;
   wdata->individuals[id].nodenum += 1;
@@ -873,7 +873,7 @@ long swap_haplotypes(world_fmt *world)
   long count=0;
   individualDB_fmt *winner = &(world->data->individuals[winnerid]);
   long rh = RANDINT(0, winner->checksum-1);
-  fprintf(stderr,"rh=%li\n",rh);
+  //fprintf(stderr,"rh=%li\n",rh);
   count = 0;
   long i=0;
 #ifdef DEBUG
