@@ -252,6 +252,13 @@ void which_prior (prior_fmt *bayes_priors,  long numparam)
                 propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_mult_newparam;
                 hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long )) hastings_ratio_mult;
                 break;
+            case BETAPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_beta;
+                log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_beta;
+                log_prior_1[i] = (MYREAL (*) (world_fmt *,  long, MYREAL)) log_prior_beta1;
+                propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_beta_newparam;
+                hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_beta;
+                break;
             case GAMMAPRIOR:
                 log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_gamma;
                 log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_gamma;
@@ -2700,6 +2707,7 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
 // for each parameter with array_count i
 MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_fmt *prior)
 {
+  double a,m;
     bayes->minparam[i] = prior->min;
     bayes->maxparam[i] = prior->max;
     bayes->meanparam[i] = prior->mean;
@@ -2719,6 +2727,15 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
             bayes->priormean[i] = prior->mean; // fill mean for the call to bayes_epxb_newparam
             bayes->delta[i] =  prior->delta; //(prior->max - prior->min)/(10.); // 1/10 of the max span
             break;
+        case BETAPRIOR:
+            bayes->priormean[i] = prior->mean;
+            bayes->alphaparam[i] = prior->alpha;
+            bayes->alphaorigparam[i] = prior->alpha;
+            bayes->delta[i] =  prior->delta; //(prior->min + prior->max)/(20.); // 1/10 of the max span
+	    a = prior->alpha;
+	    m = prior->mean ;/// (bayes->maxparam[i] - bayes->minparam[i]);
+	    bayes->betaparam[i] = (a - a*m)/m; 
+	    break;
         case GAMMAPRIOR:
             bayes->priormean[i] = prior->mean;
             bayes->alphaparam[i] = prior->alpha;

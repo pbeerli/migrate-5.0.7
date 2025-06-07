@@ -49,9 +49,11 @@ priors.c supplies prior distributions
 extern int myID;
 void is_priorkind(prior_fmt *p, char *priorkind);
 MYREAL cdf_gamma(MYREAL a, MYREAL b, MYREAL x);
+double beta_cdf(double a, double b, double x);
 MYREAL trunc_gamma_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper);
 MYREAL normal_rand(MYREAL mean, MYREAL std);
 double trunc_random_normal2(double mi, double ma, double mean, double std);
+double incompletebeta(double x, double a, double b, int n) ;
 
 MYREAL propose_uni_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 MYREAL propose_exp_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
@@ -320,6 +322,13 @@ static float trunc_random_gamma(float *p)
   return  (float) trunc_gamma_rand(alpha,beta,(double) p[0],(double) p[1]);
 }
 
+static float trunc_random_beta(float *p)
+{
+  MYREAL alpha = (double) p[2];
+  MYREAL beta = (double) p[3];
+  return  (float) trunc_beta_rand(alpha,beta,(double) p[0],(double) p[1]);
+}
+
 static double bisection(int n, double a, double b, double tol, float p[], float x) {
   MYREAL alpha = (double) p[2];
   MYREAL beta = (double) p[3];
@@ -368,11 +377,76 @@ static double bisection(int n, double a, double b, double tol, float p[], float 
   return c;
 }
 
+// pdf_beta(x, a, b) = (x**(a-1) * (1-x)**(b-1)) / beta(a, b)
+// logpdf_beta: log(x) * (a-1) + log(1-x) * (b-1) - logbeta(a,b)
+// logbeta: logbeta(a, b) = lngamma(a) +  lngamma(b) -  lngamma(a+b)
+MYREAL logpdf_beta(MYREAL a, MYREAL b, MYREAL x)
+{
+  if (a>0.0 && b> 0.0 && x>0.0)
+    {
+      double logx = LOG(x);
+      double logx1 = LOG(1.0-x);
+      double val = logx * (a-1.0) + logx1 * (b-1.0) - (LGAMMA(a) + LGAMMA(b) - LGAMMA(a+b));
+      //printf("logpdf_beta %f %f\n",val,LGAMMA(a+b));
+      return val;
+    }
+  else 
+    return (double) -HUGE;
+}
+
+// truncated logpdf_beta function
+
+// truncated logpdf_beta function
+MYREAL logpdf_truncbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
+{
+  //boolean simple=TRUE;
+  //double norm_const = 0;
+  double numerator=1.0;
+  double val = 0.;
+
+  static double norm_const = 1.0;
+  static boolean done = FALSE;
+  if (done == FALSE)
+    {
+      int n=100;
+      norm_const = log(-incompletebeta(xmin,a,b,n) + incompletebeta(xmax,a,b,n)) + lgamma(a+b) - (lgamma(a) + lgamma(b)) ;
+      done = TRUE;
+    }
+  
+  //if (xmax-xmin < 1.0)
+  // {
+  //  simple=FALSE;
+  //  //printf("NOT SiMPLE %f\n",xmax-xmin);
+  //}
+  if (x>=1.0)
+    x -= EPSILON;
+  //if (xmax==1.0)
+  //  xmax -= EPSILON;
+  if (xmin==0.0)
+    xmin += EPSILON;
+  if (x<xmin)
+    x = xmin;
+  if((x >= xmin) && (x <= xmax))
+    {
+      numerator = logpdf_beta(a, b, x);
+      val = numerator - norm_const;
+      return val;
+    }
+  return (double) -HUGE;
+}
+
+
+static float trunc_cdf_beta(float x, float *p)
+{
+  //double delta = x / (p[1] - p[0]);
+  return(float) beta_cdf((double) p[2],(double) p[3],(double) x);
+}
 
 static float trunc_cdf_gamma(float x, float *p)
 {
   return  (float) (bisection(100, (double) p[0], (double) p[1], 0.0001, p, x)); 
 }
+
 
 
 static MYREAL logpdf_gamma(MYREAL a, MYREAL b, MYREAL x)
@@ -387,6 +461,40 @@ MYREAL cdf_gamma(MYREAL a, MYREAL b, MYREAL x)
 {
   //Gamma[a, 0, xmax/b]/Gamma[a]
   return incompletegamma(x/b,a);
+}
+
+double beta_cdf(double a, double b, double x)
+{
+  int n=1000;
+  double beta_ab = exp(logpdf_beta(a, b, x)); 
+  double beta_x = incompletebeta(x,a,b,n);
+  double betacdf = beta_x / beta_ab;
+  return betacdf;
+}
+
+
+//incomplete beta using chatgpt testing with mathematica
+// this uses a simple simpson rule to approx the integral
+// and chatgpt o1 deems this a naive approach
+double incompletebeta(double x, double a, double b, int n) {
+    double sum = 0.0;
+    //double h = x / n;
+    double h = x / n;
+    for (int i = 0; i < n; i++) {
+      double t = (i+0.5) * h;
+        double logterm = log(t)*(a - 1) + log(1 - t) * (b - 1);
+	double term = exp(logterm);
+        //if (i == 0 || i == n-1) {
+	sum += term * h;
+        //} else if (i % 2 == 0) {
+        //    sum += 2. * term;
+        //} else {
+        //    sum += 4. * term;
+	//}
+    }
+    //return (h / 3.) * sum;
+    //printf("INCOMPLETEBETA: %f %f %f %f\n",h * sum, x ,a,b);
+    return sum;
 }
 
 MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
@@ -637,6 +745,54 @@ MYREAL hastings_ratio_gamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYRE
       return 0.;
     }
 
+///
+/// Hastings ratio calculator for beta distribution
+/// P(new -> old)    P(old)
+/// ------------- = -------
+/// P(old -> new)    P(new)
+/// cancels with log_prior_beta -> 0.0
+MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
+{
+  (void) oldparam;
+  (void) delta;
+  (void) r;
+  long i = whichparam;
+  if((newparam > bayes->maxparam[whichparam]) || (newparam < bayes->minparam[whichparam]))
+    return (double) -HUGE;
+  else
+    {
+      //return oldparam / newparam;//test May 2024
+      double a = bayes->alphaparam[i];
+      double b = bayes->betaparam[i];
+      return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
+       	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
+      //return 0.;
+    }
+}
+
+/// Log Prior gamma distribution ratios between old and new parameter:
+// cancels with hastings ratio
+MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+{
+  (void) oldparam;
+  long i = which;
+  if((newparam > bayes->maxparam[which]) || (newparam < bayes->minparam[which]))
+    return (double) -HUGE;
+  else
+    {
+      double a = bayes->alphaparam[i];
+      double b = bayes->betaparam[i];
+      double val = logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam) -
+      		logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam);
+      ////printf("%f ", val);
+      double num = (a - 1.) * LOG(newparam) + (b - 1.0) * LOG(1. - newparam);
+      double den = (a - 1.) * LOG(oldparam) + (b - 1.0) * LOG(1. - oldparam);
+      val = num - den;
+      return val;
+      //return 0.;
+    }
+}
+
 
 ///
 /// Log Prior gamma distribution ratios between old and new parameter:
@@ -708,6 +864,57 @@ MYREAL log_prior_gamma1(world_fmt *world, long numparam, MYREAL val)
   retval =  logpdf_truncgamma(a,b,bayes->minparam[numparam],bayes->maxparam[numparam],val);
   return retval;
 }
+
+///
+/// Beta prior distribution for theta or migration rate used in heating acceptance
+/// uses logpdf_truncbeta(a,b,min,max,x)
+MYREAL log_prior_beta(world_fmt *world, long numparam)
+{
+  //  long frompop;
+  //long topop;
+  error("do not call this, needs review!");
+  MYREAL p0;
+  long numpop = world->numpop;
+  long start = ((numparam <= numpop || numpop==1) ? 0 : numpop);
+  long stop = ((start == numpop) ? world->numpop2 : numpop);
+  long i;
+  MYREAL * param0 = world->param0;
+  bayes_fmt * bayes = world->bayes;
+  MYREAL a;
+  MYREAL b;
+  MYREAL val=0.0;
+  //warning("log_prior_beta needs fixing because we do not want to use it in this context");
+  for(i = start; i < stop; i++)
+    {
+      if(!strchr("0c", world->options->custm2[i]))
+	{
+	  p0 = param0[i];
+	  if((p0 > bayes->maxparam[i]) || (p0 < bayes->minparam[i]))
+	    return (double) -HUGE;
+	  else
+	    {
+	      a = bayes->alphaparam[i];
+	      b = bayes->betaparam[i];
+	      val += logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],p0);
+	      //old!! val += -p0 * ib + a * log(ib) + (a - 1.) * log(p0) - LGAMMA(a);
+	    }
+	}
+    }
+  return val;
+}
+
+///
+/// 
+MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val)
+{
+  bayes_fmt * bayes = world->bayes;
+  MYREAL retval;
+  MYREAL a = bayes->alphaparam[numparam];
+  MYREAL b = bayes->betaparam[numparam]; 
+  retval =  logpdf_truncbeta(a,b,bayes->minparam[numparam],bayes->maxparam[numparam],val);
+  return retval;
+}
+
 
 ///////////////////////////////////////////////////////////////////////
 // uniform prior
@@ -1314,6 +1521,7 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
 void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 {
   (void) data;
+  double m,a1;
   const long numpop = world->numpop;
   const long numpop2 = numpop * numpop;
   const int  has_mu = (int) options->bayesmurates;
@@ -1390,6 +1598,17 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 	  options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].std;
 	  options->bayes_priors[j].random = trunc_random_exp; 
 	  options->bayes_priors[j].cdf = trunc_cdf_exp;
+	  break;
+	case BETAPRIOR:
+	  //m = options->bayes_priors[j].mean / (options->bayes_priors[j].max - options->bayes_priors[j].min);
+	  m = options->bayes_priors[j].mean;
+	  a1 = options->bayes_priors[j].alpha;
+	  beta = (a1 - a1*m)/m;
+	  options->bayes_priors[j].beta = beta;
+	  options->bayes_priors[j].v[2]= (double) a1;
+	  options->bayes_priors[j].v[3]= (double) beta;
+	  options->bayes_priors[j].random = trunc_random_beta; 
+	  options->bayes_priors[j].cdf = trunc_cdf_beta;
 	  break;
 	case GAMMAPRIOR:
 	  beta = (find_beta_truncgamma(options->bayes_priors[j].mean, options->bayes_priors[j].alpha, 

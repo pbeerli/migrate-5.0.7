@@ -891,6 +891,9 @@ char * show_priordelta(char *tmp, prior_fmt *prior)
     case EXPPRIOR:
       snprintf(tmp,LINESIZE, "-"); 
       break;
+    case BETAPRIOR:
+      snprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
+      break;
     case GAMMAPRIOR:
       snprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
       break;
@@ -3534,6 +3537,8 @@ char * getpriortype(int kind)
       return "EXPPRIOR";
     case WEXPPRIOR:
       return "WEXPPRIOR";
+    case BETAPRIOR:
+      return "BETAPRIOR";
     case GAMMAPRIOR:
       return "GAMMAPRIOR";
     case UNIFORMPRIOR:
@@ -4567,6 +4572,7 @@ void set_bayes_options(char *value, option_fmt *options)
   strcpy(ptypename[SPECIESSTDPRIOR],"SPLITSTD");
   strcpy(ptypename[RATEPRIOR],"RATE");
   strcpy(ptypename[GROWTHPRIOR],"GROWTH");
+  strcpy(ptypename[MLFPRIOR],"MLF");
   
   sscanf(value,"%s%s", paramtype, priortype);
   char *valueptr = strstr(value,priortype);
@@ -4633,8 +4639,15 @@ void set_bayes_options(char *value, option_fmt *options)
       ptype = THETAPRIOR;
       
       break;
-    case 'M'/* MIG  */: 
-      ptype = MIGPRIOR; 
+    case 'M'/* MIG or MLF */:
+      if (strstr(paramtype,"MLF")) 
+	{
+	  ptype = MLFPRIOR;
+	}
+      else
+	{
+	  ptype = MIGPRIOR;
+	}
       break;
     case 'S'/* SPLIT or SPECIES  */:
       if (strstr(paramtype,"STD"))
@@ -4703,6 +4716,15 @@ void set_bayes_options(char *value, option_fmt *options)
 	prior->max = (MYREAL) maxi;
 	prior->delta = (MYREAL) delta;
 	prior->kind = WEXPPRIOR;
+	break;
+      case 'B'/*Betaprior  */:   
+	sscanf(valueptr,"%s%f%f%f%f", priortype, &mini,&meani, &maxi, &alpha);
+	prior->min = (MYREAL) mini;
+	prior->mean = (MYREAL) meani;
+	prior->max = (MYREAL) maxi;
+	prior->alpha = (MYREAL) alpha;
+	prior->kind = BETAPRIOR;
+	prior->delta = (prior->max + prior->min) / 10.;
 	break;
       case 'G'/*gammaprior  */:   
 	sscanf(valueptr,"%s%f%f%f%f", priortype, &mini,&meani, &maxi, &alpha);
@@ -6090,13 +6112,28 @@ numbercheck (option_fmt * options, char *var, char *value)
 		    options->slice_sampling[THETAPRIOR] = FALSE;
 		}
 	      break;
-	    case 'M':        get_next_word(&value,":,; ",&tmp);
-	      if(tmp != NULL)
+	    case 'M':
+	      if (strstr(tmp,"MLF")==NULL)
 		{
-		  if(uppercase(tmp[0])=='S')
-		    options->slice_sampling[MIGPRIOR] = TRUE;
-		  else
-		    options->slice_sampling[MIGPRIOR] = FALSE;
+		  get_next_word(&value,":,; ",&tmp);
+		  if(tmp != NULL)
+		    {
+		      if(uppercase(tmp[0])=='S')
+			options->slice_sampling[MIGPRIOR] = TRUE;
+		      else
+			options->slice_sampling[MIGPRIOR] = FALSE;
+		    }
+		}
+	      else
+		{
+		  get_next_word(&value,":,; ",&tmp);
+		  if(tmp != NULL)
+		    {
+		      if(uppercase(tmp[0])=='S')
+			options->slice_sampling[MLFPRIOR] = TRUE;
+		      else
+			options->slice_sampling[MLFPRIOR] = FALSE;
+		    }
 		}
 	      break;
 	    case 'D':

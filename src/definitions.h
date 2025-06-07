@@ -532,7 +532,8 @@ long chains is used */
 #define SPECIESSTDPRIOR 4
 #define SPLIT 3
 #define GROWTHPRIOR 5
-#define PRIOR_SIZE 6 /*used because of slice sampler*/
+#define MLFPRIOR 6
+#define PRIOR_SIZE 7 /*used because of slice sampler*/
 
 /*speciation distributions*/
 #define NORMALSPEC  0
