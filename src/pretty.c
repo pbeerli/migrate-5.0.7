@@ -229,14 +229,14 @@ double quantiler(double *values, double prob1, double prob2, long range1, long r
 void symbol_Theta(double lx, double ly, int size, long subscript)
 {
     char *thetatitle = "Q";
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
     double lydelta = ly - (double) 0.5 * subsize;
     if(subscript >= 0)
-        sprintf(tempstring,"%li",subscript);
+        snprintf(tempstring,STRSIZE,"%li",subscript);
     else
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     HPDF_Page_SetFontAndSize (page, symb, (float) size);
     pdf_print_contents_at(lx,ly,thetatitle);
     HPDF_Page_SetFontAndSize (page, symb, (float) subsize);
@@ -248,14 +248,14 @@ void symbol_Theta(double lx, double ly, int size, long subscript)
 void symbol_Growth(double lx, double ly, int size, long subscript)
 {
     char *growthtitle = "g";
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
     double lydelta = ly - (double) 0.5 * subsize;
     if(subscript >= 0)
-        sprintf(tempstring,"%li",subscript);
+        snprintf(tempstring,STRSIZE,"%li",subscript);
     else
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     HPDF_Page_SetFontAndSize (page, helv, (float) size);
     pdf_print_contents_at(lx,ly,growthtitle);
     HPDF_Page_SetFontAndSize (page, symb, (float) subsize);
@@ -266,14 +266,14 @@ void symbol_Growth(double lx, double ly, int size, long subscript)
 void symbol_mlf(double lx, double ly, int size, long subscript)
 {
     char *growthtitle = "a";
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
     double lydelta = ly - (double) 0.5 * subsize;
     if(subscript >= 0)
-        sprintf(tempstring,"%li",subscript);
+        snprintf(tempstring,STRSIZE,"%li",subscript);
     else
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     HPDF_Page_SetFontAndSize (page, symb, (float) size);
     pdf_print_contents_at(lx,ly,growthtitle);
     HPDF_Page_SetFontAndSize (page, symb, (float) subsize);
@@ -285,30 +285,30 @@ void symbol_mlf(double lx, double ly, int size, long subscript)
 void symbol_R(double lx, double ly, int size, long subscript)
 {
     char *thetatitle = "m";
-    char tempstring[100];
+    char tempstring[STRSIZE];
     //int subsize =  (int) (0.75 * size);
     //double lxdelta = lx + (double) 0.8 * size;
     //double lydelta = ly - (double) 0.5 * subsize;
     if(subscript > -1)
-        sprintf(tempstring,"%li",subscript);
+        snprintf(tempstring,STRSIZE,"%li",subscript);
     else
     {
         if(subscript < -1)
-            sprintf(tempstring,"combined");
+            snprintf(tempstring,STRSIZE,"combined");
         else
-            sprintf(tempstring," ");
+            snprintf(tempstring,STRSIZE," ");
     }
     HPDF_Page_SetFontAndSize (page, symb, (float) size);
     pdf_print_contents_at(lx,ly,thetatitle);
 
     HPDF_Page_SetFontAndSize (page, symb, 10.0);
-    sprintf(tempstring,"[10");
+    snprintf(tempstring,STRSIZE,"[10");
     pdf_print_contents_at(lx+13,ly,tempstring); //print the scale should look like this [x10-5]
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
-    sprintf(tempstring,"%li",subscript);
+    snprintf(tempstring,STRSIZE,"%li",subscript);
     pdf_print_contents_at(lx+26,ly+4,tempstring); // print the exponent as superscript
     HPDF_Page_SetFontAndSize (page, symb, 10.0);
-    sprintf(tempstring,"]");
+    snprintf(tempstring,STRSIZE,"]");
     pdf_print_contents_at(lx+35,ly,tempstring);
 
 
@@ -327,11 +327,11 @@ void symbol_M(double lx, double ly, int size, long subscript1, long subscript2, 
     char *migt2 = "xNm";
     char *migtitle = usem ? migt1 : migt2;
     int msub = usem ?  size/2 : size+ size/2;
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size + msub;
     double lydelta = ly - (double) 0.5 * subsize;
-    sprintf(tempstring,"%li->%li",subscript1,subscript2);
+    snprintf(tempstring,STRSIZE,"%li->%li",subscript1,subscript2);
     HPDF_Page_SetFontAndSize (page, helv, (float) size);
     pdf_print_contents_at(lx,ly,migtitle);
     HPDF_Page_SetFontAndSize (page, symb, (float) subsize);
@@ -344,11 +344,11 @@ void symbol_D(double lx, double ly, int size, long subscript1, long subscript2)
 {
     char *migtitle ="D";
     int msub = size/2;
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size + msub;
     double lydelta = ly - (double) 0.5 * subsize;
-    sprintf(tempstring,"%li->%li",subscript1,subscript2);
+    snprintf(tempstring,STRSIZE,"%li->%li",subscript1,subscript2);
     HPDF_Page_SetFontAndSize (page, symb, size);
     pdf_print_contents_at(lx,ly,migtitle);
     HPDF_Page_SetFontAndSize (page, symb, subsize);
@@ -361,11 +361,11 @@ void symbol_S(double lx, double ly, int size, long subscript1, long subscript2)
 {
     char *migtitle ="s";
     int msub = size/2;
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size + msub;
     double lydelta = ly - (double) 0.5 * subsize;
-    sprintf(tempstring,"%li->%li",subscript1,subscript2);
+    snprintf(tempstring,STRSIZE,"%li->%li",subscript1,subscript2);
     HPDF_Page_SetFontAndSize (page, symb, (float) size);
     pdf_print_contents_at(lx,ly,migtitle);
     HPDF_Page_SetFontAndSize (page, symb, (float) subsize);
@@ -377,11 +377,11 @@ void symbol_S(double lx, double ly, int size, long subscript1, long subscript2)
 void symbol_Hexp(double lx, double ly, int size)
 {
     char *title = "H";
-    char tempstring[100];
+    char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
     double lydelta = ly - (double) 0.5 * subsize;
-    sprintf(tempstring,"exp");
+    snprintf(tempstring,STRSIZE,"exp");
     HPDF_Page_SetFontAndSize (page, helv, (float) size);
     pdf_print_contents_at(lx,ly,title);
     HPDF_Page_SetFontAndSize (page, helv, (float) subsize);
@@ -460,7 +460,7 @@ void   pdf_draw_tick(double xs, double ys, int orientation, double ticklength, d
     double tl = ticklength;
     char *title;
     title = (char *) mycalloc(100,sizeof(char));
-    sprintf(title,"%.*f",digits, value);
+    snprintf(title,LINESIZE,"%.*f",digits, value);
     w = (double) HPDF_Page_TextWidth(page, title);
     h = (double) HPDF_Page_GetCurrentFontSize(page);
     if(orientation==HORIZONTAL)
@@ -1226,7 +1226,7 @@ int pdf_new_page(char *title)
     /* print the title of the analysis*/
     pdf_print_header(pdf_pagetitle);
     /* print the impressum at the bottome*/
-    sprintf(stemp,"Migrate %s: (http://popgen.sc.fsu.edu) [program run on %s]",MIGRATEVERSION, pdf_time);
+    snprintf(stemp,LINESIZE,"Migrate %s: (http://popgen.sc.fsu.edu) [program run on %s]",MIGRATEVERSION, pdf_time);
     HPDF_Page_SetFontAndSize (page, helv, 6.0);
     pdf_print_contents_at(50, 42, stemp);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
@@ -1248,7 +1248,7 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
     //long cols = 4;
     double lx = left_margin;
     double ly;
-    char st[100];
+    char st[STRSIZE];
     double mumean=0.0;
     double segregmean=0.0;
     double wamean=0.0;
@@ -1281,27 +1281,27 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
     for (locus=0; locus < loci; locus++)
     {
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
-        sprintf(st,"%5li",locus+1);
+        snprintf(st,STRSIZE,"%5li",locus+1);
         pdf_print_line_element(lx, page_height, offset[0], st);
         pdf_print_line_element2(lx, page_height, offset[1], (double) murates[locus],5,5);
         mumean += (murates[locus] - mumean)/(locus+1);
         if(wattersons != NULL)
         {
 	  pdf_print_line_element2(lx, page_height, offset[2], (double) wattersons[locus],2,8);
-            sprintf(st,"%6li",segregs[locus]);
+            snprintf(st,STRSIZE,"%6li",segregs[locus]);
             pdf_print_line_element(lx, page_height, offset[3], st);
             wamean += (wattersons[locus] - wamean)/(locus+1);
             segregmean += (segregs[locus] - segregmean)/(locus+1);
         }
         else
         {
-            sprintf(st,"%6li",segregs[locus]);
+            snprintf(st,STRSIZE,"%6li",segregs[locus]);
             pdf_print_line_element(lx, page_height, offset[2], st);
             segregmean += (segregs[locus] - segregmean)/(locus+1);
         }
         pdf_advance(&page_height);
     }
-    sprintf(st,"%6s","All");
+    snprintf(st,STRSIZE,"%6s","All");
     pdf_print_line_element(lx, page_height, offset[0], st);
     pdf_print_line_element2(lx, page_height, offset[1], mumean,5,5);
     if (wattersons!=NULL)
@@ -1343,7 +1343,7 @@ int pdf_print_header(char *title)
     
     fulltitle = (char*) mycalloc(255,sizeof(char));
     /* Print the title of the page (with positioning center). */
-    sprintf(fulltitle,"%s -- %i",title, page_counter);
+    snprintf(fulltitle,LINESIZE,"%s -- %i",title, page_counter);
     //printf("%s\n",fulltitle);
     w = (double) HPDF_Page_TextWidth(page, fulltitle);
     /* Start to print text. */
@@ -1487,7 +1487,7 @@ double pdf_print_line_element2(double lx, double ly, double offset, double value
     if (fabs(value)>(double) HUGE)
       {
 	if (value<0)
-	  sprintf(sign,"-");
+	  snprintf(sign,2,"-");
 	snprintf(title,sizeof(title),"%sHUGE",sign);
       }
     else
@@ -1503,12 +1503,12 @@ double pdf_print_line_element2(double lx, double ly, double offset, double value
 
 void pdf_print_line_theta(double lx, double ly, double offset, long j)
 {
-    char tempstring[100];
+    char tempstring[STRSIZE];
     char * thetatitle="Q";
     if(j < 0)
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     else
-        sprintf(tempstring,"%li",j+1);
+        snprintf(tempstring,STRSIZE,"%li",j+1);
     HPDF_Page_SetFontAndSize (page, symb, 11.0);
     pdf_print_contents_at(lx-offset,ly,thetatitle);
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
@@ -1517,12 +1517,12 @@ void pdf_print_line_theta(double lx, double ly, double offset, long j)
 }
 void pdf_print_line_growth(double lx, double ly, double offset, long j)
 {
-    char tempstring[100];
+    char tempstring[STRSIZE];
     char * growthtitle="g";
     if(j < 0)
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     else
-        sprintf(tempstring,"%li",j+1);
+        snprintf(tempstring,STRSIZE,"%li",j+1);
     HPDF_Page_SetFontAndSize (page, helv, 11.);
     pdf_print_contents_at(lx-offset,ly,growthtitle);
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
@@ -1532,12 +1532,12 @@ void pdf_print_line_growth(double lx, double ly, double offset, long j)
 
 void pdf_print_line_mlf(double lx, double ly, double offset, long j)
 {
-    char tempstring[100];
+    char tempstring[STRSIZE];
     char * growthtitle="a";
     if(j < 0)
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     else
-        sprintf(tempstring,"%li",j+1);
+        snprintf(tempstring,STRSIZE,"%li",j+1);
     HPDF_Page_SetFontAndSize (page, symb, 11.0);
     pdf_print_contents_at(lx-offset,ly,growthtitle);
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
@@ -1547,14 +1547,14 @@ void pdf_print_line_mlf(double lx, double ly, double offset, long j)
 
 void pdf_print_line_species(char *title, double lx, double ly, double offset, long frompop, long topop)
 {
-    char tempstring[100];
-    char tostring[100];
+    char tempstring[STRSIZE];
+    char tostring[STRSIZE];
     // title is either "D" or "s";
     if(topop < 0)
-        sprintf(tostring,"+");
+        snprintf(tostring,STRSIZE,"+");
     else
-        sprintf(tostring,"%li",topop+1);
-    sprintf(tempstring,"%li->%s",frompop+1,tostring);
+        snprintf(tostring,STRSIZE,"%li",topop+1);
+    snprintf(tempstring,STRSIZE,"%li->%s",frompop+1,tostring);
     HPDF_Page_SetFontAndSize (page, symb, 11.0);
     pdf_print_contents_at(lx-offset,ly,title);
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
@@ -1565,25 +1565,25 @@ void pdf_print_line_species(char *title, double lx, double ly, double offset, lo
 /// print rate line
 void pdf_print_line_rate(double lx, double ly, double offset, long j, long exponent)
 {
-    char tempstring[100];
+    char tempstring[STRSIZE];
     char * rtitle="m";
     if(j < 0)
-        sprintf(tempstring," ");
+        snprintf(tempstring,STRSIZE," ");
     else
-        sprintf(tempstring,"%li",j+1);
+        snprintf(tempstring,STRSIZE,"%li",j+1);
     HPDF_Page_SetFontAndSize (page, symb, 10.0);
     pdf_print_contents_at(lx-offset,ly,rtitle); // print mu
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
     pdf_print_contents_at(lx-offset+10,ly-4,tempstring);//print locus number as subscript
     
     HPDF_Page_SetFontAndSize (page, symb, 10.0);
-    sprintf(tempstring,"[10");
+    snprintf(tempstring,STRSIZE,"[10");
     pdf_print_contents_at(lx-offset+13,ly,tempstring); //print the scale should look like this [x10-5]
     HPDF_Page_SetFontAndSize (page, symb, 8.0);
-    sprintf(tempstring,"%li",exponent);
+    snprintf(tempstring,STRSIZE,"%li",exponent);
     pdf_print_contents_at(lx-offset+26,ly+4,tempstring); // print the exponent as superscript
     HPDF_Page_SetFontAndSize (page, symb, 10.0);
-    sprintf(tempstring,"]");
+    snprintf(tempstring,STRSIZE,"]");
     pdf_print_contents_at(lx-offset+35,ly,tempstring);
     
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
@@ -1594,13 +1594,13 @@ void pdf_print_line_rate(double lx, double ly, double offset, long j, long expon
 void  pdf_print_line_mig(char *migtitle, double lx, double mypage_height, double offset, long frompop, long topop)
 {
     double w;
-    char tostring[100];
-    char tempstring[100];
+    char tostring[STRSIZE];
+    char tempstring[STRSIZE];
     if(topop < 0)
-        sprintf(tostring,"+");
+        snprintf(tostring,STRSIZE,"+");
     else
-        sprintf(tostring,"%li",topop+1);
-    sprintf(tempstring,"%li->%s",frompop+1,tostring);
+        snprintf(tostring,STRSIZE,"%li",topop+1);
+    snprintf(tempstring,STRSIZE,"%li->%s",frompop+1,tostring);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     pdf_print_contents_at(lx-offset, mypage_height,migtitle);
     w = (double) HPDF_Page_TextWidth(page, migtitle);
@@ -1660,7 +1660,7 @@ void pdf_print_bayestable(world_fmt *world)
     
     //    double w;
     
-    char st[100];
+    char st[STRSIZE];
     char title[100] = "Bayesian Analysis: Posterior distribution table";
     long frompop;
     long topop;
@@ -1699,7 +1699,7 @@ void pdf_print_bayestable(world_fmt *world)
             if(locus == world->loci)
                 strcpy(st,"  All ");
             else
-                sprintf(st,"%5li ",locus + 1);
+                snprintf(st,STRSIZE,"%5li ",locus + 1);
             
             for(j0=0; j0< size; j0++)
             {
@@ -1842,7 +1842,7 @@ pdf_bayes_print_accept(world_fmt *world)
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
     stemp = stempo;
     
-    sprintf(title,"Acceptance ratios for all parameters and the genealogies");
+    snprintf(title,LINESIZE,"Acceptance ratios for all parameters and the genealogies");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2000,7 +2000,7 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
       return;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
     stemp = stempo;
-    sprintf(title,"Hyperpriors");
+    snprintf(title,LINESIZE,"Hyperpriors");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2132,7 +2132,7 @@ pdf_bayes_print_ess(world_fmt *world)
     stemp = stempo;
     long tc = world->numpop2+world->bayes->mu + 2 * world->species_model_size;
     long tcg = world->numpop2+world->bayes->mu + 2 * world->species_model_size + world->grownum;
-    sprintf(title,"MCMC-Autocorrelation and Effective MCMC Sample Size");
+    snprintf(title,LINESIZE,"MCMC-Autocorrelation and Effective MCMC Sample Size");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2260,7 +2260,7 @@ void pdf_bayes_factor_header(world_fmt *world, option_fmt *options)
     double w;
     left_margin = 55;
     double page_width;
-    sprintf(title,"Log-Probability of the data given the model (marginal likelihood)");
+    snprintf(title,LINESIZE,"Log-Probability of the data given the model (marginal likelihood)");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2411,7 +2411,7 @@ void pdf_burnin_stops(world_fmt *world, long maxreplicate)
     char title[LINESIZE];
     left_margin = 55;
     double page_width;
-    sprintf(title,"Stop of burnin-in phase due to convergence");
+    snprintf(title,LINESIZE,"Stop of burnin-in phase due to convergence");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2478,7 +2478,7 @@ because the data contains little or no information for that route. \
 Increasing the prior range will not help in such situations, but \
 reducing the number of parameters may help.";
     section = (char *) mycalloc(LINESIZE,sizeof(char));
-    sprintf(title,"Potential Problems");
+    snprintf(title,LINESIZE,"Potential Problems");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -2521,7 +2521,7 @@ reducing the number of parameters may help.";
     if(world->warningsize > 0)
     {
         buffer = (char *) mycalloc(strlen(world->warning)+1,sizeof(char));
-        sprintf(buffer,"%s",world->warning);
+        snprintf(buffer,LINESIZE,"%s",world->warning);
         b = buffer;
         tmp = strsep(&buffer,"\n");
         while(tmp!=NULL)
@@ -2626,7 +2626,7 @@ void pdf_print_end_time(double *mypage_height)
     get_time(nowstr, "  %c");
     endseconds = time(0);
     get_runtime(runtime,startseconds,endseconds);
-    sprintf(title,"Program finished at %s [%s]", nowstr, runtime);
+    snprintf(title,LINESIZE,"Program finished at %s [%s]", nowstr, runtime);
     
     if (nowstr[0] != '\0')
     {
@@ -2809,7 +2809,7 @@ double pdf_locus_histogram(world_fmt *world, long locus)
     
     char *set50        = bayes->histogram[locus].set50;
     char *set95        = bayes->histogram[locus].set95;
-    char title[100];
+    char title[STRSIZE];
     MYREAL meanmu      = 0.0;
     MYREAL mu          = 0.0;
     long lmu         = 0;
@@ -2821,9 +2821,9 @@ double pdf_locus_histogram(world_fmt *world, long locus)
     
     // set the title of the section
     if (locus < world->loci)
-      sprintf(title,"%s %li","Bayesian Analysis: Posterior distribution for locus",locus + 1);
+      snprintf(title,STRSIZE,"%s %li","Bayesian Analysis: Posterior distribution for locus",locus + 1);
     else
-      sprintf(title,"%s","Bayesian Analysis: Posterior distribution over all loci");
+      snprintf(title,STRSIZE,"%s","Bayesian Analysis: Posterior distribution over all loci");
 
     pdf_title(title, page_width);
     
@@ -2955,9 +2955,9 @@ void pdf_printf_right(double x, double y, char string[],...)
 	char fp[LINESIZE];
 	va_list args;
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
-    sprintf(fp,"%s",message);
+    snprintf(fp,LINESIZE,"%s",message);
     w = (double) HPDF_Page_TextWidth(page, fp);
     pdf_print_contents_at(/*page_width-*/x-w, y, fp);
 }
@@ -2973,9 +2973,9 @@ void pdf_printf_right_next(double x, double *y, char string[],...)
     char fp[LINESIZE];
     va_list args;
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
-    sprintf(fp,"%s",message);
+    snprintf(fp,LINESIZE,"%s",message);
     w = (double) HPDF_Page_TextWidth(page, fp);
     pdf_print_contents_at(page_width-x-w, *y, fp);
     pdf_advance(y);
@@ -2990,9 +2990,9 @@ void pdf_printf_ralign(double rx, double y, char string[], ...)
 	char fp[LINESIZE];
 	va_list args;
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
-	sprintf(fp,"%s",message);
+	snprintf(fp,LINESIZE,"%s",message);
     w = (double) HPDF_Page_TextWidth(page, fp);
     pdf_print_contents_at(rx-w, y, fp);
 }
@@ -3003,10 +3003,10 @@ void pdf_printf_ralign(double rx, double y, char string[], ...)
 /// Prints mutable char; like putc.
 void pdf_putc(double *x, double *y, double leftborder, double rightborder, char message)
 {
-    char fp[100];
+    char fp[STRSIZE];
     double w;
     
-    sprintf(fp,"%c",message);
+    snprintf(fp,STRSIZE,"%c",message);
     fp[1]='\0';
     w = (double) HPDF_Page_TextWidth(page, fp);
     if(*x + w >= rightborder)
@@ -3031,10 +3031,10 @@ void pdf_printf(double x, double y, char align, char string[], ...)
     va_list args;
     
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
     
-    sprintf(fp,"%s",message);
+    snprintf(fp,LINESIZE,"%s",message);
     
     w = (double) HPDF_Page_TextWidth(page, fp);
     switch(align)
@@ -3061,9 +3061,9 @@ void pdf_printf_next(double x, double *y, char string[], ...)
 	char fp[LINESIZE];
 	va_list args;
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
-	sprintf(fp,"%s",message);
+	snprintf(fp,LINESIZE,"%s",message);
     pdf_print_contents_at(x, *y, fp);
     pdf_advance(y);
 }
@@ -3079,9 +3079,9 @@ void pdf_printf_cell(double *x, double *y, double width, char string[], ...)
     va_list args;
     
     va_start (args, string);
-    vsprintf (message, string, args);
+    vsnprintf (message, LINESIZE, string, args);
     va_end (args);
-    sprintf(fp,"%s",message);
+    snprintf(fp,LINESIZE,"%s",message);
     w = (double) HPDF_Page_TextWidth(page, fp);
     if((w + *x) >=  width)
     {
@@ -3362,7 +3362,7 @@ void    pdf_print_distance_table (world_fmt * world, option_fmt * options, data_
 void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 {
   //const char text[8][20]={"All", "Multiplier", "Exponent.", "Exp window", "Gamma", "Uniform", "Truncated Normal", "-"};
-    char ptypename[100];
+    char ptypename[STRSIZE];
     double page_width;
     //page_height = *orig_page_height;
     left_margin = 55;
@@ -3629,7 +3629,7 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
                 ii=0;
                 for (i = 0; i < world->loci-1; i++)
                 {
-                    sprintf(mytext,"%.5f, ", options->mu_rates[i]);
+                    snprintf(mytext,LINESIZE,"%.5f, ", options->mu_rates[i]);
                     if (i % 6 == 5)
                     {
                         ii=0;
@@ -3674,9 +3674,9 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     //pdf_advance(&page_height);
     pdf_print_contents_at(left_margin, page_height," -Population size estimation:");
     if (options->mlalpha<1.0)
-      sprintf(mytext6,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
+      snprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
     else
-      sprintf(mytext6,"Exponential Distribution");
+      snprintf(mytext6,LINESIZE,"Exponential Distribution");
     pdf_printf_right_next(left_margin, &page_height,"%s",mytext6);
     //pdf_advance(&page_height);
 
@@ -3774,19 +3774,19 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	else
 	  numparam++;
       }
-    sprintf(mytext5,"%5.5f", (world->options->choices[1] - world->options->choices[0])/numparam);
+    snprintf(mytext5,LINESIZE,"%5.5f", (world->options->choices[1] - world->options->choices[0])/numparam);
     for(i=0; i < pnum; i++)
       {
 	long pa=i;
 	prior_fmt *ptr = &p[i];
 	switch(ptr->type)
 	  {
-	  case THETAPRIOR: 	  sprintf(ptypename,"%-s","Theta");break;
-	  case GROWTHPRIOR: 	  sprintf(ptypename,"%-s","Growth");break;
-	  case MIGPRIOR: 	  sprintf(ptypename,"%-s",options->usem ? "M" : "xNm");break;
-	  case RATEPRIOR: 	  sprintf(ptypename,"%-s","Rate modif.");break;
-	  case SPECIESTIMEPRIOR: 	  sprintf(ptypename,"%-s","Splittime mean");break;
-	  case SPECIESSTDPRIOR: 	  sprintf(ptypename,"%-s","Splittime std");break;
+	  case THETAPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s","Theta");break;
+	  case GROWTHPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s","Growth");break;
+	  case MIGPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s",options->usem ? "M" : "xNm");break;
+	  case RATEPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s","Rate modif.");break;
+	  case SPECIESTIMEPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s","Splittime mean");break;
+	  case SPECIESSTDPRIOR: 	  snprintf(ptypename,STRSIZE,"%-s","Splittime std");break;
 	  }
 	if(shortcut(i,world,&pa))
 	  continue;
@@ -3795,13 +3795,13 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	long from = p[pa].from;
 	long to = p[pa].to;
 	if (from== -1)
-	  sprintf(fstr,"*  ");
+	  snprintf(fstr,4,"*  ");
 	else
-	  sprintf(fstr,"%2li",from+1);
+	  snprintf(fstr,4,"%2li",from+1);
 	if (to == - 1)
-	  sprintf(tstr,"*");
+	  snprintf(tstr,4,"*");
 	else
-	  sprintf(tstr,"%li",to+1);
+	  snprintf(tstr,4,"%li",to+1);
 	is_priorkind(ptr, priorkind);
 	pdf_print_tableline(width, "%3li %s %s %s %s %s %5.5s %5.5s %9.9s %6.6s %s", z++ /*pa*/, ptypename, fstr, tstr,
 			    //text[is_priortype(options->bayes_priors,options->bayes_priors_num, options->bayes_priors[pa].type)],
@@ -3823,14 +3823,14 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     char smoothing2[STRSIZE] = {"--"};
     switch(options->smoothing[0])
       {
-      case BINNING: sprintf(smoothing1,"BINNING"); break;
-      case KERNEL: sprintf(smoothing1,"KERNEL SMOOTHING (window=%li)",options->smoothing_window[0]*2+1); break;
+      case BINNING: snprintf(smoothing1,STRSIZE,"BINNING"); break;
+      case KERNEL: snprintf(smoothing1,STRSIZE,"KERNEL SMOOTHING (window=%li)",options->smoothing_window[0]*2+1); break;
       }
     switch(options->smoothing[1])
       {
-      case NONE: sprintf(smoothing2,"NO SMOOTHING"); break;
-      case AVERAGE: sprintf(smoothing2,"MOVING AVERAGE SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
-      case SAVITZKY: sprintf(smoothing2,"SAVITZKY-GOLAY SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
+      case NONE: snprintf(smoothing2,STRSIZE,"NO SMOOTHING"); break;
+      case AVERAGE: snprintf(smoothing2,STRSIZE,"MOVING AVERAGE SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
+      case SAVITZKY: snprintf(smoothing2,STRSIZE,"SAVITZKY-GOLAY SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
       }
     /* TODO smothing section needs better explanation and also needs to be called
        currently this is using bayes_smooth and not kernel_smooth or savitzky()*/
@@ -3839,10 +3839,10 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_advance(&page_height);
     pdf_print_contents_at(left_margin, page_height,"Parameter values were collected using MCMC, these values");
     pdf_advance(&page_height);
-    sprintf(mytext,"were then used to generate the posterior histograms using %s",smoothing1);
+    snprintf(mytext,LINESIZE,"were then used to generate the posterior histograms using %s",smoothing1);
     pdf_print_contents_at(left_margin, page_height,mytext);
     pdf_advance(&page_height);
-    sprintf(mytext,"and subsequent %s for combination over loci\n", smoothing2);
+    snprintf(mytext,LINESIZE,"and subsequent %s for combination over loci\n", smoothing2);
     pdf_print_contents_at(left_margin, page_height, mytext);
     pdf_advance(&page_height);
     pdf_advance(&page_height);
@@ -4455,7 +4455,7 @@ void pdf_print_allelelegend(double *column_width, long loci)
 {
     long locus;
     char stemp[LINESIZE];
-    sprintf(stemp, "%-s", (loci == 1 ? "locus" : "loci "));
+    snprintf(stemp,LINESIZE, "%-s", (loci == 1 ? "locus" : "loci "));
     
     pdf_printf(column_width[0], page_height, 'L', "Indiv.");
     for(locus=1; locus < loci+1; locus++)
@@ -4566,7 +4566,7 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
         }
     }
     // calculate columnwidth for in page units for individual name and locus column
-    column_width[1] = 5.0 + (double) (sprintf(stemp, "%-*.*s", (int) options->nmlength,
+    column_width[1] = 5.0 + (double) (snprintf(stemp,LINESIZE, "%-*.*s", (int) options->nmlength,
 					    (int) options->nmlength, data->indnames[0][0][0]));
     w = (double) HPDF_Page_TextWidth(page, stemp);
     pixel = w / options->nmlength;
@@ -4660,8 +4660,8 @@ void pdf_print_sequence(double right_margin, data_fmt *data, long locus, long po
     w = 6.;
     for(site=0; site < data->seq[0]->sites[locus]; site+=1)
     {
-        //        sprintf(stemp,"%-10.10s", data->yy[pop][ind][locus][0][site]);
-        sprintf(stemp,"%1s", data->yy[pop][ind][locus][0][site]);
+        //        snprintf(stemp,LINESIZE,"%-10.10s", data->yy[pop][ind][locus][0][site]);
+        snprintf(stemp,LINESIZE,"%1s", data->yy[pop][ind][locus][0][site]);
         HPDF_Page_SetFontAndSize (page, cour, 9.0);
         pdf_print_contents_at(left_margin + wtot, page_height, stemp);
         wtot += w;
@@ -4687,7 +4687,7 @@ void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, optio
     double page_width = (double) HPDF_Page_GetWidth(page);
     top = (long *) mycalloc((data->loci * data->numpop),sizeof(long));
     // calculate columnwidth for in page units for individual name and locus column
-    column_width[1] = 1.0 + (double) (sprintf(stemp, "%-*.*s", (int) options->nmlength,
+    column_width[1] = 1.0 + (double) (snprintf(stemp,LINESIZE, "%-*.*s", (int) options->nmlength,
 					      (int) options->nmlength, data->indnames[0][0][0]));
     w = (double) HPDF_Page_TextWidth(page, stemp);
     //xcode pixel = w / options->nmlength;
@@ -4901,7 +4901,7 @@ void pdf_print_replicate(double lx, world_fmt *world, long maxrep, long rep, lon
   (void) world;
     double *ly = &page_height;
     char repstring[LINESIZE];
-    sprintf (repstring, "%li", rep + 1);
+    snprintf(repstring,LINESIZE, "%li", rep + 1);
     pdf_printf(lx, *ly, 'L', "%li %s", locus + 1, maxrep > 1 ? (rep == maxrep - 1 ? " A" : repstring) : "  ");
 }
 
@@ -5103,7 +5103,7 @@ pdf_print_results (world_fmt ** universe, option_fmt * options, data_fmt * data)
         if (world->atl[rep][world->loci].param[world->numpop2] < 10e-9)
             strcpy (cva, "0");
         else
-            sprintf (cva, "%f",
+            snprintf(cva,LINESIZE, "%f",
                      sqrt (1. / world->atl[rep][world->loci].param[world->numpop2]));
         pdf_printf(lx[0],*ly,'L',"With shape parameter Alpha=%g ([1/CV(mu)]^2; CV(mu)=%s)",
                    world->atl[rep][world->loci].param[world->numpop2],
@@ -5203,21 +5203,21 @@ long nice_element(MYREAL param, char *element, MYREAL lower, MYREAL mid, MYREAL 
 {
     long position = 0;
     if (param < lower)
-        position = sprintf(element,"%.2e", param);
+        position = snprintf(element,LINESIZE,"%.2e", param);
     else
     {
         if (param > upper)
-            position = sprintf(element,"%.2e", param);
+            position = snprintf(element,LINESIZE,"%.2e", param);
         else
         {
             if(param > mid)
-                position = sprintf(element,"%.*f", mid_upper_digits,param);
+                position = snprintf(element,LINESIZE,"%.*f", mid_upper_digits,param);
             else
-                position = sprintf(element,"%.*f", low_mid_digits,param);
+                position = snprintf(element,LINESIZE,"%.*f", low_mid_digits,param);
         }
     }
     if(delimiter != '\0')
-        position += sprintf(element + position,"%c",delimiter);
+        position += snprintf(element + position,LINESIZE,"%c",delimiter);
     return position;
 }
 
@@ -5285,7 +5285,7 @@ void  translate_buffer_table(long cols, long rows, char **thebuffer, char **head
             break;
         else
         {
-            sprintf(header[z++],"%s",temp);
+            snprintf(header[z++],LINESIZE,"%s",temp);
         }
     }
     z=0;
@@ -5309,7 +5309,7 @@ void  translate_buffer_table(long cols, long rows, char **thebuffer, char **head
         {
             if(z<cols)
             {
-                sprintf(elements[r][z],"%s",temp);
+                snprintf(elements[r][z],LINESIZE,"%s",temp);
                 z++;
             }
             else
@@ -5345,7 +5345,7 @@ void  extract_column_buffer_table(long col, long cols, long rows, char **thebuff
         else
         {
             z++;
-            //            sprintf(header[z++],"%s",temp);
+            //            snprintf(header[z++],LINESIZE,"%s",temp);
         }
     }
     z=0;
@@ -5372,7 +5372,7 @@ void  extract_column_buffer_table(long col, long cols, long rows, char **thebuff
             
             if(z<cols)
             {
-                //sprintf(elements[r][z],"%s",temp);
+                //snprintf(elements[r][z],LINESIZE,"%s",temp);
                 z++;
             }
             else
@@ -5731,9 +5731,9 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
     
     
     if (loci > 1)
-        sprintf(title,"Summary of events through time over all loci");
+        snprintf(title,LINESIZE,"Summary of events through time over all loci");
     else
-        sprintf(title,"Events through time");
+        snprintf(title,LINESIZE,"Events through time");
     
     // add a new page so that we can print at least four histograms
     pdf_new_page("");
@@ -5910,12 +5910,12 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
     
     if (loci > 1)
     {
-        sprintf(title,"Summary of parameter values through %s over all loci",
+        snprintf(title,LINESIZE,"Summary of parameter values through %s over all loci",
                 enlarged ? "RECENT time" : "time");
     }
     else
     {
-        sprintf(title,"Parameter values through %s",enlarged ? "RECENT time" : "time");
+        snprintf(title,LINESIZE,"Parameter values through %s",enlarged ? "RECENT time" : "time");
     }
     // add a new page so that we can print at least four histograms
     pdf_new_page("");
@@ -6138,9 +6138,9 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                    options->randomsubset);
         pdf_advance(&page_height);
         charvec2d(&header, 3,LINESIZE);
-        sprintf(header[0],"Locus");
-        sprintf(header[1],"Population");
-        sprintf(header[2],"Individuals");
+        snprintf(header[0],LINESIZE,"Locus");
+        snprintf(header[1],LINESIZE,"Population");
+        snprintf(header[2],LINESIZE,"Individuals");
         name = (char*) mycalloc(options->nmlength+1,sizeof(char));
         elements = (char ***) mycalloc(elements_alloc, sizeof(char**));
         linenumber=0;
@@ -6158,10 +6158,10 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                 elements[linenumber][1] = (char *) mycalloc(12, sizeof(char));
                 elements[linenumber][2] = (char *) mycalloc(LINELENGTH, sizeof(char));
                 if(pop==0)
-                    sprintf(elements[linenumber][0],"%5li ",locus+1);
+                    snprintf(elements[linenumber][0],LINESIZE,"%5li ",locus+1);
                 else
-                    sprintf(elements[linenumber][0]," ");
-                sprintf(elements[linenumber][1], "%-10.10s ", data->popnames[pop]);
+                    snprintf(elements[linenumber][0],LINESIZE," ");
+                snprintf(elements[linenumber][1],LINESIZE, "%-10.10s ", data->popnames[pop]);
                 maxnum = options->randomsubset < data->numind[pop][locus] ? options->randomsubset : data->numind[pop][locus];
                 count = 0;//18 characters are already consumed on line, see below
                 for(ind=0;ind<maxnum;ind++)
@@ -6175,11 +6175,11 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                     length = (long) strlen(name);
                     if (count+length < LINELENGTH-18)
                     {
-                        count += sprintf(elements[linenumber][2] + count ,"%s ",name);
+                        count += snprintf(elements[linenumber][2] + count,LINESIZE,"%s ",name);
                     }
                     else
                     {
-                        sprintf(elements[linenumber][2] + count ,"\n");
+                        snprintf(elements[linenumber][2] + count,LINESIZE,"\n");
                         count = 0;
                         linenumber++;
                         if(linenumber>=elements_alloc)
@@ -6191,9 +6191,9 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                         elements[linenumber][0] = (char *) mycalloc(7, sizeof(char));
                         elements[linenumber][1] = (char *) mycalloc(12, sizeof(char));
                         elements[linenumber][2] = (char *) mycalloc(LINELENGTH, sizeof(char));
-                        sprintf(elements[linenumber][0]," ");
-                        sprintf(elements[linenumber][1]," ");
-                        count += sprintf(elements[linenumber][2] + count ,"%s ",name);
+                        snprintf(elements[linenumber][0],LINESIZE," ");
+                        snprintf(elements[linenumber][1],LINESIZE," ");
+                        count += snprintf(elements[linenumber][2] + count,LINESIZE,"%s ",name);
                     }
                 }
                 linenumber++;
@@ -6249,13 +6249,13 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
     // loop over loci
     pdf_advance(&page_height);
     // header
-    sprintf(header[0],"Allele");
+    snprintf(header[0],LINESIZE,"Allele");
     for(pop1=0; pop1 < data->numpop; pop1++)
     {
         pop = options->newpops[pop1]-1;
-        sprintf(header[pop1+1],"Pop%-3li",pop+1);
+        snprintf(header[pop1+1],LINESIZE,"Pop%-3li",pop+1);
     }
-    sprintf(header[pop1+1],"All");
+    snprintf(header[pop1+1],LINESIZE,"All");
     for(locus=0; locus < data->allsubloci; locus++)
     {
         s= &world->mutationmodels[locus];
@@ -6285,7 +6285,7 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
             //for(a=0; a < s->maxalleles; a++)
 	    for(a=0; a < s->numstates; a++)
             {
-                sprintf(elements[a][0],"%s ",data->allele[sublocus][a]);
+                snprintf(elements[a][0],LINESIZE,"%s ",data->allele[sublocus][a]);
                 allfreq = 0.0;
                 for(pop1=0; pop1 < data->numpop; pop1++)
                 {
@@ -6294,32 +6294,32 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
                     if (freq[pop][locus][a]>0.0)
                     {
                         maxallelepop[pop1] += 1;
-                        sprintf(elements[a][pop1+1],"%1.3f",freq[pop][sublocus][a]/total[pop][sublocus]);
+                        snprintf(elements[a][pop1+1],LINESIZE,"%1.3f",freq[pop][sublocus][a]/total[pop][sublocus]);
                         allfreq += freq[pop][sublocus][a];
                     }
                     else
                     {
-                        sprintf(elements[a][pop1+1],"  -  ");
+                        snprintf(elements[a][pop1+1],LINESIZE,"  -  ");
                     }
                 }
-                sprintf(elements[a][pop1+1],"%1.3f",allfreq/grandtotal[sublocus]);
+                snprintf(elements[a][pop1+1],LINESIZE,"%1.3f",allfreq/grandtotal[sublocus]);
                 fx  =  (double) (allfreq/grandtotal[sublocus]);
                 general_homo += fx * fx;
             }
-            sprintf(elements[a][0],"Alleles");
+            snprintf(elements[a][0],LINESIZE,"Alleles");
             for(pop1=0; pop1 < data->numpop; pop1++)
             {
-                sprintf(elements[a][pop1+1],"%li",maxallelepop[pop1]);
+                snprintf(elements[a][pop1+1],LINESIZE,"%li",maxallelepop[pop1]);
             }
-            //sprintf(elements[a][pop1+1],"%li",s->maxalleles);
-	    sprintf(elements[a][pop1+1],"%li",s->numstates);
-	    sprintf(elements[a+1][0],"Samplesize");
+            //snprintf(elements[a][pop1+1],LINESIZE,"%li",s->maxalleles);
+	    snprintf(elements[a][pop1+1],LINESIZE,"%li",s->numstates);
+	    snprintf(elements[a+1][0],LINESIZE,"Samplesize");
 	    for(pop1=0; pop1 < data->numpop; pop1++)
 	      {
-		sprintf(elements[a+1][pop1+1],"%li", (long) total[pop1][locus]);
+		snprintf(elements[a+1][pop1+1],LINESIZE,"%li", (long) total[pop1][locus]);
 	      }
-	    sprintf(elements[a+1][pop1+1],"%li",(long) grandtotal[locus]);
-            sprintf(elements[a+2][0],"_H_exp");
+	    snprintf(elements[a+1][pop1+1],LINESIZE,"%li",(long) grandtotal[locus]);
+            snprintf(elements[a+2][0],LINESIZE,"_H_exp");
             for (pop1 = 0; pop1 < data->numpop; pop1++)
             {
                 pop = options->newpops[pop1]-1;
@@ -6333,9 +6333,9 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
                 v = 1.0 - homo;
                 //avghet1 += v;
                 //avghet[pop1] += v;
-                sprintf(elements[a+2][pop1+1],"%5.3f",v);
+                snprintf(elements[a+2][pop1+1],LINESIZE,"%5.3f",v);
             }
-            sprintf(elements[a+2][pop1+1]," %5.3f",1.0-general_homo);
+            snprintf(elements[a+2][pop1+1],LINESIZE," %5.3f",1.0-general_homo);
             //avghet1 += 1.0 - general_homo;
             //pdf_table2((int) (data->numpop+2),(int) (s->maxalleles+3), header, NULL, elements, NULL, 2, 10.0);
 	    pdf_table2((int) (data->numpop+2),(int) (s->numstates+3), header, NULL, elements, NULL, 2, 10.0);
@@ -6347,10 +6347,10 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
     for (pop1 = 0; pop1 < data->numpop; pop1++)
     {
       //pop = options->newpops[pop1]-1;
-        sprintf(elements[0][pop1+1], "%5.3f ",avghet[pop1] / data->loci);
+        snprintf(elements[0][pop1+1],LINESIZE, "%5.3f ",avghet[pop1] / data->loci);
         //avghetall += avghet[pop1] / data->loci;
     }
-    sprintf(elements[0][pop1+1],"%5.3f",avghet1/data->loci);
+    snprintf(elements[0][pop1+1],LINESIZE,"%5.3f",avghet1/data->loci);
     strcpy(header[0]," ");
     strcpy(elements[0][0],"_H_exp");
     pdf_table2((int)(data->numpop+2),1, header, NULL, elements, NULL, 2, 10.0);
@@ -6376,18 +6376,18 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     pdf_print_section_title(&page_width, &page_height, "Average temperatures during the run");
     pdf_advance(&page_height);
     // header
-    sprintf(header[0],"Chain");
-    sprintf(header[1],"Temperatures");
+    snprintf(header[0],LINESIZE,"Chain");
+    snprintf(header[1],LINESIZE,"Temperatures");
     elements = (char ***) mycalloc(options->heated_chains, sizeof(char**));
     for(a=0; a < options->heated_chains; a++)
         charvec2d(&elements[a],2, LINESIZE);
     for(a=0; a < options->heated_chains; a++)
     {
-        sprintf(elements[a][0],"%5li ",a+1);
+        snprintf(elements[a][0],LINESIZE,"%5li ",a+1);
 	if (options->adaptiveheat == STANDARD)
-	  sprintf(elements[a][1],"%10.5f ",universe[a]->averageheat);
+	  snprintf(elements[a][1],LINESIZE,"%10.5f ",universe[a]->averageheat);
 	else
-	  sprintf(elements[a][1],"%10.5f ",universe[a]->heat);
+	  snprintf(elements[a][1],LINESIZE,"%10.5f ",universe[a]->heat);
     }
     pdf_table2( 2, (int) (options->heated_chains), header, NULL, elements, NULL, 2, 10.0);
     pdf_advance(&page_height);
@@ -6424,7 +6424,7 @@ void pdf_print_eventtime_table(world_fmt *world)
     //double   left_margin = 55;
     long     end = world->loci > 1 ? world->loci + 1 : 1;
     long     start = 0;
-    sprintf(title,"Distribution of events trough time");
+    snprintf(title,LINESIZE,"Distribution of events trough time");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -6525,9 +6525,9 @@ void pdf_print_time_table(world_fmt *world,
     long     start = 0;
 
     if(mrca)
-        sprintf(title,"Time and probability of location of most recent common ancestor");
+        snprintf(title,LINESIZE,"Time and probability of location of most recent common ancestor");
     else
-        sprintf(title,"Summary statistics of events through time");
+        snprintf(title,LINESIZE,"Summary statistics of events through time");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
@@ -6635,7 +6635,7 @@ pdf_histogram_legend(void)
     
     // add a new page for the legend
     pdf_new_page("");
-    sprintf(title,"%s","Legend for Skyline and Event plots");
+    snprintf(title,LINESIZE,"%s","Legend for Skyline and Event plots");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
     
@@ -6971,15 +6971,15 @@ void pdf_report_unassigned(world_fmt *world)
         elements_sum = (char ***) mycalloc(siz_sum, sizeof(char**));
         for(a=0; a<siz_sum;a++)
             charvec2d(&elements_sum[a],  2 + world->numpop, STRSIZE );
-        sprintf(header[0],"Individual");
-        sprintf(header[2],"Population");
+        snprintf(header[0],LINESIZE,"Individual");
+        snprintf(header[2],LINESIZE,"Population");
         /*      for (pop=0;pop<world->numpop;pop++)
          {
-         sprintf(header[pop+2],"     ");
+         snprintf(header[pop+2],LINESIZE,"     ");
          }*/
         for (pop=0;pop<world->numpop;pop++)
         {
-            sprintf(header2[2+pop],"%5li",pop+1);
+            snprintf(header2[2+pop],LINESIZE,"%5li",pop+1);
         }
         ii=0;
         z=0;
@@ -6989,17 +6989,17 @@ void pdf_report_unassigned(world_fmt *world)
             memset(total,0,sizeof(MYREAL)*(size_t) world->numpop);
             for (locus=0;locus<world->loci;locus++)
             {
-                sprintf(elements[ii*(world->loci+1)+locus][0], "%-10.10s",key);
+                snprintf(elements[ii*(world->loci+1)+locus][0],LINESIZE, "%-10.10s",key);
                 sum = 0.0;
                 for (pop=0;pop<world->numpop;pop++)
                 {
                     sum += world->unassigned[i]->probloc[INDIX(world->numpop,locus,pop)];
                 }
-                sprintf(elements[ii*(world->loci+1)+locus][1], "%8li",locus+1);
+                snprintf(elements[ii*(world->loci+1)+locus][1],LINESIZE, "%8li",locus+1);
                 for (pop=0;pop<world->numpop;pop++)
                 {
                     idi = INDIX(world->numpop,locus,pop);
-                    sprintf(elements[ii*(world->loci+1)+locus][pop+2], "%5.3f", world->unassigned[i]->probloc[idi]/sum);
+                    snprintf(elements[ii*(world->loci+1)+locus][pop+2],LINESIZE, "%5.3f", world->unassigned[i]->probloc[idi]/sum);
                     total[pop] += log(world->unassigned[i]->probloc[idi]/sum);	          
                 }
             }
@@ -7009,21 +7009,21 @@ void pdf_report_unassigned(world_fmt *world)
                 totalsum += exp(total[pop]);
             }
             lsum = log(totalsum);
-            sprintf(elements[ii*(world->loci+1)+locus][0], "%-10.10s",key);
-            sprintf(elements[ii*(world->loci+1)+locus][1], "     All  ");
-            sprintf(elements_sum[z][0], "%-10.10s",key);
-            sprintf(elements_sum[z][1], "          ");
+            snprintf(elements[ii*(world->loci+1)+locus][0],LINESIZE, "%-10.10s",key);
+            snprintf(elements[ii*(world->loci+1)+locus][1],LINESIZE, "     All  ");
+            snprintf(elements_sum[z][0],LINESIZE, "%-10.10s",key);
+            snprintf(elements_sum[z][1],LINESIZE, "          ");
             for (pop=0;pop<world->numpop;pop++)
             {
-                sprintf(elements[ii*(world->loci+1)+locus][pop+2], "%5.3f", exp(total[pop]-lsum));
-                sprintf(elements_sum[z][pop+2], "%5.3f", exp(total[pop]-lsum));
+                snprintf(elements[ii*(world->loci+1)+locus][pop+2],LINESIZE, "%5.3f", exp(total[pop]-lsum));
+                snprintf(elements_sum[z][pop+2],LINESIZE, "%5.3f", exp(total[pop]-lsum));
             }
             z++;
             ii++;
         }
         // short table
         title = (char *) mycalloc(LINESIZE, sizeof(char));
-        sprintf(title, "Summary Assignment of Individuals to Populations");
+        snprintf(title,LINESIZE, "Summary Assignment of Individuals to Populations");
         pdf_new_page("");
         HPDF_Page_SetFontAndSize (page, helvob, 16.0);
         w = (double) HPDF_Page_TextWidth(page, title);      
@@ -7041,7 +7041,7 @@ void pdf_report_unassigned(world_fmt *world)
         //long table
         if (world->loci>1)
         {
-            sprintf(title, "Detailed Assignment of Individuals to Populations");
+            snprintf(title,LINESIZE, "Detailed Assignment of Individuals to Populations");
             pdf_new_page("");
             HPDF_Page_SetFontAndSize (page, helvob, 16.0);
             w = (double) HPDF_Page_TextWidth(page, title);      
@@ -7054,7 +7054,7 @@ void pdf_report_unassigned(world_fmt *world)
             HPDF_Page_SetFontAndSize (page, helv, 10.0);
             pdf_advance(&page_height);
             pdf_advance(&page_height);
-            sprintf(header[1],"Locus     ");
+            snprintf(header[1],LINESIZE,"Locus     ");
             pdf_table2((int) ( world->numpop+2), (int) siz, header, header2, elements, NULL, 2, 10.0);      
         }
         myfree(total);

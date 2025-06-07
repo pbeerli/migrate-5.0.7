@@ -205,7 +205,7 @@ void  print_growth_record(char *temp, long *c, world_fmt * world)
     {
       for (i=0; i<world->numpop;i++)
 	{
-	  *c += sprintf(temp+ *c,"\t%f", world->growth[i]); 
+	  *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->growth[i]); 
 	} 
     }
 }

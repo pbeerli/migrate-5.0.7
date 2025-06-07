@@ -1309,25 +1309,25 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
   get_time (nowstr, "%H:%M:%S");
   plog = (char *) mycalloc(LONGLINESIZE,sizeof(char));
 #ifdef MPI
-  plogsize = sprintf(plog, "[%3i] %s   Sampling Temp[%li]:", myID, nowstr, options->heated_chains);
+  plogsize = snprintf(plog,LINESIZE, "[%3i] %s   Sampling Temp[%li]:", myID, nowstr, options->heated_chains);
 #else
-  plogsize = sprintf(plog, "%s   Sampling Temp[%li]: ", nowstr, options->heated_chains);
+  plogsize = snprintf(plog,LINESIZE, "%s   Sampling Temp[%li]: ", nowstr, options->heated_chains);
 #endif
   if (options->heated_chains > 4)
     strcpy(dots,",...");
   else
     dots[0]='\0';
-  plogsize += sprintf (plog + plogsize, "(%.4g,%.4g,%.4g,%.4g%s) ",universe[0]->averageheat,
+  plogsize += snprintf(plog + plogsize,LINESIZE, "(%.4g,%.4g,%.4g,%.4g%s) ",universe[0]->averageheat,
 		       universe[1]->averageheat,universe[2]->averageheat,universe[3]->averageheat,dots);
-  plogsize += sprintf (plog + plogsize, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",universe[0]->accept_freq,
+  plogsize += snprintf(plog + plogsize,LINESIZE, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",universe[0]->accept_freq,
 		       universe[1]->accept_freq,universe[2]->accept_freq,universe[3]->accept_freq,dots);
-  plogsize += sprintf (plog + plogsize, "Swap(%li,%li,%li%s)\n                           Param = {",universe[0]->swapped,
+  plogsize += snprintf(plog + plogsize,LINESIZE, "Swap(%li,%li,%li%s)\n                           Param = {",universe[0]->swapped,
 			   universe[1]->swapped,universe[2]->swapped /*,universe[3]->swapped*/,dots);
   for (i=0;i<npp;i++)
     {
-      plogsize += sprintf (plog + plogsize, " %.4g",universe[0]->param0[i]);
+      plogsize += snprintf(plog + plogsize,LINESIZE, " %.4g",universe[0]->param0[i]);
     }
-  sprintf (plog + plogsize, "}\n");
+  snprintf(plog + plogsize,LINESIZE, "}\n");
 
   FPRINTF(file,"%s",plog);
   myfree(plog);
@@ -2345,7 +2345,7 @@ boolean  check_parmfile(long argcount, char **arguments, char *parmfilename)
 	  if(arguments[argument][0]!='-')
 	    {
 	      len = (int) (strlen (arguments[argument]) + 1);
-	      sprintf (parmfilename, "%-.*s", len, arguments[argument]);		       
+	      snprintf(parmfilename,LINESIZE, "%-.*s", len, arguments[argument]);		       
 	    }
 	  else
 	    {

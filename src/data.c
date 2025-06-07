@@ -1170,9 +1170,9 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
       if (startsitetype != '0')
 	{
 	  // if(startsitetype == 'o')
-	  //  *pos += sprintf(*newinput+ *pos,"(%li%c%li) ", startsite, datatype, shortsites);
+	  //  *pos += snprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, shortsites);
 	  //else
-	  //  *pos += sprintf(*newinput+ *pos,"(%li%c%li) ", startsite, datatype, newnumsites);
+	  //  *pos += snprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, newnumsites);
 	  if(linking==1)
 	    {
 	      startloc='(';

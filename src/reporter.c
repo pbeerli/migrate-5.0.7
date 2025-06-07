@@ -434,11 +434,11 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	  m2mm (j, world->numpop, &frompop, &topop);
 	  if(world->options->usem)
 	    {
-	      sprintf(stemp, "M_%li->%li", frompop+1, topop+1);
+	      snprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
 	    }
 	  else
 	    {
-	      sprintf(stemp, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+	      snprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
 	    }
 	  FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
 	  if(effsample[j]<ESSMINIMUM && file==world->outfile)
@@ -471,7 +471,7 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      trials=world->trials_archive[j];
 	      if (j == s->paramindex_mu)
 		{
-		  sprintf(stemp,"_%li->%li",1+from,1+to);
+		  snprintf(stemp,LINESIZE,"_%li->%li",1+from,1+to);
 		  FPRINTF(file, "D%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
 		}
 	      else
@@ -489,7 +489,7 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	  {
 	    j = j0 + tc1;
 	    trials=world->trials_archive[j];
-	    sprintf(stemp,"_%li",j0+1);
+	    snprintf(stemp,LINESIZE,"_%li",j0+1);
 	    FPRINTF(file, "g%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
 	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
 	      record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);

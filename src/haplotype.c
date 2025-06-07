@@ -267,7 +267,7 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
   long namelength = *bufsize;
   int poplen = (world->numpop > 8 ? ((world->numpop > 98) ? 3 : 2) : 1);
   increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-  *bufsize += sprintf(*buffer + *bufsize,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
+  *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
   namelength = *bufsize - namelength + 1;
   if(ii->total1 != 0.0f)
     {
@@ -308,24 +308,24 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 		    {
 		      lines += HUNDRED - namelength;;
 		      increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-		      *bufsize += sprintf(*buffer + *bufsize,"\n\t ");
-		      //		  *bufsize += sprintf(*buffer + *bufsize,"\n%-*.*s",namelength, namelength," ");
+		      *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"\n\t ");
+		      //		  *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"\n%-*.*s",namelength, namelength," ");
 		    }
 		}
 	      increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-	      *bufsize += sprintf(*buffer + *bufsize,"%s:%1.3f ",showkeys2[i], fraction ? value/total : value);
+	      *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"%s:%1.3f ",showkeys2[i], fraction ? value/total : value);
 	    }
 	}
       if(count==0 || !fraction)
 	{
 	  // no haplotype tried and recorded
 	  increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-	  *bufsize += sprintf(*buffer + *bufsize,"\n");
+	  *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"\n");
 	}
       else
 	{
 	  increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-	  *bufsize += sprintf(*buffer + *bufsize,"   (%li)\n", (long) total);
+	  *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"   (%li)\n", (long) total);
 	}
       free_charvec2d(showkeys);
       free_charvec2d(showkeys2);
@@ -334,7 +334,7 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
   else
     {
       increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-      *bufsize += sprintf(*buffer + *bufsize,"\n");
+      *bufsize += snprintf(*buffer + *bufsize,LINESIZE,"\n");
     }
 }
 
@@ -352,12 +352,12 @@ void print_haplotypes(char **buffer, long *allocbufsize, long *bufsize, world_fm
   char *newname;
   oldname = (char *) calloc(SMALLBUFSIZE,sizeof(char));//this is 255 char
   newname = (char *) calloc(SMALLBUFSIZE,sizeof(char));//this is 255 char
-  *bufsize += sprintf(*buffer+ *bufsize,  "Haplotype states and probabilities\n----------------------------------\n");
+  *bufsize += snprintf(*buffer+ *bufsize,LINESIZE,  "Haplotype states and probabilities\n----------------------------------\n");
   pdf_print_haplotype_title();
   long pdfstartbuf=*bufsize;
   for(locus=0;locus<world->loci;locus++)
     {
-      *bufsize += sprintf(*buffer+ *bufsize,  "Locus: %li\n",locus+1);
+      *bufsize += snprintf(*buffer+ *bufsize,LINESIZE,  "Locus: %li\n",locus+1);
       for(pop=0;pop<world->numpop;pop++)
 	{
 	  for(ind=0; ind<world->data->numind[pop][locus]; ind++)	   

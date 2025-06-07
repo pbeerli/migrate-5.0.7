@@ -873,7 +873,7 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
   if(options->has_bayesmdimfile)
     {
       l = strlen(options->bayesmdimfilename);
-      sprintf(options->bayesmdimfilename+l,".%d",myID);
+      snprintf(options->bayesmdimfilename+l,LINESIZE,".%d",myID);
     }
 #endif
 #endif
@@ -1367,7 +1367,7 @@ get_time (char *nowstr, char ts[])
 	if (!strcmp(ts,"%s"))
 	  {
 	    //windows 7 does not have the "%s" format for strftime()
-	    sprintf(nowstr,"%i",nowbin);
+	    snprintf(nowstr,LINESIZE,"%i",nowbin);
 	  }
 	else
 	  strftime (nowstr, LINESIZE, ts, nowstruct);
@@ -1385,7 +1385,7 @@ void get_runtime (char *runtime, time_t start, time_t end)
   time_t minutes = ((time_t) delta/60) % 60;
   time_t hours   = ((time_t) delta/3600) % 24;
   time_t days    = ((time_t) delta/86400) % 365;
-  sprintf(runtime, "Runtime:%04li:%02li:%02li:%02li",days,hours,minutes,seconds);
+  snprintf(runtime,LINESIZE, "Runtime:%04li:%02li:%02li:%02li",days,hours,minutes,seconds);
 }
 
 /*===============================================
@@ -1396,10 +1396,10 @@ print_llike (MYREAL llike, char *strllike)
 {
     if (fabs (llike) > 10e20)
     {
-        sprintf (strllike, "%cInfinity ", llike < 0 ? '-' : ' ');
+        snprintf(strllike,LINESIZE, "%cInfinity ", llike < 0 ? '-' : ' ');
     }
     else
-        sprintf (strllike, "%-10.5f", llike);
+        snprintf(strllike,LINESIZE, "%-10.5f", llike);
 }
 
 int sprint_tabdigits(double x, char * temp)
@@ -1445,7 +1445,7 @@ int sprint_tabdigits(double x, char * temp)
 	fmt = 5;
       break;
     }
-  int c = sprintf(temp,"\t%.*f",fmt, x);
+  int c = snprintf(temp,LINESIZE,"\t%.*f",fmt, x);
   return c;
 }
 
@@ -1635,7 +1635,7 @@ znzopenfile (znzFile * fp, char *filename, char *mode, int use_compressed)
     if ((p = strpbrk (filename, CRLF)) != NULL)
         *p = '\0';
     remove_trailing_blanks(&filename);
-    sprintf(file, "%-.*s", (int) LINESIZE, filename);
+    snprintf(file,LINESIZE, "%-.*s", (int) LINESIZE, filename);
     of = znzopen (file, mode,use_compressed);
     if (znz_isnull(of))
       error("Could not open zipped bayesallfile");
@@ -1660,7 +1660,7 @@ openfile (FILE ** fp, char *filename, char *mode, char *perm)
     if ((p = strpbrk (filename, CRLF)) != NULL)
         *p = '\0';
     remove_trailing_blanks(&filename);
-    sprintf(file, "%-.*s",(int) LINESIZE, filename);
+    snprintf(file,LINESIZE, "%-.*s",(int) LINESIZE, filename);
 #ifdef CAUTIOUS
     if(cautious)
       {
@@ -3617,7 +3617,7 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
   long x;
   long remainder;
   if (j < numpop)
-    sprintf(paramstr,"Theta_%-3li",j+1);
+    snprintf(paramstr,LINESIZE,"Theta_%-3li",j+1);
   else
     {
       if (j < numpop2)
@@ -3625,17 +3625,17 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
 	  m2mm (j, numpop, &frompop, &topop);
 	  if(usem)
 	    {
-		sprintf(paramstr, "M_%li->%li", frompop+1, topop+1);
+		snprintf(paramstr,LINESIZE, "M_%li->%li", frompop+1, topop+1);
 	    }
 	  else
 	    {
-	      sprintf(paramstr, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+	      snprintf(paramstr,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
 	    }
 	}
       else
 	{
 	  if (j==numpop2 && rate)
-	    sprintf(paramstr, "Rate");
+	    snprintf(paramstr,LINESIZE, "Rate");
 	  else
 	    {
 	      x = j-numpop2-rate;
@@ -3643,9 +3643,9 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
 	      x = (long) x/2;
 	      s = &world->species_model[x];
 	      if (remainder == 0)
-		sprintf(paramstr, "D_%li->%li",s->from+1,s->to+1);
+		snprintf(paramstr,LINESIZE, "D_%li->%li",s->from+1,s->to+1);
 	      else
-		sprintf(paramstr, "S_%li->%li",s->from+1,s->to+1);
+		snprintf(paramstr,LINESIZE, "S_%li->%li",s->from+1,s->to+1);
 	    }
 	}
     }
@@ -3738,7 +3738,7 @@ fprintf2(FILE *file, long filesize, const char *fmt, ...)
     long pallocsize = ((long) (strlen(fmt))+1+filesize);
     p  = (char *) mycalloc(pallocsize,sizeof(char));
     va_start(ap, fmt);
-    bufsize = vsprintf(p, fmt, ap);
+    bufsize = vsnprintf(p, pallocsize, fmt, ap);
     if(bufsize>=pallocsize)
       error("failed in printf2()");
     fprintf(file,"%s", p);
@@ -3786,12 +3786,12 @@ sprint_line
     {
     case START:
         start = 2;
-        sprintf (fp, "=%c%c", c, c);
+        snprintf(fp,LINESIZE, "=%c%c", c, c);
         strcat (buffer, fp);
         break;
     case STOP:
         start = 2;
-        sprintf (fp, "==%c", c);
+        snprintf(fp,LINESIZE, "==%c", c);
         strcat (buffer, fp);
         break;
     default:
@@ -3892,7 +3892,7 @@ void add_to_buffer(char *fp, long *bufsize, char **buffer, long *allocbufsize)
       *allocbufsize += 100 * fpsize;
       (*buffer) = (char *) myrealloc (*buffer, (*allocbufsize) * sizeof (char));
     }
-  (*bufsize) += sprintf((*buffer) + (*bufsize),"%s",fp);
+  (*bufsize) += snprintf((*buffer) + (*bufsize),LINESIZE,"%s",fp);
 }
 
 
@@ -3904,11 +3904,11 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
   va_list ap;
   //p = (char *) mycalloc(1024,sizeof(char));
   va_start(ap, fmt);
-  mypos = vsprintf(p, fmt, ap);
+  mypos = vsnprintf(p, *maxbufsize, fmt, ap);
   va_end(ap);
   if((*pos + mypos) < (*maxbufsize))
       {
-	(*pos) += sprintf((*buffer) + (*pos), "%s",p);
+	(*pos) += snprintf((*buffer) + (*pos),mypos, "%s",p);
 	//	if(*pos + mypos >= *maxbufsize )
 	//  {
 	//    printf("%i> pos=%li + mypos=%li >  maxbufsize=%li \n",myID, *pos, mypos, *maxbufsize); 
@@ -3918,7 +3918,7 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
       {
 	*maxbufsize = *pos + 4 * mypos; // add some extra space
 	(*buffer) = (char *) myrealloc ((*buffer), (*maxbufsize) * sizeof (char));
-	(*pos) += sprintf((*buffer) + (*pos), "%s",p);
+	(*pos) += snprintf((*buffer) + (*pos),mypos, "%s",p);
       }
   //  myfree(p);
   return (*pos);
@@ -3933,11 +3933,11 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
   if(myID==MASTER && world->cold)
     {
       va_start(ap, fmt);
-      mypos = vsprintf(p, fmt, ap);
+      mypos = vsnprintf(p, LINESIZE, fmt, ap);
       va_end(ap);
       if((world->warningsize + mypos) < world->warningallocsize)
 	{
-	  world->warningsize += sprintf(world->warning + world->warningsize, "%s\n",p);
+	  world->warningsize += snprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
 	}
       else
 	{
@@ -3946,7 +3946,7 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
 	    world->warning = (char *) myrealloc (world->warning, world->warningallocsize * sizeof (char));
 	  else
 	    world->warning = (char *) mycalloc (world->warningallocsize, sizeof (char));
-	  world->warningsize += sprintf(world->warning + world->warningsize, "%s\n",p);
+	  world->warningsize += snprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
 	}
     }
   myfree(p);

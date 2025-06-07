@@ -1479,40 +1479,40 @@ void get_mutationmodel_nameparam(char *modelname, char *modelparams, mutationmod
   switch(s->model)
     {
     case JC69: strcpy(modelname,"Jukes-Cantor"); 
-      sprintf(modelparams,"[Basefreq: =0.25]");
+      snprintf(modelparams,LINESIZE,"[Basefreq: =0.25]");
       break;
     case K2P: strcpy(modelname,"Kimura"); 
-      sprintf(modelparams,"[Basefreq: =0.25, kappa=%.4f]",s->ttratio);
+      snprintf(modelparams,LINESIZE,"[Basefreq: =0.25, kappa=%.4f]",s->ttratio);
       break;
     case F81: strcpy(modelname,"Felsenstein 81"); 
-      sprintf(modelparams,"[Basefreq:%.2f %.2f %.2f %.2f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2]);
+      snprintf(modelparams,LINESIZE,"[Basefreq:%.2f %.2f %.2f %.2f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2]);
       break;
     case F84: strcpy(modelname,"Felsenstein 84"); 
-      sprintf(modelparams,"[Bf:%.2f %.2f %.2f %.2f, t/t ratio=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->ttratio);
+      snprintf(modelparams,LINESIZE,"[Bf:%.2f %.2f %.2f %.2f, t/t ratio=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->ttratio);
       break;
     case HKY: strcpy(modelname,"HKY"); 
-      sprintf(modelparams,"[Bf:%.2f %.2f %.2f %.2f, kappa=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->ttratio);
+      snprintf(modelparams,LINESIZE,"[Bf:%.2f %.2f %.2f %.2f, kappa=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->ttratio);
       break;
     case TN: strcpy(modelname,"Tamura-Nei"); 
-      sprintf(modelparams,"[Bf:%.2f %.2f %.2f %.2f, k1=%.3f, k2=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->parameters[0],s->parameters[2]);
+      snprintf(modelparams,LINESIZE,"[Bf:%.2f %.2f %.2f %.2f, k1=%.3f, k2=%.3f]",s->basefreqs[0],s->basefreqs[1],s->basefreqs[2], 1.0 - s->basefreqs[0] - s->basefreqs[1] - s->basefreqs[2], s->parameters[0],s->parameters[2]);
       break;
     case GTR: strcpy(modelname,"GTR"); 
-      sprintf(modelparams,"[not implemented]");
+      snprintf(modelparams,LINESIZE,"[not implemented]");
       break;
     case MSM: strcpy(modelname,"Multistep Model"); 
-      sprintf(modelparams,"[tune=%.3f, upchance=%.3f]", s->parameters[0],s->parameters[2]);
+      snprintf(modelparams,LINESIZE,"[tune=%.3f, upchance=%.3f]", s->parameters[0],s->parameters[2]);
       break;
     case SSM: strcpy(modelname,"Stepwise Model"); 
-      sprintf(modelparams,"[none]");
+      snprintf(modelparams,LINESIZE,"[none]");
       break;
     case BM: strcpy(modelname, "Brownian Motion"); 
-      sprintf(modelparams,"[none]");
+      snprintf(modelparams,LINESIZE,"[none]");
       break;
     case IAM: strcpy(modelname,"Infinite Allele"); 
-      sprintf(modelparams,"[none]");
+      snprintf(modelparams,LINESIZE,"[none]");
       break;
     default:  
-      strcpy(modelname,"UNKNOWN"); sprintf(modelparams,"[none]"); break;
+      strcpy(modelname,"UNKNOWN"); snprintf(modelparams,LINESIZE,"[none]"); break;
     }
 }
 
