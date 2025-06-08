@@ -263,10 +263,10 @@ void print_parm_smoothing(long *bufsize, char **buffer, long *allocbufsize, opti
 void init_filename (char **filename, char initstring[])
 {
   int len=LINESIZE;
-  //  len = strlen(initstring);
-    *filename = (char *) mycalloc(len+2, sizeof(char));
-    snprintf(*filename,LINESIZE, "%-*s", len, initstring);
-    remove_trailing_blanks(filename);
+  //int len = strlen(initstring);
+  *filename = (char *) mycalloc(len+2, sizeof(char));
+  mysnprintf(*filename,len+1, "%-*s", len, initstring);
+  remove_trailing_blanks(filename);
 }
 
 
@@ -829,19 +829,19 @@ void show_pretty_datamodel(int datamodel, char *buffer)
 {
   switch(datamodel)
     {
-    case JC69: snprintf(buffer,LINESIZE,"JC69"); break;//0
-    case K2P: snprintf(buffer,LINESIZE,"K2P"); break;//   1
-    case F81: snprintf(buffer,LINESIZE,"F81"); break;//  2
-    case F84: snprintf(buffer,LINESIZE,"F84"); break;//  3
-    case HKY: snprintf(buffer,LINESIZE,"HKY"); break;//  4
-    case TN: snprintf(buffer,LINESIZE,"TN"); break;//   5
-    case GTR: snprintf(buffer,LINESIZE,"GTR"); break;//  6
-    case SSM: snprintf(buffer,LINESIZE,"SSM"); break;//  7
-    case MSM: snprintf(buffer,LINESIZE,"MSM"); break;//  8
-    case BM: snprintf(buffer,LINESIZE,"BM"); break;//   9
-    case IAM: snprintf(buffer,LINESIZE,"IAM"); break;//  10
+    case JC69: mysnprintf(buffer,LINESIZE,"JC69"); break;//0
+    case K2P: mysnprintf(buffer,LINESIZE,"K2P"); break;//   1
+    case F81: mysnprintf(buffer,LINESIZE,"F81"); break;//  2
+    case F84: mysnprintf(buffer,LINESIZE,"F84"); break;//  3
+    case HKY: mysnprintf(buffer,LINESIZE,"HKY"); break;//  4
+    case TN: mysnprintf(buffer,LINESIZE,"TN"); break;//   5
+    case GTR: mysnprintf(buffer,LINESIZE,"GTR"); break;//  6
+    case SSM: mysnprintf(buffer,LINESIZE,"SSM"); break;//  7
+    case MSM: mysnprintf(buffer,LINESIZE,"MSM"); break;//  8
+    case BM: mysnprintf(buffer,LINESIZE,"BM"); break;//   9
+    case IAM: mysnprintf(buffer,LINESIZE,"IAM"); break;//  10
     default:
-       snprintf(buffer,LINESIZE,"OTHER"); break;//  -1
+       mysnprintf(buffer,LINESIZE,"OTHER"); break;//  -1
     }
 }
 
@@ -853,7 +853,7 @@ char * show_priormin(char *tmp, prior_fmt *prior)
     error("showpriormin got a null pointer");
   else
     {
-      snprintf(tmp,LINESIZE, "%f ", prior->min);
+      mysnprintf(tmp,LINESIZE, "%f ", prior->min);
     }
   return tmp;
 }
@@ -863,21 +863,21 @@ char * show_priormin(char *tmp, prior_fmt *prior)
 /// or for the gamma proposal the alpha value, and the ,multipler proposal the multiplicator
 char * show_priormean(char *tmp, prior_fmt *prior)
 {
-  snprintf(tmp,LINESIZE, "%f ", prior->mean);
+  mysnprintf(tmp,LINESIZE, "%f ", prior->mean);
   return tmp;
 }
 
 /// prints the value of maximum value of the prior distribution
 char * show_priormax(char *tmp, prior_fmt *prior)
 {
-  snprintf(tmp,LINESIZE, "%f ", prior->max);
+  mysnprintf(tmp,LINESIZE, "%f ", prior->max);
   return tmp;
 }
 
 /// prints the alpha value of the gamma prior distribution
 char * show_prioralpha(char *tmp, prior_fmt *prior)
 {
-  snprintf(tmp,LINESIZE, "%f ", prior->alpha);
+  mysnprintf(tmp,LINESIZE, "%f ", prior->alpha);
   return tmp;
 }
 
@@ -889,16 +889,16 @@ char * show_priordelta(char *tmp, prior_fmt *prior)
   switch(prior->kind)
     {
     case EXPPRIOR:
-      snprintf(tmp,LINESIZE, "-"); 
+      mysnprintf(tmp,LINESIZE, "-"); 
       break;
     case BETAPRIOR:
-      snprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
+      mysnprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
       break;
     case GAMMAPRIOR:
-      snprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
+      mysnprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
       break;
     default:
-      snprintf(tmp,LINESIZE, "%f", prior->delta);
+      mysnprintf(tmp,LINESIZE, "%f", prior->delta);
       break;
     }
   return tmp;
@@ -908,7 +908,7 @@ char * show_priordelta(char *tmp, prior_fmt *prior)
 /// prints the bins used for the prior/posterior distribution
 char * show_priorbins(char *tmp, prior_fmt *prior)
 {
-  snprintf(tmp,LINESIZE, "%li ", prior->bins);
+  mysnprintf(tmp,LINESIZE, "%li ", prior->bins);
   return tmp;
 }
 
@@ -916,7 +916,7 @@ char * show_priorbins(char *tmp, prior_fmt *prior)
 /// prints the updatefreq used for the proposal distribution
 char * show_priorupdatefreq(char *tmp, prior_fmt *prior)
 {
-  snprintf(tmp,LINESIZE, "%.4f ", prior->updatefreq);
+  mysnprintf(tmp,LINESIZE, "%.4f ", prior->updatefreq);
   return tmp;
 }
 
@@ -1012,13 +1012,13 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     switch(options->tri_mlalpha)
       {
       case FIXED:
-	snprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
 	break;
       case NO:
-	snprintf(mytext6,LINESIZE,"Exponential Distribution");
+	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
 	break;
       case ESTIMATE:
-	snprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=Estimate");
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=Estimate");
 	break;
       }
     fprintf (file, "    - Population size estimation: Theta [%s]\n",mytext6);
@@ -1117,7 +1117,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	switch(ptr->type)
 	  {
 	  case THETAPRIOR:
-	    snprintf(s,LINESIZE, "Population size (Theta_%li)",i+1);
+	    mysnprintf(s,LINESIZE, "Population size (Theta_%li)",i+1);
 	    break;
 	  case MIGPRIOR:
 	    pa=0;
@@ -1126,10 +1126,10 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 		continue;
 	      }
 	    m2mm(pa,numpop,&from,&to);
-	    snprintf(s,LINESIZE, "Migration %li to %li %s", from+1, to+1, options->usem ? "  (M)   " : " (xNm)  ");
+	    mysnprintf(s,LINESIZE, "Migration %li to %li %s", from+1, to+1, options->usem ? "  (M)   " : " (xNm)  ");
 	    break;
 	  case RATEPRIOR:
-	    snprintf(s,LINESIZE, "Mutation rate modifier");
+	    mysnprintf(s,LINESIZE, "Mutation rate modifier");
 	    break;
 	  case SPECIESTIMEPRIOR:
 	  case SPECIESSTDPRIOR:
@@ -1139,7 +1139,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	      }
 	    from = world->species_model[z/2].from;
 	    to = world->species_model[z/2].to;
-	    snprintf(s,LINESIZE, "Ancestor %li to %li %s",
+	    mysnprintf(s,LINESIZE, "Ancestor %li to %li %s",
 		     from+1, to+1, (z % 2) == 0 ? "(D_time)" : "(S_time)");
 	    z++;
 	    break;
@@ -1147,7 +1147,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	    d=i-npp;
 	    while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
 	      d++;		       
-	    snprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
+	    mysnprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
 	    break;
 
 	  }
@@ -1168,14 +1168,14 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     char smoothing2[STRSIZE] = {"--"};
     switch(options->smoothing[0])
       {
-      case BINNING: snprintf(smoothing1,STRSIZE,"BINNING"); break;
-      case KERNEL: snprintf(smoothing1,STRSIZE,"KERNEL SMOOTHING (window=%li)",options->smoothing_window[0]*2+1); break;
+      case BINNING: mysnprintf(smoothing1,STRSIZE,"BINNING"); break;
+      case KERNEL: mysnprintf(smoothing1,STRSIZE,"KERNEL SMOOTHING (window=%li)",options->smoothing_window[0]*2+1); break;
       }
     switch(options->smoothing[1])
       {
-      case NONE: snprintf(smoothing2,STRSIZE,"NO SMOOTHING"); break;
-      case AVERAGE: snprintf(smoothing2,STRSIZE,"MOVING AVERAGE SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
-      case SAVITZKY: snprintf(smoothing2,STRSIZE,"SAVITZKY-GOLAY SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
+      case NONE: mysnprintf(smoothing2,STRSIZE,"NO SMOOTHING"); break;
+      case AVERAGE: mysnprintf(smoothing2,STRSIZE,"MOVING AVERAGE SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
+      case SAVITZKY: mysnprintf(smoothing2,STRSIZE,"SAVITZKY-GOLAY SMOOTHING (window=%li)",options->smoothing_window[1]*2+1); break;
       }
     /* TODO currently only bayes_smooth() is used 
 
@@ -1408,17 +1408,17 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	  switch (options->burnin_autostop)
 	    {
 	    case 'a':
-	      snprintf(mytext,LINESIZE,"(var)%10li", options->burn_in);
+	      mysnprintf(mytext,LINESIZE,"(var)%10li", options->burn_in);
 	      break;
 	    case 't':
-	      snprintf(mytext,LINESIZE,"(acc)%10li", options->burn_in);
+	      mysnprintf(mytext,LINESIZE,"(acc)%10li", options->burn_in);
 	      break;
 	    case 'e':
-	      snprintf(mytext,LINESIZE,"(ESS)%10li", options->burn_in);
+	      mysnprintf(mytext,LINESIZE,"(ESS)%10li", options->burn_in);
 	      break;
 	    case ' ':
 	    default:
-	      snprintf(mytext,LINESIZE,"%10li", options->burn_in * options->lincrement);
+	      mysnprintf(mytext,LINESIZE,"%10li", options->burn_in * options->lincrement);
 	    }
 	  if (options->bayes_infer)
 	    fprintf (file, "   Burn-in per replicate (samples*inc): %20.20s\n", mytext);
@@ -1436,7 +1436,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     {
       fprintf (file, "   Data file: %46.46s\n", options->infilename);
       fprintf (file, "   Parameter file: %41.41s\n", options->parmfilename);
-      snprintf(mytext,LINESIZE,"%s", options->haplotyping ? (options->haplotyping_report ? "YES: report of haplotype probabilities" : "YES: NO report of haplotype probabilities") : "NO");
+      mysnprintf(mytext,LINESIZE,"%s", options->haplotyping ? (options->haplotyping_report ? "YES: report of haplotype probabilities" : "YES: NO report of haplotype probabilities") : "NO");
       fprintf (file, "   Haplotyping is turned on: %31.31s\n", mytext);
 #ifdef PRETTY
         fprintf (file, "   Output file (ASCII text): %31.31s\n", options->outfilename);
@@ -1475,9 +1475,9 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     if (options->mighist)
     {
       if(options->mighist_all)
-	snprintf(mytext,LINESIZE,"Yes: All events");
+	mysnprintf(mytext,LINESIZE,"Yes: All events");
       else
-	snprintf(mytext,LINESIZE,"Yes: Migration events");
+	mysnprintf(mytext,LINESIZE,"Yes: Migration events");
       fprintf (file,
 	       "   Frequency histogram of events  %26.26s\n", mytext);
       fprintf (file,
@@ -1486,7 +1486,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     }
     if (options->mighist && options->skyline)
     {
-      snprintf(mytext,LINESIZE,"%3s","Yes");
+      mysnprintf(mytext,LINESIZE,"%3s","Yes");
       fprintf (file,
 	       "   Histogram of the parameter values through time %10s\n", mytext);
       fprintf (file,
@@ -1660,7 +1660,7 @@ long show_thetaownparam(FILE *file, option_fmt *options, char **temp)
   startparam_fmt *startparam = &options->startparam;
   for(pop=0;pop<startparam->numtheta;pop++)
     {
-      tempsize += snprintf(*temp+tempsize,LINESIZE, "%f ",(double) startparam->theta[pop]);
+      tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%f ",(double) startparam->theta[pop]);
     }
   return tempsize;
 }
@@ -1678,12 +1678,12 @@ long show_migownparam(FILE *file, option_fmt *options, char **temp)
       for(pop2=0;pop2<startparam->numpop;pop2++)
 	{
 	  if (pop1==pop2)
-	    tempsize += snprintf(*temp+tempsize,LINESIZE, " -- ");
+	    tempsize += mysnprintf(*temp+tempsize,LINESIZE, " -- ");
 	  else
 	    {if (z<startparam->nummig)
-		tempsize += snprintf(*temp+tempsize,LINESIZE, "%f ",(double) startparam->mig[z]);
+		tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%f ",(double) startparam->mig[z]);
 	      else
-		tempsize += snprintf(*temp+tempsize,LINESIZE, "  ? ");
+		tempsize += mysnprintf(*temp+tempsize,LINESIZE, "  ? ");
 	      z++;
 	    }
 	}
@@ -1700,7 +1700,7 @@ long show_rateownparam(FILE *file, option_fmt *options, char **temp)
   startparam_fmt *startparam = &options->startparam;
   for(pop=0;pop<startparam->numrate;pop++)
     {
-      tempsize += snprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->rate[pop]);
+      tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->rate[pop]);
     }
   return tempsize;
 }
@@ -1714,7 +1714,7 @@ long show_splitownparam(FILE *file, option_fmt *options, char **temp)
   startparam_fmt *startparam = &options->startparam;
   for(pop=0;pop<startparam->numsplit;pop++)
     {
-      tempsize += snprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->split[pop]);
+      tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->split[pop]);
     }
   return tempsize;
 }
@@ -1727,7 +1727,7 @@ long show_splitstdownparam(FILE *file, option_fmt *options, char **temp)
   startparam_fmt *startparam = &options->startparam;
   for(pop=0;pop<startparam->numsplitstd;pop++)
     {
-      tempsize += snprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->splitstd[pop]);
+      tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%ff ",(double) startparam->splitstd[pop]);
     }
   return tempsize;
 }
@@ -1737,13 +1737,13 @@ void show_startparamtype(twin_fmt *guess, long index, char **temp)
   switch(guess[index][0])
     {
     case OWN:
-      snprintf(*temp,LINESIZE,"User specified values");
+      mysnprintf(*temp,LINESIZE,"User specified values");
       break;
     case PRIOR:
-      snprintf(*temp,LINESIZE,"Values at %li%% Prior CDF",guess[index][1]);
+      mysnprintf(*temp,LINESIZE,"Values at %li%% Prior CDF",guess[index][1]);
       break;
     case RANDOMPRIOR:
-      snprintf(*temp,LINESIZE,"Random values from  Prior PDF");
+      mysnprintf(*temp,LINESIZE,"Random values from  Prior PDF");
       break;
     }
 }
@@ -1810,13 +1810,13 @@ void set_startparam_randomstart(world_fmt *world, option_fmt *options)
     long pos=0;
     char temp[SUPERLINESIZE];
     if(world->options->progress)
-      pos = snprintf(temp,LINESIZE,"Start parameter values:");
+      pos = mysnprintf(temp,LINESIZE,"Start parameter values:");
     for (i = 0; i < world->numpop; i++)
     {
         world->param0[i] = 
 options->thetag[0] + RANDUM() * (options->thetag[1]-options->thetag[0]);
 	if(world->options->progress)
-	  pos += snprintf(temp+pos,LINESIZE," %f",world->param0[i]);
+	  pos += mysnprintf(temp+pos,LINESIZE," %f",world->param0[i]);
     }
     if(world->options->progress)
       FPRINTF(stdout,"[%3i] %s\n",myID, temp);
@@ -1834,7 +1834,7 @@ void set_theta_nrandomstart(world_fmt *world, option_fmt *options)
     long pos=0;
     char temp[SUPERLINESIZE];
     if(world->options->progress)
-      pos = snprintf(temp,LINESIZE,"Random start Theta values:");
+      pos = mysnprintf(temp,LINESIZE,"Random start Theta values:");
     for (i = 0; i < world->numpop; i++)
     {
         world->param0[i] = rannor (options->thetag[0], options->thetag[1]);
@@ -1844,7 +1844,7 @@ void set_theta_nrandomstart(world_fmt *world, option_fmt *options)
                 rannor (options->thetag[0], options->thetag[1]);
 	  }
 	if(world->options->progress)
-	  pos += snprintf(temp+pos,LINESIZE," %f",world->param0[i]);
+	  pos += mysnprintf(temp+pos,LINESIZE," %f",world->param0[i]);
     }
     if(world->options->progress)
       FPRINTF(stdout,"%i> %s\n",myID, temp);
@@ -2002,13 +2002,13 @@ void set_mig_urandomstart(world_fmt *world, option_fmt *options)
     long pos=0;
     char temp[SUPERLINESIZE];
     if(world->options->progress)
-      pos = snprintf(temp,LINESIZE,"Random start M values:");
+      pos = mysnprintf(temp,LINESIZE,"Random start M values:");
 
     for (i = world->numpop; i < world->numpop2; i++)
     {
         world->param0[i] =  options->mg[0] + RANDUM() * (options->mg[1]-options->mg[0]);
 	if(world->options->progress)
-	  pos += snprintf(temp+pos,LINESIZE," %f",world->param0[i]);
+	  pos += mysnprintf(temp+pos,LINESIZE," %f",world->param0[i]);
     }
     if(world->options->progress)
       FPRINTF(stdout,"%i> %s\n",myID, temp);
@@ -2026,7 +2026,7 @@ void set_mig_nrandomstart(world_fmt *world, option_fmt *options)
     long pos=0;
     char temp[SUPERLINESIZE];
     if(world->options->progress)
-      pos = snprintf(temp,LINESIZE,"Random start M values:");
+      pos = mysnprintf(temp,LINESIZE,"Random start M values:");
 
     for (i = world->numpop; i < world->numpop2; i++)
     {
@@ -2036,7 +2036,7 @@ void set_mig_nrandomstart(world_fmt *world, option_fmt *options)
             world->param0[i] = rannor (options->mg[0], options->mg[1]);
 	  }
 	if(world->options->progress)
-	  pos += snprintf(temp+pos,LINESIZE," %f",world->param0[i]);
+	  pos += mysnprintf(temp+pos,LINESIZE," %f",world->param0[i]);
     }
     if(world->options->progress)
       FPRINTF(stdout,"%i> %s\n",myID, temp);
@@ -2760,7 +2760,7 @@ void print_parm_br(long *bufsize, char **buffer, long *allocbufsize)
 void print_parm_comment(long *bufsize, char **buffer, long *allocbufsize, char message[])
 {
     char fp[LINESIZE];
-	snprintf(fp,LINESIZE,"# %s\n",message);
+	mysnprintf(fp,LINESIZE,"# %s\n",message);
 	add_to_buffer(fp, bufsize,buffer, allocbufsize);
 }
 
@@ -2773,7 +2773,7 @@ void print_parm_mutable_comment(long *bufsize, char **buffer, long *allocbufsize
     va_start (args, string);
     vsnprintf (message, LINESIZE, string, args);
     va_end (args);	
-	snprintf(fp,LINESIZE,"# %s\n",message);
+	mysnprintf(fp,LINESIZE,"# %s\n",message);
 	add_to_buffer(fp, bufsize,buffer, allocbufsize);
 }
 /// prints parmfile mutable option line
@@ -2785,7 +2785,7 @@ void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char s
     va_start (args, string);
     vsnprintf (message, LINESIZE, string, args);
     va_end (args);	
-	snprintf(fp,LINESIZE,"%s\n",message);
+	mysnprintf(fp,LINESIZE,"%s\n",message);
 	add_to_buffer(fp, bufsize,buffer, allocbufsize);
 }
 
@@ -2793,7 +2793,7 @@ void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char s
 void print_parm(long *bufsize, char **buffer, long *allocbufsize, char string[])
 {
 	char fp[LINESIZE];
-	snprintf(fp,LINESIZE,"%s\n",string);
+	mysnprintf(fp,LINESIZE,"%s\n",string);
 	add_to_buffer(fp, bufsize,buffer, allocbufsize);
 }
 /// prints a title of section in the parmfile
@@ -2824,11 +2824,11 @@ void print_parm_freqfrom(long *bufsize, char **buffer,  long *allocbufsize, opti
   char totalsites[LINESIZE];
   if (options->totalsites>0)
     {
-      snprintf(totalsites,LINESIZE,"[%li]",options->totalsites);
+      mysnprintf(totalsites,LINESIZE,"[%li]",options->totalsites);
     }
   else
     {
-      snprintf(totalsites,LINESIZE,"");
+      mysnprintf(totalsites,LINESIZE,"");
     }
   if (options->freqsfrom)
     print_parm_mutable(bufsize, buffer, allocbufsize, "freqs-from-data=YES %s\n",totalsites);
@@ -2868,7 +2868,7 @@ void print_parm_rates(long *bufsize, char **buffer, long *allocbufsize, option_f
     alloclbufsize = LINESIZE;
     for (i = 0; i < options->rcategs; i++)
     {
-        snprintf(fp,LINESIZE, "%f ", options->rrate[i]);
+        mysnprintf(fp,LINESIZE, "%f ", options->rrate[i]);
         add_to_buffer(fp,&lbufsize, &lbuffer, &alloclbufsize);
     }    
     print_parm_mutable(bufsize, buffer, allocbufsize, "rates=%li: %s",options->rcategs, lbuffer);
@@ -2878,7 +2878,7 @@ void print_parm_rates(long *bufsize, char **buffer, long *allocbufsize, option_f
     // probablities
     for (i = 0; i < options->rcategs; i++)
     {
-        snprintf(fp,LINESIZE, "%f ", options->probcat[i]);
+        mysnprintf(fp,LINESIZE, "%f ", options->probcat[i]);
         add_to_buffer(fp,&lbufsize,&lbuffer, &alloclbufsize);
     }
     print_parm_mutable(bufsize, buffer, allocbufsize, "prob-rates=%li: %s",options->rcategs, lbuffer);
@@ -3026,13 +3026,13 @@ void print_parm_tipdate(long *bufsize, char **buffer, long *allocbufsize, option
     print_parm_mutable(bufsize, buffer, allocbufsize, "tipdate-file=YES:%s", options->datefilename); 
     print_parm_mutable(bufsize, buffer, allocbufsize, "generation-per-year=%f", options->generation_year); 
     input = (char *) mycalloc(options->mutationrate_year_numalloc * 50, sizeof(char));
-    pos = snprintf(input,LINESIZE, "{%20.20f", options->mutationrate_year[0]);
+    pos = mysnprintf(input,LINESIZE, "{%20.20f", options->mutationrate_year[0]);
     for(locus=1; locus < options->mutationrate_year_numalloc; locus++)
       {
-	pos += snprintf(input + pos,LINESIZE,", %20.20f", options->mutationrate_year[locus]);
+	pos += mysnprintf(input + pos,LINESIZE,", %20.20f", options->mutationrate_year[locus]);
       }
     	//xcode   pos += 
-    snprintf(input + pos,LINESIZE,"}");
+    mysnprintf(input + pos,LINESIZE,"}");
     print_parm_mutable(bufsize, buffer, allocbufsize, "mutationrate-per-year=%s", input);
     myfree(input);
   }
@@ -3060,15 +3060,15 @@ void print_parm_inheritance(long *bufsize, char **buffer, long *allocbufsize, op
   print_parm_comment(bufsize, buffer, allocbufsize, "       if loci are {mtDNA,nucDNA} then {1.0 0.25} --> Theta=N*mu for all");
   if (options->has_inheritance)
     {
-      pos = snprintf(input,LINESIZE, "inheritance-scalars=YES:{%4.2f", options->inheritance_scalars[0]);
+      pos = mysnprintf(input,LINESIZE, "inheritance-scalars=YES:{%4.2f", options->inheritance_scalars[0]);
       for(locus=1; locus < options->inheritance_scalars_numalloc; locus++)
 	{
-	  pos += snprintf(input + pos,LINESIZE,", %4.2f", options->inheritance_scalars[locus]);
+	  pos += mysnprintf(input + pos,LINESIZE,", %4.2f", options->inheritance_scalars[locus]);
 	}
-      snprintf(input + pos,LINESIZE,"}");
+      mysnprintf(input + pos,LINESIZE,"}");
     }
   else
-    pos = snprintf(input,LINESIZE, "inheritance-scalars=NO");
+    pos = mysnprintf(input,LINESIZE, "inheritance-scalars=NO");
   print_parm_mutable(bufsize, buffer, allocbufsize, "%s", input);
   print_parm_br(bufsize, buffer, allocbufsize);
   myfree(input);
@@ -3087,12 +3087,12 @@ void print_parm_newpops(long *bufsize, char **buffer, long *allocbufsize, option
   print_parm_comment(bufsize, buffer, allocbufsize, "            example is population-relabel={1 2 2}");
   
   input = (char *) mycalloc(options->newpops_numalloc * 50, sizeof(char));
-  pos = snprintf(input,LINESIZE, "population-relabel={%li", options->newpops[0]);
+  pos = mysnprintf(input,LINESIZE, "population-relabel={%li", options->newpops[0]);
   for(i=1; i < options->newpops_numalloc; i++)
     {
-      pos += snprintf(input + pos,LINESIZE,", %li", options->newpops[i]);
+      pos += mysnprintf(input + pos,LINESIZE,", %li", options->newpops[i]);
     }
-  snprintf(input + pos,LINESIZE,"}");
+  mysnprintf(input + pos,LINESIZE,"}");
   print_parm_mutable(bufsize, buffer, allocbufsize, "%s", input);
   print_parm_br(bufsize, buffer, allocbufsize);
   myfree(input);
@@ -3123,12 +3123,12 @@ void print_parm_growpops(long *bufsize, char **buffer, long *allocbufsize, optio
   print_parm_comment(bufsize, buffer, allocbufsize, "                                # than 3 populations, pop 4 etc will grow in lockstep with 3");
   print_parm_comment(bufsize, buffer, allocbufsize, "      population-growth={1 0 1} # population 1 and 3 grow in lockstep, population 2 is constant in size.");
   input = (char *) mycalloc(options->growpops_numalloc * 50, sizeof(char));
-  pos = snprintf(input,LINESIZE, "population-growth={%li", options->growpops[0]);
+  pos = mysnprintf(input,LINESIZE, "population-growth={%li", options->growpops[0]);
   for(i=1; i < options->growpops_numalloc; i++)
     {
-      pos += snprintf(input + pos,LINESIZE,", %li", options->growpops[i]);
+      pos += mysnprintf(input + pos,LINESIZE,", %li", options->growpops[i]);
     }
-  snprintf(input + pos,LINESIZE,"}");
+  mysnprintf(input + pos,LINESIZE,"}");
   print_parm_mutable(bufsize, buffer, allocbufsize, "%s", input);
   print_parm_br(bufsize, buffer, allocbufsize);
   myfree(input);
@@ -3178,28 +3178,28 @@ void print_parm_theta(long *bufsize, char ** buffer, long *allocbufsize, option_
       case 0:
         if (strchr ("snupf", options->datatype))
 	  {
-	    snprintf(fp,LINESIZE, "theta=PRIOR:50");
+	    mysnprintf(fp,LINESIZE, "theta=PRIOR:50");
             add_to_buffer(fp, &lbufsize, &lbuffer, &alloclbufsize);
 	  }
         else
 	  { 
-	    snprintf(fp,LINESIZE, "theta=PRIOR:50");
+	    mysnprintf(fp,LINESIZE, "theta=PRIOR:50");
             add_to_buffer(fp, &lbufsize, &lbuffer,  &alloclbufsize);
 	  }
 	break;
       case 1:
-            snprintf(fp,LINESIZE, "theta=Own:%f",options->thetag[0]);
+            mysnprintf(fp,LINESIZE, "theta=Own:%f",options->thetag[0]);
             add_to_buffer(fp, &lbufsize, &lbuffer, &alloclbufsize);
 	    break;
       default:
-	snprintf(fp,LINESIZE, "theta=Own:{");
+	mysnprintf(fp,LINESIZE, "theta=Own:{");
 	add_to_buffer(fp,&lbufsize, &lbuffer, &alloclbufsize);
 	for (i = 0; i < options->numthetag - 1; i++)
 	  {
-	    snprintf(fp,LINESIZE, "%f ", options->thetag[i]);
+	    mysnprintf(fp,LINESIZE, "%f ", options->thetag[i]);
 	    add_to_buffer(fp,&lbufsize,&lbuffer, &alloclbufsize);
 	  }
-	snprintf(fp,LINESIZE, "%f}", options->thetag[i]);
+	mysnprintf(fp,LINESIZE, "%f}", options->thetag[i]);
 	add_to_buffer(fp,&lbufsize, &lbuffer, &alloclbufsize);
 	break;
       }
@@ -3217,15 +3217,15 @@ void print_parm_m(long *bufsize, char **buffer, long *allocbufsize, option_fmt *
     switch (options->nummg)
     {
         case 0:
-            snprintf(fp,LINESIZE, "migration=PRIOR:10\n");
+            mysnprintf(fp,LINESIZE, "migration=PRIOR:10\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         case 1:
-            snprintf(fp,LINESIZE, "migration=Own:%f\n", options->mg[0]);
+            mysnprintf(fp,LINESIZE, "migration=Own:%f\n", options->mg[0]);
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         default:
-            snprintf(fp,LINESIZE, "migration=Own:{ ");
+            mysnprintf(fp,LINESIZE, "migration=Own:{ ");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             z = 0;
             num = (long) (1. + sqrt (4. * (MYREAL) options->nummg + 1.) / 2.);
@@ -3235,17 +3235,17 @@ void print_parm_m(long *bufsize, char **buffer, long *allocbufsize, option_fmt *
                 {
                     if (i == j)
                     {
-                        snprintf(fp,LINESIZE, "- ");
+                        mysnprintf(fp,LINESIZE, "- ");
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                     else
                     {
-                        snprintf(fp,LINESIZE, "%f ", options->mg[z++]);
+                        mysnprintf(fp,LINESIZE, "%f ", options->mg[z++]);
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                 }
             }
-	    snprintf(fp,LINESIZE, "}\n");
+	    mysnprintf(fp,LINESIZE, "}\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
     }
 }
@@ -3258,15 +3258,15 @@ void print_parm_split(long *bufsize, char **buffer, long *allocbufsize, option_f
     switch (options->numsplitg)
     {
         case 0:
-            snprintf(fp,LINESIZE, "split=PRIOR:10\n");
+            mysnprintf(fp,LINESIZE, "split=PRIOR:10\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         case 1:
-            snprintf(fp,LINESIZE, "split=Own:%f\n", options->splitg[0]);
+            mysnprintf(fp,LINESIZE, "split=Own:%f\n", options->splitg[0]);
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         default:
-            snprintf(fp,LINESIZE, "split=Own:{ ");
+            mysnprintf(fp,LINESIZE, "split=Own:{ ");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             z = 0;
             num = (long) (1. + sqrt (4. * (MYREAL) options->numsplitg + 1.) / 2.);
@@ -3276,17 +3276,17 @@ void print_parm_split(long *bufsize, char **buffer, long *allocbufsize, option_f
 		  {
 		    if ((uppercase(options->custm[i*num + j])!='D') && (uppercase(options->custm[i*num + j])!='T'))
                     {
-                        snprintf(fp,LINESIZE, "- ");
+                        mysnprintf(fp,LINESIZE, "- ");
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                     else
                     {
-                        snprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
+                        mysnprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                 }
             }
-	    snprintf(fp,LINESIZE, "}\n");
+	    mysnprintf(fp,LINESIZE, "}\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
     }
 }
@@ -3298,15 +3298,15 @@ void print_parm_splitstd(long *bufsize, char **buffer, long *allocbufsize, optio
     switch (options->numsplitg)
     {
         case 0:
-            snprintf(fp,LINESIZE, "splitstd=PRIOR:10\n");
+            mysnprintf(fp,LINESIZE, "splitstd=PRIOR:10\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         case 1:
-            snprintf(fp,LINESIZE, "splitstd=Own:%f\n", options->splitg[0]);
+            mysnprintf(fp,LINESIZE, "splitstd=Own:%f\n", options->splitg[0]);
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         default:
-            snprintf(fp,LINESIZE, "splitstd=Own:{ ");
+            mysnprintf(fp,LINESIZE, "splitstd=Own:{ ");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             z = 0;
             num = (long) (1. + sqrt (4. * (MYREAL) options->numsplitg + 1.) / 2.);
@@ -3316,17 +3316,17 @@ void print_parm_splitstd(long *bufsize, char **buffer, long *allocbufsize, optio
                 {
 		  if ((uppercase(options->custm[i*num + j])!='D') && (uppercase(options->custm[i*num + j])!='T'))
                     {
-                        snprintf(fp,LINESIZE, "- ");
+                        mysnprintf(fp,LINESIZE, "- ");
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                     else
                     {
-                        snprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
+                        mysnprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
                         add_to_buffer(fp,bufsize,buffer, allocbufsize);
                     }
                 }
             }
-	    snprintf(fp,LINESIZE, "}\n");
+	    mysnprintf(fp,LINESIZE, "}\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
     }
 }
@@ -3335,20 +3335,20 @@ void print_parm_heating(long *bufsize, char **buffer, long *allocbufsize, option
 {
     long i;
     char fp[LINESIZE];
-    snprintf(fp,LINESIZE, "heating=%s", options->heating ? (options->adaptiveheat!=NOTADAPTIVE  ? (options->adaptiveheat==STANDARD ? "ADAPTIVE_standard" : "Bounded_adaptive") : "YES") : "NO\n");
+    mysnprintf(fp,LINESIZE, "heating=%s", options->heating ? (options->adaptiveheat!=NOTADAPTIVE  ? (options->adaptiveheat==STANDARD ? "ADAPTIVE_standard" : "Bounded_adaptive") : "YES") : "NO\n");
     add_to_buffer(fp,bufsize,buffer, allocbufsize);
 
     if (options->heating)
     {
-        snprintf(fp,LINESIZE, ":%li:{%f,", options->heating_interval, options->heat[0]);
+        mysnprintf(fp,LINESIZE, ":%li:{%f,", options->heating_interval, options->heat[0]);
         add_to_buffer(fp,bufsize,buffer, allocbufsize);
         
         for (i = 1; i < options->heated_chains - 1; i++)
         {
-            snprintf(fp,LINESIZE, "%f,", options->heat[i]);
+            mysnprintf(fp,LINESIZE, "%f,", options->heat[i]);
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
         }
-        snprintf(fp,LINESIZE, "%f}\nheated-swap=%s\n", options->heat[i], (options->heatedswap_off ? "NO" : "YES") );
+        mysnprintf(fp,LINESIZE, "%f}\nheated-swap=%s\n", options->heat[i], (options->heatedswap_off ? "NO" : "YES") );
         add_to_buffer(fp,bufsize,buffer, allocbufsize);
     }
 }
@@ -3589,9 +3589,9 @@ void print_parm_hyperprior(long *bufsize, char **buffer, long *allocbufsize, opt
 {
   char tmp[LINESIZE];
   if (options->hyperprior)
-    snprintf(tmp,LINESIZE,"YES:%li:%f:%f",options->hyperinterval,options->hyperfactormean,options->hyperfactoralpha);
+    mysnprintf(tmp,LINESIZE,"YES:%li:%f:%f",options->hyperinterval,options->hyperfactormean,options->hyperfactoralpha);
   else
-    snprintf(tmp,LINESIZE,"NO");
+    mysnprintf(tmp,LINESIZE,"NO");
   print_parm_comment(bufsize, buffer, allocbufsize, " Hyper-prior for all parameters");
   print_parm_comment(bufsize, buffer, allocbufsize, " The parameter of the prior is drawn from a Gamma distribution with mean and alpha");
   print_parm_comment(bufsize, buffer, allocbufsize, " for example:");
@@ -3610,10 +3610,10 @@ void print_parm_smoothing(long *bufsize, char **buffer, long *allocbufsize, opti
   //size_t tmpsize=0;
   if (options->smoothing[0]==BINNING)
     //tmpsize =
-    snprintf(tmp,LINESIZE,"smoothing={%s,","BIN");
+    mysnprintf(tmp,LINESIZE,"smoothing={%s,","BIN");
   else
     //tmpsize =
-    snprintf(tmp,LINESIZE,"smoothing={%s:%li,","KERNEL",options->smoothing_window[0]);
+    mysnprintf(tmp,LINESIZE,"smoothing={%s:%li,","KERNEL",options->smoothing_window[0]);
   if (options->smoothing[1]==NONE)
     print_parm_mutable(bufsize, buffer, allocbufsize, "%s%s}",tmp,"NONE");
   else
@@ -4180,19 +4180,19 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 	  {
 	    if(options->murates_fromdata)
 	      {
-		snprintf(fp,LINESIZE, "mutation=DATA\n");
+		mysnprintf(fp,LINESIZE, "mutation=DATA\n");
 		add_to_buffer(fp,&bufsize,buffer, allocbufsize);	      
 	      }
 	    else
 	      {
-		snprintf(fp,LINESIZE, "mutation=OWN:%li: ", options->muloci);
+		mysnprintf(fp,LINESIZE, "mutation=OWN:%li: ", options->muloci);
 		add_to_buffer(fp,&bufsize,buffer, allocbufsize);
 		for (i = 0; i < options->muloci; i++)
 		  {
-		    snprintf(fp,LINESIZE, "%f ", options->mu_rates[i]);
+		    mysnprintf(fp,LINESIZE, "%f ", options->mu_rates[i]);
 		    add_to_buffer(fp,&bufsize,buffer, allocbufsize);
 		  }
-		snprintf(fp,LINESIZE, " \n");
+		mysnprintf(fp,LINESIZE, " \n");
 		add_to_buffer(fp,&bufsize,buffer, allocbufsize);
 	      }
 	  }
@@ -4396,9 +4396,9 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     //while (p!= NULL)
     for(cc=0;cc<5;cc++)
       {
-	count += snprintf(mytext+count,LINESIZE,"%li ",options->bayes_posterior_bins[cc]);
+	count += mysnprintf(mytext+count,LINESIZE,"%li ",options->bayes_posterior_bins[cc]);
 	//p = p->next;
-	//count += snprintf(mytext+count,LINESIZE,"%li ",p[count]);
+	//count += mysnprintf(mytext+count,LINESIZE,"%li ",p[count]);
 	//p = p->next;
       }
     //printf("%i> \n\n\n\n\n\n\n\n\n",myID);
@@ -4449,17 +4449,17 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 	char *asptr = assignopt;
 	long mysize=0;
 	if (options->has_unassignedfreq)
-	  mysize += snprintf(asptr,LINESIZE,"YES:FREQ");
+	  mysize += mysnprintf(asptr,LINESIZE,"YES:FREQ");
 	else
-	  mysize += snprintf(asptr,LINESIZE,"YES:UNIFORM");
+	  mysize += mysnprintf(asptr,LINESIZE,"YES:UNIFORM");
 
 	if (options->has_unassignedpoplist)
 	  {
 	    size_t ai;
-	    mysize += snprintf(asptr+mysize,LINESIZE,":{");
+	    mysize += mysnprintf(asptr+mysize,LINESIZE,":{");
 	    for (ai=0; ai < options->unassignedpoplistnum;ai++)
-	      mysize += snprintf(asptr+mysize,LINESIZE,"%li,",options->unassignedpoplist[ai]);
-	    mysize = snprintf(asptr+mysize-1,LINESIZE,"}");
+	      mysize += mysnprintf(asptr+mysize,LINESIZE,"%li,",options->unassignedpoplist[ai]);
+	    mysize = mysnprintf(asptr+mysize-1,LINESIZE,"}");
 	  }
 	print_parm_mutable(&bufsize, buffer, allocbufsize, "assign=%s\n",assignopt);
       }
@@ -5433,7 +5433,7 @@ numbercheck (option_fmt * options, char *var, char *value)
         {
             options->categs = strtol (value, (char **) NULL, 10);
             /* needs to read auxilliary file catfile */
-            snprintf(tmp2,LINESIZE,"%li",options->categs);
+            mysnprintf(tmp2,LINESIZE,"%li",options->categs);
             set_filename(value, tmp2, &options->catfilename);
         }
         break;
@@ -6062,8 +6062,8 @@ numbercheck (option_fmt * options, char *var, char *value)
 	break;
 #ifdef PRETTY
     case 52:   /*PDF-outfile name */
-        strcpy (options->pdfoutfilename, value);
-        break;
+      strcpy (options->pdfoutfilename, value);
+      break;
 #endif
     case 53:   /*bayes interval for writing all parameters to file */
         options->bayesmdiminterval = atol(value);

@@ -44,6 +44,8 @@ $Id: tools.c 2158 2013-04-29 01:56:20Z beerli $
 #include <stdio.h>
 #include <math.h>
 #include <complex.h>
+#include <stdlib.h>
+#include <stdarg.h>
 
 #include "migration.h"
 #include "sighandler.h"
@@ -143,6 +145,7 @@ long read_savesum (world_fmt * world, option_fmt * options, data_fmt * data);
 void write_savesum (world_fmt * world);
 
 /* string manipulation */
+int  mysnprintf(char *buf, size_t bufsize, const char *fmt, ...);
 void translate (char *text, char from, char to);
 long count_words (char *text);
 long count_char (char *text, char needle);
@@ -873,7 +876,7 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
   if(options->has_bayesmdimfile)
     {
       l = strlen(options->bayesmdimfilename);
-      snprintf(options->bayesmdimfilename+l,LINESIZE,".%d",myID);
+      mysnprintf(options->bayesmdimfilename+l,LINESIZE,".%d",myID);
     }
 #endif
 #endif
@@ -1216,6 +1219,42 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 }
 
 /* string manipulation ================================== */
+/* add to buffer */
+
+/** using chatgpt
+ * mysnprintf:
+ *   buf      – your destination buffer
+ *   bufsize  – total size of buf (in bytes)
+ *   fmt, …   – printf-style format + args
+ *
+ * If mysnprintf would truncate, this prints an error (including
+ * how many bytes were needed) and calls abort().
+ * Otherwise it returns the number of characters written,
+ * excluding the terminating NUL.
+ */
+int mysnprintf(char *buf, size_t bufsize, const char *fmt, ...)
+{
+    va_list ap;
+    int needed;
+
+    va_start(ap, fmt);
+    needed = vsnprintf(buf, bufsize, fmt, ap);
+    va_end(ap);
+
+    if (needed < 0) {
+        fprintf(stderr, "mysnprintf: encoding error in format\n");
+        abort();
+    }
+    if ((size_t)needed >= bufsize) {
+        fprintf(stderr,
+            "mysnprintf: buffer overflow: needed %d bytes, have %zu\n",
+            needed, bufsize);
+        abort();
+    }
+    return needed;
+}
+
+
 /* Converts any character from to character to in string text */
 void
 translate (char *text, char from, char to)
@@ -1367,7 +1406,7 @@ get_time (char *nowstr, char ts[])
 	if (!strcmp(ts,"%s"))
 	  {
 	    //windows 7 does not have the "%s" format for strftime()
-	    snprintf(nowstr,LINESIZE,"%i",nowbin);
+	    mysnprintf(nowstr,LINESIZE,"%i",nowbin);
 	  }
 	else
 	  strftime (nowstr, LINESIZE, ts, nowstruct);
@@ -1385,7 +1424,7 @@ void get_runtime (char *runtime, time_t start, time_t end)
   time_t minutes = ((time_t) delta/60) % 60;
   time_t hours   = ((time_t) delta/3600) % 24;
   time_t days    = ((time_t) delta/86400) % 365;
-  snprintf(runtime,LINESIZE, "Runtime:%04li:%02li:%02li:%02li",days,hours,minutes,seconds);
+  mysnprintf(runtime,LINESIZE, "Runtime:%04li:%02li:%02li:%02li",days,hours,minutes,seconds);
 }
 
 /*===============================================
@@ -1396,10 +1435,10 @@ print_llike (MYREAL llike, char *strllike)
 {
     if (fabs (llike) > 10e20)
     {
-        snprintf(strllike,LINESIZE, "%cInfinity ", llike < 0 ? '-' : ' ');
+        mysnprintf(strllike,LINESIZE, "%cInfinity ", llike < 0 ? '-' : ' ');
     }
     else
-        snprintf(strllike,LINESIZE, "%-10.5f", llike);
+        mysnprintf(strllike,LINESIZE, "%-10.5f", llike);
 }
 
 int sprint_tabdigits(double x, char * temp)
@@ -1445,7 +1484,7 @@ int sprint_tabdigits(double x, char * temp)
 	fmt = 5;
       break;
     }
-  int c = snprintf(temp,LINESIZE,"\t%.*f",fmt, x);
+  int c = mysnprintf(temp,LINESIZE,"\t%.*f",fmt, x);
   return c;
 }
 
@@ -1635,7 +1674,7 @@ znzopenfile (znzFile * fp, char *filename, char *mode, int use_compressed)
     if ((p = strpbrk (filename, CRLF)) != NULL)
         *p = '\0';
     remove_trailing_blanks(&filename);
-    snprintf(file,LINESIZE, "%-.*s", (int) LINESIZE, filename);
+    mysnprintf(file,LINESIZE, "%-.*s", (int) LINESIZE, filename);
     of = znzopen (file, mode,use_compressed);
     if (znz_isnull(of))
       error("Could not open zipped bayesallfile");
@@ -1660,7 +1699,7 @@ openfile (FILE ** fp, char *filename, char *mode, char *perm)
     if ((p = strpbrk (filename, CRLF)) != NULL)
         *p = '\0';
     remove_trailing_blanks(&filename);
-    snprintf(file,LINESIZE, "%-.*s",(int) LINESIZE, filename);
+    mysnprintf(file,LINESIZE, "%-.*s",(int) LINESIZE, filename);
 #ifdef CAUTIOUS
     if(cautious)
       {
@@ -3617,7 +3656,7 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
   long x;
   long remainder;
   if (j < numpop)
-    snprintf(paramstr,LINESIZE,"Theta_%-3li",j+1);
+    mysnprintf(paramstr,LINESIZE,"Theta_%-3li",j+1);
   else
     {
       if (j < numpop2)
@@ -3625,17 +3664,17 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
 	  m2mm (j, numpop, &frompop, &topop);
 	  if(usem)
 	    {
-		snprintf(paramstr,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+		mysnprintf(paramstr,LINESIZE, "M_%li->%li", frompop+1, topop+1);
 	    }
 	  else
 	    {
-	      snprintf(paramstr,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+	      mysnprintf(paramstr,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
 	    }
 	}
       else
 	{
 	  if (j==numpop2 && rate)
-	    snprintf(paramstr,LINESIZE, "Rate");
+	    mysnprintf(paramstr,LINESIZE, "Rate");
 	  else
 	    {
 	      x = j-numpop2-rate;
@@ -3643,9 +3682,9 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
 	      x = (long) x/2;
 	      s = &world->species_model[x];
 	      if (remainder == 0)
-		snprintf(paramstr,LINESIZE, "D_%li->%li",s->from+1,s->to+1);
+		mysnprintf(paramstr,LINESIZE, "D_%li->%li",s->from+1,s->to+1);
 	      else
-		snprintf(paramstr,LINESIZE, "S_%li->%li",s->from+1,s->to+1);
+		mysnprintf(paramstr,LINESIZE, "S_%li->%li",s->from+1,s->to+1);
 	    }
 	}
     }
@@ -3786,12 +3825,12 @@ sprint_line
     {
     case START:
         start = 2;
-        snprintf(fp,LINESIZE, "=%c%c", c, c);
+        mysnprintf(fp,LINESIZE, "=%c%c", c, c);
         strcat (buffer, fp);
         break;
     case STOP:
         start = 2;
-        snprintf(fp,LINESIZE, "==%c", c);
+        mysnprintf(fp,LINESIZE, "==%c", c);
         strcat (buffer, fp);
         break;
     default:
@@ -3892,7 +3931,7 @@ void add_to_buffer(char *fp, long *bufsize, char **buffer, long *allocbufsize)
       *allocbufsize += 100 * fpsize;
       (*buffer) = (char *) myrealloc (*buffer, (*allocbufsize) * sizeof (char));
     }
-  (*bufsize) += snprintf((*buffer) + (*bufsize),LINESIZE,"%s",fp);
+  (*bufsize) += mysnprintf((*buffer) + (*bufsize),LINESIZE,"%s",fp);
 }
 
 
@@ -3908,7 +3947,7 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
   va_end(ap);
   if((*pos + mypos) < (*maxbufsize))
       {
-	(*pos) += snprintf((*buffer) + (*pos),mypos, "%s",p);
+	(*pos) += mysnprintf((*buffer) + (*pos),mypos+1, "%s",p);
 	//	if(*pos + mypos >= *maxbufsize )
 	//  {
 	//    printf("%i> pos=%li + mypos=%li >  maxbufsize=%li \n",myID, *pos, mypos, *maxbufsize); 
@@ -3918,7 +3957,7 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
       {
 	*maxbufsize = *pos + 4 * mypos; // add some extra space
 	(*buffer) = (char *) myrealloc ((*buffer), (*maxbufsize) * sizeof (char));
-	(*pos) += snprintf((*buffer) + (*pos),mypos, "%s",p);
+	(*pos) += mysnprintf((*buffer) + (*pos), 4 * mypos+1, "%s",p);
       }
   //  myfree(p);
   return (*pos);
@@ -3937,7 +3976,7 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
       va_end(ap);
       if((world->warningsize + mypos) < world->warningallocsize)
 	{
-	  world->warningsize += snprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
+	  world->warningsize += mysnprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
 	}
       else
 	{
@@ -3946,7 +3985,7 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
 	    world->warning = (char *) myrealloc (world->warning, world->warningallocsize * sizeof (char));
 	  else
 	    world->warning = (char *) mycalloc (world->warningallocsize, sizeof (char));
-	  world->warningsize += snprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
+	  world->warningsize += mysnprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
 	}
     }
   myfree(p);

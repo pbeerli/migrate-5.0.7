@@ -847,9 +847,9 @@ print_ancestor (FILE * out, world_fmt * world, long copies)
     for (us = 0; us < world->data->uepsites; us++)
     {
         if (world->data->uepsites != 1)
-            snprintf(uepsite,LINESIZE, "%3li:", us + 1);
+            mysnprintf(uepsite,LINESIZE, "%3li:", us + 1);
         else
-            snprintf(uepsite,LINESIZE, "%4s", "     ");
+            mysnprintf(uepsite,LINESIZE, "%4s", "     ");
         for (pop = 0; pop < world->numpop; pop++)
         {
             ancsum = 0;

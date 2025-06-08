@@ -418,9 +418,9 @@ void mpi_runloci_worker (world_fmt ** universe, int usize,
                 mpi_run_locus(universe, usize, options, data, 
                               heating_pool, maxreplicate, locus, treefilepos, Gmax);  
 		if(universe[0]->data->skiploci[locus]==FALSE)
-		  rawmsgsize = 1 + snprintf(rawmessage,LINESIZE,"R%li",locus);
+		  rawmsgsize = 1 + mysnprintf(rawmessage,LINESIZE,"R%li",locus);
 		else
-		  rawmsgsize = 1 + snprintf(rawmessage,LINESIZE,"R-%li",locus);
+		  rawmsgsize = 1 + mysnprintf(rawmessage,LINESIZE,"R-%li",locus);
                 MYMPISEND (rawmessage, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, 
 			   (MYINT) (locus + ONE), comm_world);
                 /* we want to know what locus we worked for
@@ -496,7 +496,7 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
 	for (replicate = 1; replicate < minnodes; replicate++)//Cesky Krumlov 2013 replicate=1 replaced
 	  {
             temp[1] = replicate;
-	    snprintf(tempstr,LINESIZE,"N%i %li %li", myID, locus, replicate);
+	    mysnprintf(tempstr,LINESIZE,"N%i %li %li", myID, locus, replicate);
             MYMPIISEND (tempstr, SMALLBUFSIZE, MPI_CHAR, 
 			(MYINT) MASTER, (MYINT) (locus + 1 + REPTAG), comm_world, &irequests[numsent]);
             numsent++;   // counter of how many replicates are sent off-node
@@ -566,7 +566,7 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
                 if (numsent < maxreplicate) //at least one set was worked by the locus-worker
 		  {
                     temp[1] = numsent;
-		    snprintf(tempstr,LINESIZE,"N%i %li %li", myID, locus, numsent);
+		    mysnprintf(tempstr,LINESIZE,"N%i %li %li", myID, locus, numsent);
 		    MYMPIISEND (tempstr, SMALLBUFSIZE, MPI_CHAR, 
 				(MYINT) MASTER, (MYINT) (locus + 1 + REPTAG), comm_world, &irequests);
                     numsent++;
@@ -654,7 +654,7 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
     ready = mycalloc(SMALLBUFSIZE,sizeof(char));
     temp = (long *) mycalloc(3, sizeof(long));
     rawmessage = (char *) mycalloc(STRSIZE,sizeof(char));
-    snprintf(ready,LINESIZE,"G%i",myID);//redy message to be sent to the master
+    mysnprintf(ready,LINESIZE,"G%i",myID);//redy message to be sent to the master
     while (!done)
       {
 	MYMPISEND (ready, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, myID, comm_world);
@@ -685,7 +685,7 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
 	    nng=universe[0]->numpop2 + universe[0]->bayes->mu + 1 + universe[0]->species_model_size * 2 + universe[0]->grownum;	    
 	    memset(universe[0]->accept_archive,0,sizeof(long)*2*nng);//resets also trials_archive
             run_replicate(locus, replicate, universe, options, data, heating_pool, usize,treefilepos, Gmax);
-            rawmsgsize = 1 + snprintf(rawmessage,LINESIZE,"R%li ",replicate);
+            rawmsgsize = 1 + mysnprintf(rawmessage,LINESIZE,"R%li ",replicate);
             MYMPISEND (rawmessage, rawmsgsize, MPI_CHAR, (MYINT) sender, 
 		       (MYINT) (locus+1+ REPTAG), comm_world);
             mpi_send_replicate(sender, locus, replicate, universe[0]);
@@ -714,7 +714,7 @@ assign_worker_cleanup (void)
     ready      = mycalloc(SMALLBUFSIZE,sizeof(char));
     temp       = (long *) mycalloc(3, sizeof(long));
     rawmessage = (char *) mycalloc(STRSIZE,sizeof(char));
-    snprintf(ready,LINESIZE,"G%i",myID);
+    mysnprintf(ready,LINESIZE,"G%i",myID);
     while (!done)
       {
 	MYMPISEND (ready, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, myID, comm_world);
@@ -1115,7 +1115,7 @@ mpi_maximize_worker (world_fmt * world, option_fmt *options, long kind, long rep
 	case MIGMPI_PARALIO:
 	  fprintf(stdout,"%i> bayesmdimfile %s closing\n", myID, options->bayesmdimfilename);
 	  MPI_File_close(&world->mpi_bayesmdimfile);
-	  snprintf(tempfilename,LINESIZE,"%s",options->bayesmdimfilename);
+	  mysnprintf(tempfilename,LINESIZE,"%s",options->bayesmdimfilename);
 	  MYMPISEND (tempfilename, STRSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID, comm_world);
 	  break;
 #endif
@@ -1302,7 +1302,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
   long allocfpsize=LONGLINESIZE;
   
   buffer = (char *) mycalloc (allocfpsize,sizeof (char));
-  bufsize = snprintf(buffer,LINESIZE, "%c %li %li %li %li\n", options->datatype, (long) data->hasghost,
+  bufsize = mysnprintf(buffer,LINESIZE, "%c %li %li %li %li\n", options->datatype, (long) data->hasghost,
 			  data->numpop, data->loci, data->allsubloci);
   // send header info
   bufsize += 1;
@@ -1312,14 +1312,14 @@ pack_databuffer (data_fmt * data, option_fmt * options)
   bufsize=0;
   for (locus = 0; locus < data->loci; locus++)
     {
-      bufsize += snprintf(buffer+bufsize,LINESIZE, "%li %li\n", data->subloci[locus], data->sublocistarts[locus]);
+      bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%li %li\n", data->subloci[locus], data->sublocistarts[locus]);
       if (bufsize >= allocfpsize-100)
 	{
 	  allocfpsize += LONGLINESIZE;
 	  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 	}
     }
-  bufsize += snprintf(buffer+bufsize,LINESIZE,"%li\n", data->sublocistarts[locus]);
+  bufsize += mysnprintf(buffer+bufsize,LINESIZE,"%li\n", data->sublocistarts[locus]);
   for (locus = 0; locus < data->allsubloci; locus++)
     {
       int dataclass = 0;
@@ -1336,21 +1336,21 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 	}
       if (s->datatype == '\0')
 	s->datatype = options->datatype;
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%c %i %i %li %li\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%c %i %i %li %li\n",
 			  s->datatype, dataclass, s->model, s->numpatterns, s->numsites);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%li %li %li %f\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %li %f\n",
 			  s->startsite, s->numstates, s->numsiterates,s->lambda); 
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%f %f %f %i %i\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%f %f %f %i %i\n",
 			  s->parameters[0],s->parameters[1],s->parameters[2],(int) s->from_infile, (int) s->finished);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%li %f %f %f %f\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %f %f %f %f\n",
 			  s->weightsum, s->xi, s->xv, s->ttratio, s->fracchange);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%f %f %li %f\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%f %f %li %f\n",
 			  s->freq, s->freqlast,s->maxalleles,s->browniandefault);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%li %li %li\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %li\n",
 			  s->micro_threshold, s->microrange,s->microstart);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%li %li %i %i %i\n",
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %i %i %i\n",
 			  s->addon, s->numcategs,(int) s->estimateseqerror, (int) s->seqerrorcombined, (int) s->scaling);
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%f %f %f %f\n", 
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%f %f %f %f\n", 
 			  s->scoring_error[0], s->scoring_error[1], s->scoring_error[2], 
 			  s->scoring_error[3]);
       for(i=0;i<s->numsites;i++)
@@ -1360,7 +1360,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 	      allocfpsize += LONGLINESIZE;
 	      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 	    }
-	  bufsize += snprintf(buffer + bufsize,LINESIZE,"%f %li\n",s->aliasweight[i],s->alias[i]);
+	  bufsize += mysnprintf(buffer + bufsize,LINESIZE,"%f %li\n",s->aliasweight[i],s->alias[i]);
 	}
     }
   // population data
@@ -1378,7 +1378,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 	  allocfpsize += LINESIZE;
 	  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 	}
-      bufsize = snprintf(buffer,LINESIZE, "%s\n", data->popnames[pop]);//set to start
+      bufsize = mysnprintf(buffer,LINESIZE, "%s\n", data->popnames[pop]);//set to start
       bufsize += 1;
       MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
       MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);
@@ -1395,7 +1395,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 #ifdef DEBUG
 	  printf("%i>numind send: %li %li %li %li\n", myID, pop, locus, data->numind[pop][locus], data->numalleles[pop][locus]);
 #endif
-	  bufsize += snprintf(buffer + bufsize,LINESIZE, "%li %li\n", data->numind[pop][locus],data->numalleles[pop][locus]);
+	  bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li\n", data->numind[pop][locus],data->numalleles[pop][locus]);
 	  if(biggest < data->numind[pop][locus])
 	    biggest = data->numind[pop][locus];
 	}
@@ -1411,7 +1411,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
             {
 	      // assume that buffer is always larger than nmlength
 	      // resetting bufsize to start!
-	      bufsize = snprintf(buffer,LINESIZE, "%*s\n",  (int) options->nmlength, data->indnames[pop][ind][0]);
+	      bufsize = mysnprintf(buffer,LINESIZE, "%*s\n",  (int) options->nmlength, data->indnames[pop][ind][0]);
 	      pack_allele_data (&buffer, &bufsize, &allocfpsize, data, pop, ind);
 	      bufsize += 1;
 	      //printf("%i> pack_allele_data: bufsize=%li\n",myID,bufsize);
@@ -1428,7 +1428,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
                 {
 		  // assume that buffer is always larger than nmlength
 		  // is resetting bufsize to start!
-		  bufsize = snprintf(buffer,LINESIZE, "%*s\n", (int) options->nmlength,
+		  bufsize = mysnprintf(buffer,LINESIZE, "%*s\n", (int) options->nmlength,
 				     data->indnames[pop][ind][locus]);
 		  pack_sequence_data (&buffer, &bufsize, &allocfpsize, data, pop, ind, locus);
 		  bufsize += 1;
@@ -1450,7 +1450,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 	      allocfpsize += LONGLINESIZE;
 	      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 	    }
-	  bufsize += snprintf(buffer+ bufsize,LINESIZE, "%f %f\n", data->geo[pop], data->lgeo[pop]);
+	  bufsize += mysnprintf(buffer+ bufsize,LINESIZE, "%f %f\n", data->geo[pop], data->lgeo[pop]);
         }
       bufsize += 1;
       MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
@@ -1469,7 +1469,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		  allocfpsize += LONGLINESIZE;
 		  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		}
-	      bufsize += snprintf(buffer+ bufsize,LINESIZE, "%li\n", data->shuffled[pop][locus][ind]);
+	      bufsize += mysnprintf(buffer+ bufsize,LINESIZE, "%li\n", data->shuffled[pop][locus][ind]);
 	    }
         }
     }
@@ -1492,7 +1492,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		      allocfpsize += LONGLINESIZE;
 		      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		    }
-		  bufsize += snprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
+		  bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
 	      }
 	  }
       }
@@ -1510,13 +1510,13 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 			  allocfpsize += LONGLINESIZE;
 			  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 			}
-		      bufsize += snprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
+		      bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
 		    }
 		}
 	    }
 	}
       // assumes buffer is big enough
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%20.20f\n", data->maxsampledate);
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%20.20f\n", data->maxsampledate);
       //      printf("%i> pack_data maxsampledate=%f %s\n",myID, data->maxsampledate, fp);
       //printf("%i> pack_data:%s\n""""""""""""""""""""""""\n\n\n",myID, buffer);
       bufsize += 1;
@@ -1531,7 +1531,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
       bufsize = 0;
       for (pop = 0; pop < data->numpop; ++pop)
 	sumtips += data->numind[pop][0];//Assumes UEP is matched by locus 1
-      bufsize += snprintf(buffer+ bufsize,LINESIZE, "%li %li\n", sumtips, data->uepsites);
+      bufsize += mysnprintf(buffer+ bufsize,LINESIZE, "%li %li\n", sumtips, data->uepsites);
       if (strchr (SEQUENCETYPES, options->datatype))
         {
 	  for (pop = 0; sumtips; pop++)
@@ -1543,7 +1543,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		      allocfpsize += LONGLINESIZE;
 		      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		    }
-		  bufsize += snprintf(buffer + bufsize,LINESIZE, "%i\n", data->uep[pop][i]);
+		  bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%i\n", data->uep[pop][i]);
                 }
 	      done = store_to_buffer_afterloop(buffer, &bufsize, fp, &fpsize, done);
             }
@@ -1559,7 +1559,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		      allocfpsize += LONGLINESIZE;
 		      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		    }
-		  bufsize += snprintf(buffer + bufsize,LINESIZE, "%i %i\n", data->uep[pop][i],
+		  bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%i %i\n", data->uep[pop][i],
 					  data->uep[pop + sumtips][i]);
                 }
             }
@@ -1585,7 +1585,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 	      allocfpsize += LONGLINESIZE;
 	      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 	    }
-	  bufsize += snprintf(buffer + bufsize,LINESIZE, "%li\n", data->numindividuals[locus]);
+	  bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li\n", data->numindividuals[locus]);
 	}
       for(locus=0;locus<data->loci;locus++)
 	{
@@ -1596,7 +1596,7 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		  allocfpsize += LONGLINESIZE;
 		  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		}
-	      bufsize += snprintf(buffer + bufsize,LINESIZE, "%li\n%s\n%li %li %li\n",
+	      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li\n%s\n%li %li %li\n",
 				  data->individuals[locus][id].id,
 				  data->individuals[locus][id].name,
 				  data->individuals[locus][id].ind[0],
@@ -1627,7 +1627,7 @@ pack_allele_data (char **buffer, long *bufsize, long *allocbufsize, data_fmt * d
 	  *allocbufsize += *bufsize;
 	  *buffer = (char*) myrealloc(*buffer, *allocbufsize * sizeof(char));
 	}
-        *bufsize += snprintf(*buffer + *bufsize,LINESIZE, "%s %s\n", data->yy[pop][ind][locus][0][0],
+        *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE, "%s %s\n", data->yy[pop][ind][locus][0][0],
                                  data->yy[pop][ind][locus][1][0]);
     }
 }
@@ -1652,9 +1652,9 @@ pack_sequence_data (char **buffer, long *bufsize, long *allocbufsize, data_fmt *
 		*allocbufsize += s->numsites+2;
 		*buffer = (char*) myrealloc(*buffer, *allocbufsize * sizeof(char));
 	      }
-	    *bufsize += snprintf(*buffer + *bufsize,LINESIZE, "%s", data->yy[pop][ind][sublocus][0][site]);
+	    *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE, "%s", data->yy[pop][ind][sublocus][0][site]);
 	  }
-	*bufsize += snprintf(*buffer + *bufsize,LINESIZE, "\n"); // separates subloci
+	*bufsize += mysnprintf(*buffer + *bufsize,LINESIZE, "\n"); // separates subloci
       }
 }
 
@@ -1895,7 +1895,7 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 		    MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);    
 		    buf = buffer;
 		    sgets_safe (&input, &inputsize, &buf);
-		    snprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, input);	
+		    mysnprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, input);	
 		    const long sublocistart = data->sublocistarts[locus];
 		    const long sublociend   = data->sublocistarts[locus+1];
 		    long sublocus;
@@ -2218,7 +2218,7 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
   char *  p1 = (char *) mycalloc(LINESIZE,sizeof(char));
   long inputsize = LONGLINESIZE;
   char *  input = (char *) mycalloc(inputsize,sizeof(char));
-  snprintf(p1,LINESIZE,"D %li %li %li %li",pop,ind,sublocus,allelenum);
+  mysnprintf(p1,LINESIZE,"D %li %li %li %li",pop,ind,sublocus,allelenum);
   //fprintf(stdout,"%i> requested data from master %s (pop,ind,subloc,allelnum)\n", myID, p1);
   //fflush(stdout);
   MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) tag, comm_world);
@@ -2266,7 +2266,7 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
   else
     {
       sgets_safe (&input, &inputsize, &buf);
-      snprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, input);	
+      mysnprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, input);	
 
       sgets_safe (&input, &inputsize, &buf);
       if(s->basefreqs==NULL)
@@ -2599,9 +2599,9 @@ long pack_treespace_buffer (MYREAL **buffer, world_fmt * world,
   input = mycalloc(LONGLINESIZE,sizeof(char));
   if(world->options->treeprint == BEST)
     {
-      snprintf(input,LINESIZE,"%-*s", (int) pos, ptr2+1);
+      mysnprintf(input,LINESIZE,"%-*s", (int) pos, ptr2+1);
       like = atof(input);
-      pos   = snprintf(input,LINESIZE,"%f @", like);
+      pos   = mysnprintf(input,LINESIZE,"%f @", like);
       // fprintf(stdout,"%i> in pack_treespace_buffer() filling %li size\n",myID, thissize);
       // the master routine for this expects a MYREAL *buffer, but
       // the tree is a string
@@ -2611,7 +2611,7 @@ long pack_treespace_buffer (MYREAL **buffer, world_fmt * world,
   (*buffer) = (MYREAL *) myrealloc(*buffer, (1+thisrealsize) * sizeof(MYREAL));
   memset(*buffer, 0, sizeof(MYREAL) * (1+thisrealsize));
   // the sizeof(char) is NO MISTAKE!
-  snprintf((char*)(*buffer),LINESIZE, "%s%s", input, world->treespace[locus]);
+  mysnprintf((char*)(*buffer),LINESIZE, "%s%s", input, world->treespace[locus]);
   return thisrealsize;
 }
 
@@ -3541,18 +3541,18 @@ long pack_assign_buffer(MYREAL **buffer, world_fmt * world,
   float ratio = (float) sizeof(char)/(float) sizeof(MYREAL);
   long bufsize = 0;
   char * charbuf = (char *) mycalloc(world->unassignednum*STRSIZE,sizeof(char));
-  bufsize = snprintf(charbuf,LINESIZE,"         ");
+  bufsize = mysnprintf(charbuf,LINESIZE,"         ");
   for (i=1; i<world->unassignednum; i++)
     {
       v = world->unassigned[i];
-      bufsize += snprintf(charbuf+bufsize,LINESIZE,"\t%s",v->key);
+      bufsize += mysnprintf(charbuf+bufsize,LINESIZE,"\t%s",v->key);
     }
 
   z = (long)(bufsize * ratio + 5 + (ratio*8));
 #ifdef DEBUG
   long startz = z;
 #endif
-  snprintf(zchar,9,"%07li ",z);
+  mysnprintf(zchar,9,"%07li ",z);
   memcpy(charbuf,zchar,sizeof(char)*8);
   *buffer = (MYREAL *) realloc(*buffer, (dim*world->unassignednum + z)*sizeof(MYREAL)); 
   memset(*buffer,0, (dim*world->unassignednum + z)*sizeof(MYREAL)); 
@@ -4021,7 +4021,7 @@ assignloci_worker (world_fmt * world, option_fmt *options, long * Gmax)
         if (status.MPI_TAG != 0) //stop condition
         {
 	  locus = twolongs[0];
-	  snprintf(locusstring,LINESIZE,"R%li",locus);
+	  mysnprintf(locusstring,LINESIZE,"R%li",locus);
 #ifdef DEBUG_MPI
 	  printf("%i>>>>>> received locus %li in assignloci_worker{}\n",myID,locus);
 	  swap_atl (locus, locidone, world);
@@ -4100,7 +4100,7 @@ void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, opt
   //sleep(100);
   buffer = (char *) mycalloc (allocbufsize,sizeof (char));
   sscanf(tempstr+1,"%li%li%li%li", &pop, &ind, &sublocus, &allelenum);
-  bufsize = snprintf(buffer,LINESIZE, "%*s\n",  (int) options->nmlength, data->indnames[pop][ind][0]);
+  bufsize = mysnprintf(buffer,LINESIZE, "%*s\n",  (int) options->nmlength, data->indnames[pop][ind][0]);
   if(allelenum!=0)
     {
       if (bufsize > allocbufsize-100)
@@ -4108,13 +4108,13 @@ void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, opt
 	  allocbufsize += bufsize;
 	  buffer = (char*) myrealloc(buffer, allocbufsize * sizeof(char));
 	}
-      bufsize += snprintf(buffer + bufsize,LINESIZE, "%s %s\n", data->yy[pop][ind][sublocus][0][0],data->yy[pop][ind][sublocus][1][0]);
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%s %s\n", data->yy[pop][ind][sublocus][0][0],data->yy[pop][ind][sublocus][1][0]);
     }
   else
     {
 	mutationmodel_fmt *s = &data->mutationmodels[sublocus];
 	int tmp = (s->dataclass == SITECHARACTER ? 0 : 1);
-	bufsize += snprintf(buffer + bufsize,LINESIZE, "%i %f %f %f %f\n", tmp, s->basefreqs[0],s->basefreqs[1],s->basefreqs[2],s->basefreqs[3]);
+	bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%i %f %f %f %f\n", tmp, s->basefreqs[0],s->basefreqs[1],s->basefreqs[2],s->basefreqs[3]);
 	long site;
 	for(site=0; site < s->numsites; site++)
 	  {
@@ -4123,7 +4123,7 @@ void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, opt
 		allocbufsize += s->numsites+2;
 		buffer = (char*) myrealloc(buffer, allocbufsize * sizeof(char));
 	      }
-	    bufsize += snprintf(buffer + bufsize,LINESIZE, "%s", data->yy[pop][ind][sublocus][0][site]);
+	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%s", data->yy[pop][ind][sublocus][0][site]);
 	    //printf("%s",data->yy[pop][ind][sublocus][0][site]);
 	  }
 	//printf("###%i####\n",myID);
@@ -4200,7 +4200,7 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
     long skypnum = world->timeelements*(world->numpop2+addition);
 
     temp = (char *) mycalloc(n*20+20*skypnum+LINESIZE,sizeof(char)); 
-    z = snprintf(temp,LINESIZE,"%li\t%li\t%li\t%f\t%f\t%f\t%f\t%li\t%f",
+    z = mysnprintf(temp,LINESIZE,"%li\t%li\t%li\t%f\t%f\t%f\t%f\t%li\t%f",
 	   (long) values[0], (long) values[1]+1,(long) values[2]+1,
 	    values[3], values[4], values[5], values[6],(long) values[7], values[8]);
     for(i=9;i<n; i++)
@@ -4208,12 +4208,12 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
 	//fprintf (stdout, "%f (%li) ",values[i], i);
 	if(i > (world->numpop2 +  world->bayes->mu))
 	  {
-	    z += snprintf(temp+z,LINESIZE,"\t%f",values[i]);
+	    z += mysnprintf(temp+z,LINESIZE,"\t%f",values[i]);
 	    continue;
 	  }
 	if(fabs(values[i]) < SMALLEPSILON)
 	  {
-	    z += snprintf(temp+z,LINESIZE,"\t0");
+	    z += mysnprintf(temp+z,LINESIZE,"\t0");
 	  }
 	else
 	  {
@@ -4224,30 +4224,30 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
 	      case -6:
 	      case -5:
 		//		fmt = 10;
-		z += snprintf(temp + z,LINESIZE,"\t%.10f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.10f", values[i]);
 		break;
 	      case -4:
 	      case -3:
 		//fmt = 8;
-		z += snprintf(temp + z,LINESIZE,"\t%.8f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.8f", values[i]);
 		break;
 	      case -2:
 	      case -1:
 		//		fmt= 5;
-		z += snprintf(temp + z,LINESIZE,"\t%.5f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.5f", values[i]);
 		break;
 	      case 0:
 	      case 1:
 		//		fmt = 4;
-		z += snprintf(temp + z,LINESIZE,"\t%.4f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.4f", values[i]);
 		break;
 	      case 2:
 		//		fmt = 2;
-		z += snprintf(temp + z,LINESIZE,"\t%.2f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.2f", values[i]);
 		break;
 	      case 3:
 		//		fmt = 1;
-		z += snprintf(temp + z,LINESIZE,"\t%.1f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.1f", values[i]);
 		break;
 	      case 4:
 	      case 5:
@@ -4255,18 +4255,18 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
 	      case 7:
 	      case 8:
 		//		fmt = 0;
-		z += snprintf(temp + z,LINESIZE,"\t%.0f", values[i]);
+		z += mysnprintf(temp + z,LINESIZE,"\t%.0f", values[i]);
 		break;
 	      default:
 		if(digits<-8)
 		  {
 		    //		    fmt=20;
-		    z += snprintf(temp + z,LINESIZE,"\t%.20f", values[i]);
+		    z += mysnprintf(temp + z,LINESIZE,"\t%.20f", values[i]);
 		  }
 		else
 		  {		   
 		    //		    fmt = 5;
-		    z += snprintf(temp + z,LINESIZE,"\t%.5f", values[i]);
+		    z += mysnprintf(temp + z,LINESIZE,"\t%.5f", values[i]);
 		  }
 		break;
 	      }
@@ -4556,7 +4556,7 @@ mpi_fprintf(FILE *file, const char *fmt, ...)
     if(myID != MASTER)
     {
         filehandle = retrieve_filehandle(file);
-        bufsize = snprintf(p,LINESIZE, "%c%li:",'M',filehandle);
+        bufsize = mysnprintf(p,LINESIZE, "%c%li:",'M',filehandle);
     }
     va_start(ap, fmt);
     bufsize += vsnprintf(p+bufsize, LINESIZE,fmt, ap);
@@ -4564,7 +4564,7 @@ mpi_fprintf(FILE *file, const char *fmt, ...)
       error("failed in mpi_printf(): problem with buffer size!");
     if(myID != MASTER)
     {
-        snprintf(p1,LINESIZE,"M%li",bufsize);
+        mysnprintf(p1,LINESIZE,"M%li",bufsize);
         MYMPISEND (p1, STRSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
         MYMPISEND (p, bufsize, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
     }
@@ -4593,7 +4593,7 @@ mpi_fprintf2(FILE *file, long filesize, const char *fmt, ...)
     if(myID!=MASTER)
     {
         filehandle = retrieve_filehandle(file);
-        bufsize = snprintf(p,LINESIZE, "%c%li:",'M',filehandle);
+        bufsize = mysnprintf(p,LINESIZE, "%c%li:",'M',filehandle);
     }
     va_start(ap, fmt);
     bufsize += vsnprintf(p+bufsize, LINESIZE, fmt, ap);
@@ -4604,7 +4604,7 @@ mpi_fprintf2(FILE *file, long filesize, const char *fmt, ...)
       }
     if(myID!=MASTER)
     {
-        snprintf(p1,LINESIZE,"M%li",bufsize);
+        mysnprintf(p1,LINESIZE,"M%li",bufsize);
         MYMPISEND (p1, STRSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
         MYMPISEND (p, bufsize, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
     }
@@ -4631,7 +4631,7 @@ send_divtime(const char *fmt, ...)
     if(myID != MASTER)
     {
         filehandle = DIVTIMEFILENUM;
-        bufsize = snprintf(p,LINESIZE, "%c%li:",'M',filehandle);
+        bufsize = mysnprintf(p,LINESIZE, "%c%li:",'M',filehandle);
     }
     
     va_start(ap, fmt);
@@ -4640,7 +4640,7 @@ send_divtime(const char *fmt, ...)
       error("failed in mpi_printf(): problem with buffer size!");
     if(myID != MASTER)
     {
-        snprintf(p1,LINESIZE,"M%li",bufsize);
+        mysnprintf(p1,LINESIZE,"M%li",bufsize);
         MYMPISEND (p1, STRSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
         MYMPISEND (p, bufsize, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
     }
@@ -4684,7 +4684,7 @@ void mpi_mdim_send(float *values, long size)
 	  my_write_error = TRUE;
 	}
 #else
-      snprintf(p1,LINESIZE,"Z%li",size);
+      mysnprintf(p1,LINESIZE,"Z%li",size);
       MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
 #ifdef DEBUG
       fprintf(stdout,"%i> mdimlast=%f\n",myID,values[size-1]);

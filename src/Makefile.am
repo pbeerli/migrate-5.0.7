@@ -2,7 +2,7 @@ bin_PROGRAMS = migrate-n migrate-n-mpi
 
 # Set CFLAGS conditionally for debug
 if DEBUG_MODE
-AM_CFLAGS = -g -Wall -DDEBUG
+AM_CFLAGS = -g -Wall -DDEBUG -fsanitize=address -fno-omit-frame-pointer
 else
 AM_CFLAGS = -O3 -DNDEBUG
 endif

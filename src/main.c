@@ -312,7 +312,7 @@ void get_mighistdata (world_fmt * world, option_fmt * options);
 
 void change_longsum_times (world_fmt * world);
 
-boolean  check_parmfile(long argcount, char **arguments, char *parmfilename);
+boolean  check_parmfile(long argcount, char **arguments, char **parmfilename);
 boolean set_usemenu(boolean usemenu, boolean fromparmfile);
 void check_bayes_options(option_fmt *options);
 void reset_bayesmdimfile(world_fmt *world, option_fmt *options);
@@ -509,7 +509,7 @@ main (int argc, char **argv)
     // master initializations, this works for both parallel and single-cpu version
     if (myID == MASTER)
       {
-	usemenu = check_parmfile((long) argc,argv,options->parmfilename);
+	usemenu = check_parmfile((long) argc,argv,&options->parmfilename);
 #ifdef DEBUG
 	printf("%i> argc=%i\n",myID, argc);
 	for(i=0; i < argc; i++)
@@ -1309,25 +1309,25 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
   get_time (nowstr, "%H:%M:%S");
   plog = (char *) mycalloc(LONGLINESIZE,sizeof(char));
 #ifdef MPI
-  plogsize = snprintf(plog,LINESIZE, "[%3i] %s   Sampling Temp[%li]:", myID, nowstr, options->heated_chains);
+  plogsize = mysnprintf(plog,LINESIZE, "[%3i] %s   Sampling Temp[%li]:", myID, nowstr, options->heated_chains);
 #else
-  plogsize = snprintf(plog,LINESIZE, "%s   Sampling Temp[%li]: ", nowstr, options->heated_chains);
+  plogsize = mysnprintf(plog,LINESIZE, "%s   Sampling Temp[%li]: ", nowstr, options->heated_chains);
 #endif
   if (options->heated_chains > 4)
     strcpy(dots,",...");
   else
     dots[0]='\0';
-  plogsize += snprintf(plog + plogsize,LINESIZE, "(%.4g,%.4g,%.4g,%.4g%s) ",universe[0]->averageheat,
+  plogsize += mysnprintf(plog + plogsize,LINESIZE, "(%.4g,%.4g,%.4g,%.4g%s) ",universe[0]->averageheat,
 		       universe[1]->averageheat,universe[2]->averageheat,universe[3]->averageheat,dots);
-  plogsize += snprintf(plog + plogsize,LINESIZE, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",universe[0]->accept_freq,
+  plogsize += mysnprintf(plog + plogsize,LINESIZE, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",universe[0]->accept_freq,
 		       universe[1]->accept_freq,universe[2]->accept_freq,universe[3]->accept_freq,dots);
-  plogsize += snprintf(plog + plogsize,LINESIZE, "Swap(%li,%li,%li%s)\n                           Param = {",universe[0]->swapped,
+  plogsize += mysnprintf(plog + plogsize,LINESIZE, "Swap(%li,%li,%li%s)\n                           Param = {",universe[0]->swapped,
 			   universe[1]->swapped,universe[2]->swapped /*,universe[3]->swapped*/,dots);
   for (i=0;i<npp;i++)
     {
-      plogsize += snprintf(plog + plogsize,LINESIZE, " %.4g",universe[0]->param0[i]);
+      plogsize += mysnprintf(plog + plogsize,LINESIZE, " %.4g",universe[0]->param0[i]);
     }
-  snprintf(plog + plogsize,LINESIZE, "}\n");
+  mysnprintf(plog + plogsize,LINESIZE, "}\n");
 
   FPRINTF(file,"%s",plog);
   myfree(plog);
@@ -2330,7 +2330,7 @@ change_longsum_times (world_fmt * world)
 /// migrate-n -nomenu ==> does use menu even if parmfile says so
 /// migrate-n -version ==> prints the version and quits
 /// migrate-n -help   ==> prints a quick help of commandline options
-boolean  check_parmfile(long argcount, char **arguments, char *parmfilename)
+boolean  check_parmfile(long argcount, char **arguments, char **parmfilename)
 {
   int argument=0;
   int len;
@@ -2345,7 +2345,8 @@ boolean  check_parmfile(long argcount, char **arguments, char *parmfilename)
 	  if(arguments[argument][0]!='-')
 	    {
 	      len = (int) (strlen (arguments[argument]) + 1);
-	      snprintf(parmfilename,LINESIZE, "%-.*s", len, arguments[argument]);		       
+	      (*parmfilename) = myrealloc(*parmfilename,sizeof(char)*len);
+	      mysnprintf(*parmfilename,len, "%-.*s", len, arguments[argument]);		       
 	    }
 	  else
 	    {

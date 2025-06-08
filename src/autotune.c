@@ -99,8 +99,8 @@ void present_burnin_info(world_fmt *world, MYREAL ess, MYREAL acceptance, MYREAL
     long bufsize;
     if(myID!=MASTER)
     {
-      bufsize = snprintf(p,LINESIZE, "%li %f %f %f %f %li\n",world->locus, ess, acceptance, var,oldvar,step);
-      snprintf(p1,LINESIZE,"B%li",bufsize);
+      bufsize = mysnprintf(p,LINESIZE, "%li %f %f %f %f %li\n",world->locus, ess, acceptance, var,oldvar,step);
+      mysnprintf(p1,LINESIZE,"B%li",bufsize);
       MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+BURNTAG, comm_world);
       MYMPISEND (p, bufsize, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+BURNTAG, comm_world);
     }

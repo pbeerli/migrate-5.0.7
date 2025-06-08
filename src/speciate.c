@@ -335,8 +335,8 @@ void  print_species_record(char *temp, long *c, world_fmt * world)
     {
       for (i=0; i<world->species_model_size;i++)
 	{
-	  *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->param0[world->species_model[i].paramindex_mu]); 
-	  *c += snprintf(temp+ *c,LINESIZE,"\t%f",world->param0[world->species_model[i].paramindex_sigma]); 
+	  *c += mysnprintf(temp+ *c,LINESIZE,"\t%f", world->param0[world->species_model[i].paramindex_mu]); 
+	  *c += mysnprintf(temp+ *c,LINESIZE,"\t%f",world->param0[world->species_model[i].paramindex_sigma]); 
 	} 
     }
 }

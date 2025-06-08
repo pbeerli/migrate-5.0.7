@@ -305,7 +305,7 @@ print_menu_accratio(long a, long b, world_fmt * world)
 
   if (writelog || progress) 
     {
-      snprintf(buffer, STRSIZE, "           Acceptance-ratio = %li/%li (%f)\n\n", a, b,
+      mysnprintf(buffer, STRSIZE, "           Acceptance-ratio = %li/%li (%f)\n\n", a, b,
 	      (MYREAL) a / (MYREAL) b);
       if (progress)
 	FPRINTF(stdout, "%s", buffer);
@@ -401,7 +401,7 @@ get_menu(option_fmt * options, world_fmt *world, data_fmt *data)
       case 'Q':
 #ifdef MPI
         //MPI_Abort(comm_world,0);
-	snprintf(menubuffer,bufsize, "MENUSTOP");
+	mysnprintf(menubuffer,bufsize, "MENUSTOP");
 	MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
 	MYMPIBCAST (menubuffer, bufsize, MPI_CHAR, MASTER, comm_world);
 	myfree(menubuffer);
@@ -518,11 +518,11 @@ void            setup_datatype(char *datatype, option_fmt * options)
 void setup_starttree(char *starttree, option_fmt * options) 
 {
   if (options->usertree && strchr(SEQUENCETYPES, options->datatype))
-    snprintf(starttree, LINESIZE, "is supplied in %s", options->utreefilename);
+    mysnprintf(starttree, LINESIZE, "is supplied in %s", options->utreefilename);
   else 
     {
       if (options->dist && strchr(SEQUENCETYPES, options->datatype))
-	snprintf(starttree, LINESIZE, "generates using %s", options->distfilename);
+	mysnprintf(starttree, LINESIZE, "generates using %s", options->distfilename);
       else 
 	{
 	  if (options->randomtree)
@@ -764,24 +764,24 @@ void current_datatype_text(char *text, option_fmt *options)
   switch(options->datatype)
     {
     case 'a':
-      snprintf(text,LINESIZE, "'Infinite' allele model");
+      mysnprintf(text,LINESIZE, "'Infinite' allele model");
       break;
     case 'm':
-      snprintf(text, LINESIZE, "%22.22s", msat_submodeltype(options->msat_option));
+      mysnprintf(text, LINESIZE, "%22.22s", msat_submodeltype(options->msat_option));
       break;
     case 'b':
-      snprintf(text,LINESIZE,  "%22.22s", "Brownian motion model");
+      mysnprintf(text,LINESIZE,  "%22.22s", "Brownian motion model");
       break;
     case 'u':
     case 'n':
     case 'h':
     case 's':
     case 'f':
-      snprintf(text, LINESIZE, "%22.22s", menu_sequence_submodeltype(options->sequence_model));
+      mysnprintf(text, LINESIZE, "%22.22s", menu_sequence_submodeltype(options->sequence_model));
       break;
     case 'g':
     default:
-      snprintf(text, LINESIZE,  "Model not specified"); 
+      mysnprintf(text, LINESIZE,  "Model not specified"); 
       break;
     }
 }
@@ -825,11 +825,11 @@ void display_sampledate_option(char * text, option_fmt * options,
     {
       printf(" %2i   Tip date file %49.49s\n", tipdate, options->datefilename);
       if(options->mutationrate_year_numalloc > 1)
-	snprintf(text,LINESIZE, "multiple rates");
+	mysnprintf(text,LINESIZE, "multiple rates");
       else
-	snprintf(text,LINESIZE, "%.12f",options->mutationrate_year[0]);
+	mysnprintf(text,LINESIZE, "%.12f",options->mutationrate_year[0]);
       printf(" %2i   Mutation rate per locus and year %30.30s\n", mutationrate, text);
-      snprintf(text,LINESIZE,"%10.4f",options->generation_year);
+      mysnprintf(text,LINESIZE,"%10.4f",options->generation_year);
       printf(" %2i   How many generations per year  %30.30s\n", generationtime, text);
     }
   else
@@ -914,7 +914,7 @@ void display_seq_mutationmodel(char *text, char *starttree, option_fmt *options)
   
   
   //      while (options->ttratio[z] > 0.0)
-  //numchar += snprintf(text + numchar,LINESIZE, "%8.4f ", options->ttratio[z++]);
+  //numchar += mysnprintf(text + numchar,LINESIZE, "%8.4f ", options->ttratio[z++]);
   //
   //
   //printf(" %2i   Transition/transversion ratio:   %31s\n", DTSEQTRATIO, text);
@@ -956,9 +956,9 @@ menuData(option_fmt * options, char datatype[]) {
     printf("  D   change Datatype, currently:%36.36s\n", datatype);
     printf(" %2i   change Mutation model, currently:%30.30s\n", DTSEQTYPE, text);
   if(options->haplotyping)
-    snprintf(text, LINESIZE, "YES:%s",options->haplotyping_report ? "reporting haplotypes" : "no reporting of haplotype" );
+    mysnprintf(text, LINESIZE, "YES:%s",options->haplotyping_report ? "reporting haplotypes" : "no reporting of haplotype" );
   else
-    snprintf(text,LINESIZE, "NO");
+    mysnprintf(text,LINESIZE, "NO");
 
     printf(" %2i   Haplotyping is turned on:     %33.33s\n", DTSEQHAP,  text);
     switch (options->datatype) 
@@ -1275,21 +1275,21 @@ menuInput(option_fmt * options) {
     printf("  %2i   Datafile name is %46.46s\n", MI_INFILE,
 	   options->infilename);
 
-    snprintf(treeinc,LINESIZE,"[every %li]",options->treeinc);
+    mysnprintf(treeinc,LINESIZE,"[every %li]",options->treeinc);
 
     switch (options->autoseed) {
     case AUTO:
-      snprintf(stringstep,LINESIZE, "YES");
+      mysnprintf(stringstep,LINESIZE, "YES");
       break;
     case NOAUTO:
-      snprintf(stringstep,LINESIZE, "NO, use seedfile");
+      mysnprintf(stringstep,LINESIZE, "NO, use seedfile");
       break;
     case NOAUTOSELF:
-      snprintf(stringstep,LINESIZE, "NO, seed=%li ", options->inseed);
+      mysnprintf(stringstep,LINESIZE, "NO, seed=%li ", options->inseed);
       break;
     default:
       options->autoseed = AUTO;
-      snprintf(stringstep,LINESIZE, "YES");
+      mysnprintf(stringstep,LINESIZE, "YES");
       break;
     }
 
@@ -1370,35 +1370,35 @@ menuInput(option_fmt * options) {
 #endif
     if (options->mighist) 
       {
-	snprintf(outputstring,LINESIZE,"%s %s", options->mighistfilename,
+	mysnprintf(outputstring,LINESIZE,"%s %s", options->mighistfilename,
 		options->mighist_all ? "(all events)" : "(migration events)");
 	printf("  %2i   Show event statistics%42.42s\n", MI_MIGHISTOGRAM, outputstring);
 	if(options->mighist_increment > 1)
-	  snprintf(outputstring,LINESIZE,"every %li %s",  options->mighist_increment,"sample steps");
+	  mysnprintf(outputstring,LINESIZE,"every %li %s",  options->mighist_increment,"sample steps");
 	else
-	  snprintf(outputstring,LINESIZE,"every %s", "sample step");
+	  mysnprintf(outputstring,LINESIZE,"every %s", "sample step");
 	printf("       Events are recorded every     %32.32s\n",outputstring);
-	snprintf(outputstring,LINESIZE,"%f",(double) options->eventbinsize);
+	mysnprintf(outputstring,LINESIZE,"%f",(double) options->eventbinsize);
 	printf("       Histogram bin width            %32.32s\n",outputstring);
 
       } 
     else 
       {
-	snprintf(outputstring,LINESIZE,"NO");
+	mysnprintf(outputstring,LINESIZE,"NO");
 	printf("  %2i   Show event statistics          %32.32s\n", MI_MIGHISTOGRAM, outputstring);
     
       }
     if (options->skyline) 
       {
 	remove_trailing_blanks(&options->skylinefilename);
-	snprintf(outputstring,LINESIZE,"%s", options->skylinefilename);
+	mysnprintf(outputstring,LINESIZE,"%s", options->skylinefilename);
 	printf("  %2i   Record parameter change through time?%26.26s\n", MI_SKYLINE, outputstring);
-	snprintf(outputstring,LINESIZE,"%f",(double) options->eventbinsize);
+	mysnprintf(outputstring,LINESIZE,"%f",(double) options->eventbinsize);
 	printf("       Histogram bin width            %32.32s\n",outputstring);
       } 
     else 
       {
-	snprintf(outputstring,LINESIZE,"NO");
+	mysnprintf(outputstring,LINESIZE,"NO");
 	printf("  %2i   Record parameter change through time?%26.26s\n", MI_SKYLINE, outputstring);
       }
 
@@ -1460,7 +1460,7 @@ menuInput(option_fmt * options) {
 	if (input[0] == '\0')
 	  options->title[0] = '\0';
 	else
-	  snprintf(options->title,LINESIZE,"%80.80s", input);
+	  mysnprintf(options->title,LINESIZE,"%80.80s", input);
 	break;
       case MI_SUMREAD:
 	if(!options->bayes_infer)
@@ -3337,14 +3337,14 @@ display_ml_mcmc(option_fmt * options) {
   switch (options->burnin_autostop)
     {
     case 'a':
-      snprintf(temp,LINESIZE,"(stopping crit: variance) %10li", options->burn_in);
+      mysnprintf(temp,LINESIZE,"(stopping crit: variance) %10li", options->burn_in);
       break;
     case 'e':
-      snprintf(temp,LINESIZE,"(stopping crit: ESS)      %10li", options->burn_in);
+      mysnprintf(temp,LINESIZE,"(stopping crit: ESS)      %10li", options->burn_in);
       break;
     case ' ':
     default:
-      snprintf(temp,LINESIZE,"                          %10li", options->burn_in);
+      mysnprintf(temp,LINESIZE,"                          %10li", options->burn_in);
     }
   printf("  7   Burn-in for each chain:%30.30s\n",temp);
   if (!options->replicate)
@@ -3364,11 +3364,11 @@ display_ml_mcmc(option_fmt * options) {
       ("  9   Heating:                                          NO\n");
   else {
     if (options->adaptiveheat!=NOTADAPTIVE)
-      snprintf(temp,LINESIZE, "Adaptive (%s %3li chains, swap interval is %3li)\n",
+      mysnprintf(temp,LINESIZE, "Adaptive (%s %3li chains, swap interval is %3li)\n",
 	      options->adaptiveheat == STANDARD ? "Standard" : "Bounded", 
 	      options->heated_chains, options->heating_interval);
     else
-      snprintf(temp,LINESIZE, "     YES (%3li chains, swap interval is %3li)\n",
+      mysnprintf(temp,LINESIZE, "     YES (%3li chains, swap interval is %3li)\n",
 	      options->heated_chains, options->heating_interval);
     printf("  9   Heating: %s", temp);
   }
@@ -3383,9 +3383,9 @@ display_ml_mcmc(option_fmt * options) {
     printf
       (" 10   Sample at least a fraction of new genealogies?    NO\n");
   if (options->lcepsilon < LONGCHAINEPSILON)
-    snprintf(temp,LINESIZE, "%17.2f", options->lcepsilon);
+    mysnprintf(temp,LINESIZE, "%17.2f", options->lcepsilon);
   else
-    snprintf(temp,LINESIZE, "%17.17s", "infinity");
+    mysnprintf(temp,LINESIZE, "%17.17s", "infinity");
   printf(" 11   Epsilon of parameter likelihood    %s\n", temp);
   printf(" 12   Use Gelman's convergence criterium?    %13s\n",
 	 options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary" ) : " NO");
@@ -3403,18 +3403,18 @@ display_bayes_mcmc(option_fmt * options)
   // "Bayesian Inference" :
   // "Maximum Likelihood");
   if(options->has_bayesfile)
-    snprintf(outputstring,LINESIZE,"%s%s",  "YES:", options->bayesfilename);
+    mysnprintf(outputstring,LINESIZE,"%s%s",  "YES:", options->bayesfilename);
   else
-    snprintf(outputstring,LINESIZE,"NO");
+    mysnprintf(outputstring,LINESIZE,"NO");
   printf(  "  %2i   File for recording posterior distribution?%21s\n", BAYESOUT, outputstring);
   if(options->has_bayesmdimfile)
-    snprintf(outputstring,LINESIZE,"%s%s",  "YES:", options->bayesmdimfilename);
+    mysnprintf(outputstring,LINESIZE,"%s%s",  "YES:", options->bayesmdimfilename);
   else
-    snprintf(outputstring,LINESIZE,"NO");
+    mysnprintf(outputstring,LINESIZE,"NO");
   printf(  "  %2i   File for recording all parameter values?  %21s\n", BAYESMDIMOUT, outputstring);
   if(options->has_bayesmdimfile)
     {
-      snprintf(outputstring,LINESIZE,"[save every %li x sample-increment = %li]", options->bayesmdiminterval, 
+      mysnprintf(outputstring,LINESIZE,"[save every %li x sample-increment = %li]", options->bayesmdiminterval, 
 	      options->bayesmdiminterval*options->lincrement);
       printf(  "            %58.58s\n", outputstring);
     }
@@ -3422,11 +3422,11 @@ display_bayes_mcmc(option_fmt * options)
   count = 0;
   while(p!=NULL)
     {
-      count += snprintf(outputstring+count,LINESIZE, "%li ",p->bins); 
+      count += mysnprintf(outputstring+count,LINESIZE, "%li ",p->bins); 
       p = p->next;
       //      if (count > 20)
       //{
-      //  count += snprintf(outputstring+count,LINESIZE, "..."); 
+      //  count += mysnprintf(outputstring+count,LINESIZE, "..."); 
       //  break;
       //}
     }
@@ -3451,22 +3451,22 @@ display_bayes_mcmc(option_fmt * options)
   switch (options->burnin_autostop)
     {
     case 'a':
-      snprintf(outputstring,LINESIZE,"(stopping crit: variance) %10li", options->burn_in);
+      mysnprintf(outputstring,LINESIZE,"(stopping crit: variance) %10li", options->burn_in);
       break;
     case 'e':
-      snprintf(outputstring,LINESIZE,"(stopping crit: ESS)      %10li", options->burn_in);
+      mysnprintf(outputstring,LINESIZE,"(stopping crit: ESS)      %10li", options->burn_in);
       break;
     case ' ':
     default:
-      snprintf(outputstring,LINESIZE,"                          %10li", options->burn_in);
+      mysnprintf(outputstring,LINESIZE,"                          %10li", options->burn_in);
     }
   printf("  %2i   Burn-in for each chain:%40.40s\n",
 	 BAYESBURNIN,outputstring);
 
   if(!options->replicate)
-    snprintf(outputstring,LINESIZE,"NO");
+    mysnprintf(outputstring,LINESIZE,"NO");
   else
-    snprintf(outputstring,LINESIZE,"YES (%li independent chains)",options->replicatenum);
+    mysnprintf(outputstring,LINESIZE,"YES (%li independent chains)",options->replicatenum);
   printf("  %2i   Running multiple replicates:  %33.33s\n", BAYESREPLICATE, outputstring);
 
   if(options->heating == 0)
@@ -3475,9 +3475,9 @@ display_bayes_mcmc(option_fmt * options)
     printf("  %2i   Heating:                       %10s (%3li parallel chains)\n",
 	   BAYESHEAT, (options->adaptiveheat==STANDARD ? "ADAPTIVE" : (options->adaptiveheat==BOUNDED ? "BOUNDED" : "STATIC")) , options->heated_chains);
   /* do we need this see action items further down
-  snprintf(outputstring,LINESIZE,"%f",options->acceptfreq);
+  mysnprintf(outputstring,LINESIZE,"%f",options->acceptfreq);
   printf("  %2i   Sampling at least fraction of new genealogies:       %10.10s\n", BAYESMOVINGSTEPS, outputstring);
-  snprintf(outputstring,LINESIZE,"%s",options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary") : "NO");
+  mysnprintf(outputstring,LINESIZE,"%s",options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary") : "NO");
   printf("  %2i   Convergence diagnostic for replicates:            %13.13s\n", BAYESGELMAN, outputstring);
   */
 
@@ -3967,19 +3967,19 @@ void sequence_modelparameters(int type, char * text, option_fmt *options)
       strcpy(text,"None");
       break;
     case K2P:
-      snprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
+      mysnprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
       break;
     case F84:
-      snprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
+      mysnprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
       break;
     case F81:
       strcpy(text,"None");
       break;
     case HKY:
-      snprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
+      mysnprintf(text,LINESIZE,"Tv/Ti=%f",options->sequence_model_parameters[0]);
       break;
     case TN:
-      snprintf(text,LINESIZE,"Tv/Ti=%f, Ti-rat=%f",options->sequence_model_parameters[0], options->sequence_model_parameters[1]);
+      mysnprintf(text,LINESIZE,"Tv/Ti=%f, Ti-rat=%f",options->sequence_model_parameters[0], options->sequence_model_parameters[1]);
       break;
     case GTR:
     default:
@@ -3992,9 +3992,9 @@ void menu_haplotyping(option_fmt *options)
   char text[LINESIZE];
   char input[LINESIZE];
   if(options->haplotyping)
-    snprintf(text,LINESIZE, "YES:%s",options->haplotyping_report ? "reporting haplotypes" : "no reporting of haplotype" );
+    mysnprintf(text,LINESIZE, "YES:%s",options->haplotyping_report ? "reporting haplotypes" : "no reporting of haplotype" );
   else
-    snprintf(text,LINESIZE, "NO");
+    mysnprintf(text,LINESIZE, "NO");
   
   fprintf(stdout,"Turn on haplotyping [default is set to:%s]\n[use NO or YES]===> ",text);
   fflush(stdout); FGETS(input, LINESIZE, stdin);
@@ -4046,7 +4046,7 @@ void menu_sequence_submodel(option_fmt *options)
   
   do {
     text[0]='\0';
-    snprintf(text,LINESIZE,"Current sequence model: %s\n", menu_sequence_submodeltype(options->sequence_model));
+    mysnprintf(text,LINESIZE,"Current sequence model: %s\n", menu_sequence_submodeltype(options->sequence_model));
     sequence_modelparameters(options->sequence_model, text2, options);
     printf("\nChoose a sequence model from the list?\n");
     printf(" 1  Jukes-Cantor model\n");
@@ -4244,14 +4244,14 @@ void set_proposal(char *output, boolean *proposal, boolean without_rate)
 	continue;
       switch (proposal[i]) {
       case TRUE:
-	l+=snprintf(output+l,LINESIZE, " %s:Slice", types[i]);
+	l+=mysnprintf(output+l,LINESIZE, " %s:Slice", types[i]);
 	break;
       case FALSE:
       default:
-	l+=snprintf(output+l,LINESIZE, " %s:MH", types[i]);
+	l+=mysnprintf(output+l,LINESIZE, " %s:MH", types[i]);
 	break;
 	//      default:
-	//l+=snprintf(output+l,LINESIZE, " %s:?", types[i]);
+	//l+=mysnprintf(output+l,LINESIZE, " %s:?", types[i]);
 	//break;
       }
     }
@@ -4267,11 +4267,11 @@ void set_localities_string(char *loc, option_fmt *options)
       z=0;
       for(i=0; i<options->newpops_numalloc; i++)
 	{
-	  z += snprintf(loc+z,LINESIZE,"%li,",options->newpops[i]);
+	  z += mysnprintf(loc+z,LINESIZE,"%li,",options->newpops[i]);
 	}
     }
   else
     {
-      snprintf(loc,LINESIZE,"default");
+      mysnprintf(loc,LINESIZE,"default");
     }
 }

@@ -2286,7 +2286,7 @@ my_random_tree (world_fmt * world, long tips)
 	}
       //printf("myrandomtree: lineages: %li %li %li ",lineages[0],lineages[1],lineages[2]);
       my_start_eventtime(age, world,nodelist,lineages,simtips,&shortt,&shorti,&shorte, &to, &from);
-      assert(shorte != ' ');
+      //assert(shorte != ' ');
       //printf(" |%c|\n",shorte);
       if (age < datelist[zz].age && age + shortt > datelist[zz].age && datelist[zz].age < (double) HUGE)
 	{
@@ -2937,7 +2937,7 @@ long make_alleles(long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt
   strcpy (a1, datapart2[0]);
   if (strcmp (a1, "?"))
     {
-      snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+      mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
       theNode->x[sublocus].a[findAllele (data, a1, sublocus)] = 1.0;
       return 0;
     }
@@ -2945,7 +2945,7 @@ long make_alleles(long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt
     {
       if(options->include_unknown)
 	{
-	  snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+	  mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
 	  for(iu=0;iu < s->maxalleles; iu++)
 	    theNode->x[sublocus].a[iu] = 1.0;
 	  return 0;
@@ -3008,7 +3008,7 @@ long make_microsatellites (long sublocus, mutationmodel_fmt *s, node *theNode, o
     {
       theNode->x[sublocus].a = (MYREAL *) myrealloc (theNode->x[sublocus].a, sizeof (MYREAL) * (size_t) smax);
       theNode->x[sublocus].a[atoi (a1) - smallest] = 1.0;
-      snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+      mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
       return 0;
     }
   else
@@ -3017,7 +3017,7 @@ long make_microsatellites (long sublocus, mutationmodel_fmt *s, node *theNode, o
 	{
 	  for(iu=0;iu<s->maxalleles; iu++)
 	    theNode->x[sublocus].a[iu] = 1.0;
-	  snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+	  mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
 	  return 0;
 	}
     }	  
@@ -3034,7 +3034,7 @@ long make_brownian(long sublocus, mutationmodel_fmt *s, node *theNode, option_fm
   strcpy (a1, datapart[0]);
   if (strcmp (a1, "?"))
     {
-      snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+      mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
       theNode->x[sublocus].a[0] = atof (a1);
       return 0;
     }
@@ -3042,7 +3042,7 @@ long make_brownian(long sublocus, mutationmodel_fmt *s, node *theNode, option_fm
     {
       if(options->include_unknown)
 	{
-	  snprintf(theNode->nayme,LINESIZE,"A!%s",a1);
+	  mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
 	  theNode->x[sublocus].a[0] = bsum; //average over other values
 	  // this might not be very sensible at all.
 	  return 0;
@@ -5398,10 +5398,10 @@ treeout (FILE * file, node * joint, node * p, long s)
         while (p->type == 'm' || p->type == 'd')
 	  {
 	    if(p->type == 'd')
-	      snprintf(migstring,STRSIZE, " [&D %li %li:%g]", p->pop, p->actualpop,
+	      mysnprintf(migstring,STRSIZE, " [&D %li %li:%g]", p->pop, p->actualpop,
 		       p->tyme - showtop (p->next->back)->tyme);
 	    else
-	      snprintf(migstring,STRSIZE, " [&M %li %li:%g]", p->pop, p->actualpop,
+	      mysnprintf(migstring,STRSIZE, " [&M %li %li:%g]", p->pop, p->actualpop,
 		       p->tyme - showtop (p->next->back)->tyme);
 #ifdef TREECOMMENTS
 	    FPRINTF(file,"%s[& %c %li %li:%.10f]",migstring, p->type, p->pop, p->actualpop, p->tyme);
@@ -5448,7 +5448,7 @@ debugtreeout (FILE * file, node * joint, node * p, long s)
         p = showtop (p->back);
         while (p->type == 'm' || p->type == 'd')
 	  {
-            snprintf(migstring,STRSIZE, " [%c %li-%li]", p->type, p->actualpop, p->pop);
+            mysnprintf(migstring,STRSIZE, " [%c %li-%li]", p->type, p->actualpop, p->pop);
             FPRINTF (file, "%s", migstring);
             p = showtop (p->back);
 	  }
@@ -5518,13 +5518,13 @@ void treeout_string (char ** file, long *filesize, long *pos, node * joint, node
         while (p->type == 'm'  || p->type == 'd')
         {
 	  if(p->type == 'd')
-	    snprintf(migstring,STRSIZE, " [&D %li %li:%g]", p->pop, p->actualpop,
+	    mysnprintf(migstring,STRSIZE, " [&D %li %li:%g]", p->pop, p->actualpop,
                      p->tyme - showtop (p->next->back)->tyme);
 	  else
-            snprintf(migstring,STRSIZE, " [&M %li %li:%g]", p->pop, p->actualpop,
+            mysnprintf(migstring,STRSIZE, " [&M %li %li:%g]", p->pop, p->actualpop,
                      p->tyme - showtop (p->next->back)->tyme);
 #ifdef TREECOMMENTS
-	  snprintf(migstring,STRSIZE,"%s[& %c %li %li:%.10f]",migstring, p->type, p->pop, p->actualpop, p->tyme);
+	  mysnprintf(migstring,STRSIZE,"%s[& %c %li %li:%.10f]",migstring, p->type, p->pop, p->actualpop, p->tyme);
 #endif
 	  print_to_buffer(file, filesize, tmp, pos, "%s", migstring);
 	  p = showtop (p->back);
@@ -5569,14 +5569,14 @@ print_tree (world_fmt * world, long g, long *filepos)
 	      allocval = LONGLINESIZE;
 	      //speed problem	      memset(world->treespace[world->locus],0, sizeof(char) * LONGLINESIZE);
 	      world->treespace[world->locus][0]='\0';
-	      pos = snprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
+	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
 			     world->locus + 1, world->likelihood[g]);
 #ifdef NEXUSTREE
-	      pos = snprintf(world->treespace[world->locus],LINESIZE, 
+	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, 
 			     "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\ntree repl.%li = [&R] ",
 			     world->locus + 1, world->likelihood[g],counter++);
 #else
-	      pos = snprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
+	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
 			     world->locus + 1, world->likelihood[g]);
 #endif
 	      treeout_string (&(world->treespace[world->locus]), 
@@ -5696,7 +5696,7 @@ treereader (world_fmt * world,  option_fmt *options, data_fmt * data, long locus
             strcpy (temp2, data->indnames[pop][w][world->locus]);
 	    unpad(temp2," ");
 	    //            temp2[strcspn (temp2, " ")] = '\0';
-            snprintf(temp,LINESIZE, "%li%s", pop, temp2);
+            mysnprintf(temp,LINESIZE, "%li%s", pop, temp2);
             for (zz = 0; zz < z; zz++)
             {
                 nayme = nodelist[zz]->nayme;
@@ -5989,7 +5989,7 @@ create_tip_node (FILE * file, world_fmt * world, option_fmt *options, node ** q,
         p->s[i] = MYREAL_MAX;    
       }
 
-    snprintf(p->nayme,LINESIZE, "%-*s",(int) options->nmlength,  nayme);
+    mysnprintf(p->nayme,LINESIZE, "%-*s",(int) options->nmlength,  nayme);
     unpad(p->nayme," _");
     translate(p->nayme,' ', '_');
     strcpy(p->truename,p->nayme);

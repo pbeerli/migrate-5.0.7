@@ -135,6 +135,7 @@ extern long read_savesum (world_fmt * world, option_fmt * options,
 extern void write_savesum (world_fmt * world);
 
 /* string manipulation */
+extern int mysnprintf(char *buf, size_t bufsize, const char *fmt, ...);
 extern void translate (char *text, char from, char to);
 extern void unpad (char *text, char removechars[]);
 extern void get_next_word(char **instring, char *delimiters, char **nextword);

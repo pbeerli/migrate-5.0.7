@@ -32,6 +32,7 @@
 #include "growth.h"
 #include "sighandler.h"
 #include "bayes.h"
+#include "tools.h"
 boolean is_notin(long x, long *order, long orderlen);
 void reset_growth(world_fmt * world);
 #if defined(MPI) && !defined(PARALIO) /* */
@@ -205,7 +206,7 @@ void  print_growth_record(char *temp, long *c, world_fmt * world)
     {
       for (i=0; i<world->numpop;i++)
 	{
-	  *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->growth[i]); 
+	  *c += mysnprintf(temp+ *c,LINESIZE,"\t%f", world->growth[i]); 
 	} 
     }
 }

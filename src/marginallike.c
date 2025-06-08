@@ -7,6 +7,7 @@
 #include "migration.h"
 #include "sighandler.h"
 #include "bayes.h"
+#include "tools.h"
 extern int myID;
 
 void calculate_BF(world_fmt **universe, option_fmt *options);
@@ -222,9 +223,9 @@ void  print_marginal_order(char *buf, long *bufsize, world_fmt *world)
   long i;
 
   for(i=0;i<world->options->heated_chains;i++)
-    *bufsize += snprintf(buf+ *bufsize,LINESIZE,"# --  %s = %f\n", "Thermodynamic temperature", world->options->heat[i]);
-  *bufsize += snprintf(buf+ *bufsize,LINESIZE,"# --  %s\n", "Marginal log(likelihood) [Thermodynamic integration]");
-  *bufsize += snprintf(buf+ *bufsize,LINESIZE,"# --  %s\n", "Marginal log(likelihood) [Harmonic mean]");
+    *bufsize += mysnprintf(buf+ *bufsize,LINESIZE,"# --  %s = %f\n", "Thermodynamic temperature", world->options->heat[i]);
+  *bufsize += mysnprintf(buf+ *bufsize,LINESIZE,"# --  %s\n", "Marginal log(likelihood) [Thermodynamic integration]");
+  *bufsize += mysnprintf(buf+ *bufsize,LINESIZE,"# --  %s\n", "Marginal log(likelihood) [Harmonic mean]");
 }
 
 #if defined(MPI) && !defined(PARALIO) /* */
@@ -287,18 +288,18 @@ void      print_marginal_like(char *temp, long *c, world_fmt * world)
 	      heat0 = 1./ world->options->heat[t-1];
 	      heat1 = 1./ world->options->heat[t];
 	    }
-	  *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->bf[locus * hc + t-1]);
+	  *c += mysnprintf(temp+ *c,LINESIZE,"\t%f", world->bf[locus * hc + t-1]);
 	  lsum += (heat0 - heat1) * ((world->bf[locus * hc + t-1] + world->bf[locus * hc + t]) * 0.5);
 	}
-      *c += snprintf(temp + *c,LINESIZE,"\t%f", world->bf[locus * hc + t-1]);
-      *c += snprintf(temp + *c,LINESIZE,"\t%f", lsum);
+      *c += mysnprintf(temp + *c,LINESIZE,"\t%f", world->bf[locus * hc + t-1]);
+      *c += mysnprintf(temp + *c,LINESIZE,"\t%f", lsum);
     }
-  *c += snprintf(temp + *c,LINESIZE,"\t%f", world->hmscale[locus] - log(world->hm[locus]));
+  *c += mysnprintf(temp + *c,LINESIZE,"\t%f", world->hmscale[locus] - log(world->hm[locus]));
 #ifdef STEPPINGSTONE
   for(t=0; t < hc; t++)
     {
-      *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->steppingstones[locus * hc + t]);
-      *c += snprintf(temp+ *c,LINESIZE,"\t%f",world->steppingstone_scalars[locus * hc + t]);
+      *c += mysnprintf(temp+ *c,LINESIZE,"\t%f", world->steppingstones[locus * hc + t]);
+      *c += mysnprintf(temp+ *c,LINESIZE,"\t%f",world->steppingstone_scalars[locus * hc + t]);
     }
 #endif
 }

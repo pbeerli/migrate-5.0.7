@@ -1170,9 +1170,9 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
       if (startsitetype != '0')
 	{
 	  // if(startsitetype == 'o')
-	  //  *pos += snprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, shortsites);
+	  //  *pos += mysnprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, shortsites);
 	  //else
-	  //  *pos += snprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, newnumsites);
+	  //  *pos += mysnprintf(*newinput+ *pos,LINESIZE,"(%li%c%li) ", startsite, datatype, newnumsites);
 	  if(linking==1)
 	    {
 	      startloc='(';
@@ -1205,10 +1205,10 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
 		    }
 		}
 	    }
-	  *pos += snprintf(*newinput+ *pos,LINESIZE,"%c%li%c%li%c ", startloc, startsite, datatype, shortsites, stoploc);
+	  *pos += mysnprintf(*newinput+ *pos,LINESIZE,"%c%li%c%li%c ", startloc, startsite, datatype, shortsites, stoploc);
 	}
       else
-	*pos += snprintf(*newinput+ *pos,LINESIZE,"(%c%li) ", datatype, newnumsites);
+	*pos += mysnprintf(*newinput+ *pos,LINESIZE,"(%c%li) ", datatype, newnumsites);
     }
   switch(startsitetype)
     {
@@ -1260,10 +1260,10 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
 	  startloc='(';
 	  stoploc=')';
 	}
-      *pos += snprintf(*newinput+*pos,LINESIZE,"%c%li%c%li%c ", startloc,startsite, datatype, lastnumsites, stoploc);	  
+      *pos += mysnprintf(*newinput+*pos,LINESIZE,"%c%li%c%li%c ", startloc,startsite, datatype, lastnumsites, stoploc);	  
     }
   else
-    *pos += snprintf(*newinput+*pos,LINESIZE,"(%c%li) ", datatype, lastnumsites);
+    *pos += mysnprintf(*newinput+*pos,LINESIZE,"(%c%li) ", datatype, lastnumsites);
   *c = input[*z++];
   myfree(tmp);
 }
@@ -1390,7 +1390,7 @@ void read_sites_new(data_fmt * data, world_fmt *world, option_fmt *options)
 	      handle_bracket(&c,input,&newinput, &allocbufsize, &z,&z2, &pos);
 	      break;
 	  default:
-	    pos += snprintf(newinput+pos,LINESIZE,"%c",input[z]);
+	    pos += mysnprintf(newinput+pos,LINESIZE,"%c",input[z]);
 	    c = input[z++];
 	  }
 	}
@@ -1876,7 +1876,7 @@ read_popheader (FILE * infile, data_fmt * data, world_fmt *world, long pop, long
 	      {
 		minlength = (long) strlen(input+oldreadpos);
 		minlength = MIN(minlength,80);
-		snprintf(data->popnames[pop],LINESIZE,"%-*s", (int) minlength, input+readpos);
+		mysnprintf(data->popnames[pop],LINESIZE,"%-*s", (int) minlength, input+readpos);
 	      }
 	  }
 	
@@ -2080,11 +2080,11 @@ void len2repeat(char *a1, long rlen)
       long correction = ((((rlen) / 2.) < a) ? (-a) : (rlen/2 == a ? (UNIF_RANDUM()<0.5 ? -a : a) : (rlen - a))); 
       //long nla = check_list(la1,la1+correction, locus, data);
       long nla = (la1+correction)/rlen;
-      snprintf(a1,LINESIZE,"%li",nla);
+      mysnprintf(a1,LINESIZE,"%li",nla);
     }
   else
     {
-      snprintf(a1,LINESIZE,"%li",la1/rlen);
+      mysnprintf(a1,LINESIZE,"%li",la1/rlen);
     }
 }
 
@@ -2140,8 +2140,8 @@ read_microalleles (FILE * infile, data_fmt * data, option_fmt *options, long pop
         {
             strcpy (a2, a1);
         }
-        snprintf(data->yy[pop][ind][locus][0][0], LINESIZE, "%-.*s",(int) options->allelenmlength,a1);
-        snprintf(data->yy[pop][ind][locus][1][0], LINESIZE, "%-.*s",(int) options->allelenmlength,a2);
+        mysnprintf(data->yy[pop][ind][locus][0][0], LINESIZE, "%-.*s",(int) options->allelenmlength,a1);
+        mysnprintf(data->yy[pop][ind][locus][1][0], LINESIZE, "%-.*s",(int) options->allelenmlength,a2);
     }
     myfree(a);
     myfree(a1);
@@ -2779,7 +2779,7 @@ void print_random_subset(FILE * file, data_fmt * data, option_fmt *options)
 		  remove_trailing_blanks(&name);
 		  if (options->has_datefile)
 		    {
-		      snprintf(name,LINESIZE,"%s (%f) ",name, data->sampledates[pop][locus][ind].date);
+		      mysnprintf(name,LINESIZE,"%s (%f) ",name, data->sampledates[pop][locus][ind].date);
 		    }
 		  length = (long) strlen(name);
 		  if (count+length < LINELENGTH)
@@ -3761,7 +3761,7 @@ void find_allele_repeatlength(data_fmt *data, option_fmt *options, long locus)
 	      floored = floor(nonfloored);
 	      diff = nonfloored - floored; 
 	      intval = MSAT_OFFSET + (long) floored + (RANDUM() < (1.0-diff) ? 0 : 1); 
-	      snprintf(data->yy[pop][ind][locus][0][0],LINESIZE,"%li",intval);
+	      mysnprintf(data->yy[pop][ind][locus][0][0],LINESIZE,"%li",intval);
 	    }
 	  if (a2[0]!='?')
 	    {
@@ -3770,7 +3770,7 @@ void find_allele_repeatlength(data_fmt *data, option_fmt *options, long locus)
 	      floored = floor(nonfloored);
 	      diff = nonfloored - floored; 
 	      intval =  MSAT_OFFSET + (long) floored + (RANDUM() < (1.0-diff) ? 0 : 1); 
-	      snprintf(data->yy[pop][ind][locus][1][0],LINESIZE,"%li",intval);
+	      mysnprintf(data->yy[pop][ind][locus][1][0],LINESIZE,"%li",intval);
 	    }
 	}
     }
@@ -4040,7 +4040,7 @@ print_locus_head (long locus, world_fmt * world, option_fmt * options,
   (void) data;
     char *head;
     head = (char *) mycalloc (1, sizeof (char) * (size_t) (MAX (10, options->nmlength)));
-    snprintf(head, LINESIZE,"Locus %li", locus);
+    mysnprintf(head, LINESIZE,"Locus %li", locus);
     fprintf(world->outfile, "%-*.*s --------10 --------20 --------30",
              (int) options->nmlength, (int) options->nmlength, head);
     fprintf(world->outfile, " --------40 --------50 --------60\n");

@@ -163,7 +163,7 @@ void      skyline_param_record(char *temp, long *c, world_fmt * world)
   long addition=0;
   long end = world->timeelements +  world->timeelements * (world->numpop2 + addition);
   for (i=0; i < end; i++)
-    *c += snprintf(temp+ *c,LINESIZE,"\t%f", world->times[i]);//times and timek 
+    *c += mysnprintf(temp+ *c,LINESIZE,"\t%f", world->times[i]);//times and timek 
 }
 #endif
 
