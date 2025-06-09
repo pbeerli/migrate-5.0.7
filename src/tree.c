@@ -5569,14 +5569,14 @@ print_tree (world_fmt * world, long g, long *filepos)
 	      allocval = LONGLINESIZE;
 	      //speed problem	      memset(world->treespace[world->locus],0, sizeof(char) * LONGLINESIZE);
 	      world->treespace[world->locus][0]='\0';
-	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
+	      pos = mysnprintf(world->treespace[world->locus],allocval, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
 			     world->locus + 1, world->likelihood[g]);
 #ifdef NEXUSTREE
-	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, 
+	      pos = mysnprintf(world->treespace[world->locus],allocval, 
 			     "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\ntree repl.%li = [&R] ",
 			     world->locus + 1, world->likelihood[g],counter++);
 #else
-	      pos = mysnprintf(world->treespace[world->locus],LINESIZE, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
+	      pos = mysnprintf(world->treespace[world->locus],allocval, "\n[& Locus %li, best ln(L) = %f (c=coalescent node, t=tipnode) ]\n",
 			     world->locus + 1, world->likelihood[g]);
 #endif
 	      treeout_string (&(world->treespace[world->locus]), 
