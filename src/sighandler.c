@@ -76,6 +76,7 @@ extern struct timeval memt_start, memt_finish;
 extern double memelapsed;
 extern long totalsize;
 #endif
+#include "tools.h"
 
 void usererror (char string[], ...) __attribute__((noreturn));
 void sig_error (char string[], char filename[], long line) __attribute__((noreturn));
@@ -134,7 +135,7 @@ signalhandler (int sig)
 {
   //fputc ('\040', stderr);
     fflush (NULL);
-
+    print_stack_trace();
     switch (sig)
     {
 #ifndef WIN32

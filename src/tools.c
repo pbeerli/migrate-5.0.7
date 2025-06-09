@@ -1221,7 +1221,7 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 /* string manipulation ================================== */
 /* add to buffer */
 
-static void print_stack_trace(void) {
+void print_stack_trace(void) {
     void *bt_buf[50];
     int bt_size = backtrace(bt_buf, 50);
     char **bt_syms = backtrace_symbols(bt_buf, bt_size);
