@@ -46,7 +46,7 @@ $Id: tools.c 2158 2013-04-29 01:56:20Z beerli $
 #include <complex.h>
 #include <stdlib.h>
 #include <stdarg.h>
-
+#include <execinfo.h>    // backtrace()
 #include "migration.h"
 #include "sighandler.h"
 #include "data.h"
@@ -1221,6 +1221,20 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 /* string manipulation ================================== */
 /* add to buffer */
 
+static void print_stack_trace(void) {
+    void *bt_buf[50];
+    int bt_size = backtrace(bt_buf, 50);
+    char **bt_syms = backtrace_symbols(bt_buf, bt_size);
+    if (bt_syms) {
+        fprintf(stderr, "=== Stack trace ===\n");
+        for (int i = 0; i < bt_size; ++i) {
+            fprintf(stderr, "%s\n", bt_syms[i]);
+        }
+        free(bt_syms);
+        fprintf(stderr, "=== End stack trace ===\n");
+    }
+}
+
 /** using chatgpt
  * mysnprintf:
  *   buf      – your destination buffer
@@ -1243,12 +1257,14 @@ int mysnprintf(char *buf, size_t bufsize, const char *fmt, ...)
 
     if (needed < 0) {
         fprintf(stderr, "mysnprintf: encoding error in format\n");
+        print_stack_trace();
         abort();
     }
     if ((size_t)needed >= bufsize) {
         fprintf(stderr,
             "mysnprintf: buffer overflow: needed %d bytes, have %zu\n",
             needed, bufsize);
+	print_stack_trace();
         abort();
     }
     return needed;

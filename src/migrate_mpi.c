@@ -2599,9 +2599,9 @@ long pack_treespace_buffer (MYREAL **buffer, world_fmt * world,
   input = mycalloc(LONGLINESIZE,sizeof(char));
   if(world->options->treeprint == BEST)
     {
-      mysnprintf(input,LINESIZE,"%-*s", (int) pos, ptr2+1);
+      mysnprintf(input,LONGLINESIZE,"%-*s", (int) pos, ptr2+1);
       like = atof(input);
-      pos   = mysnprintf(input,LINESIZE,"%f @", like);
+      pos   = mysnprintf(input,LONGLINESIZE,"%f @", like);
       // fprintf(stdout,"%i> in pack_treespace_buffer() filling %li size\n",myID, thissize);
       // the master routine for this expects a MYREAL *buffer, but
       // the tree is a string
@@ -2611,7 +2611,7 @@ long pack_treespace_buffer (MYREAL **buffer, world_fmt * world,
   (*buffer) = (MYREAL *) myrealloc(*buffer, (1+thisrealsize) * sizeof(MYREAL));
   memset(*buffer, 0, sizeof(MYREAL) * (1+thisrealsize));
   // the sizeof(char) is NO MISTAKE!
-  mysnprintf((char*)(*buffer),LINESIZE, "%s%s", input, world->treespace[locus]);
+  mysnprintf((char*)(*buffer),LONGLINESIZE, "%s%s", input, world->treespace[locus]);
   return thisrealsize;
 }
 
