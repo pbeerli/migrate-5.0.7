@@ -3960,14 +3960,11 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
   //p = (char *) mycalloc(1024,sizeof(char));
   va_start(ap, fmt);
   mypos = vsnprintf(p, *maxbufsize, fmt, ap);
+  mypos += 1;
   va_end(ap);
   if((*pos + mypos) < (*maxbufsize))
       {
 	(*pos) += mysnprintf((*buffer) + (*pos),mypos, "%s",p);
-	//	if(*pos + mypos >= *maxbufsize )
-	//  {
-	//    printf("%i> pos=%li + mypos=%li >  maxbufsize=%li \n",myID, *pos, mypos, *maxbufsize); 
-	//  }
       }
     else
       {

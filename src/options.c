@@ -6197,7 +6197,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	      options->mutationrate_year = (MYREAL*) myrealloc(options->mutationrate_year, options->mutationrate_year_numalloc * sizeof(MYREAL));
 	    }
 	  options->mutationrate_year[z] = atof(tmp);
-	  printf("%i> mutationrate_year[%li]=%g %s\n",myID,z, options->mutationrate_year[z],tmp);
+	  //printf("%i> mutationrate_year[%li]=%g %s\n",myID,z, options->mutationrate_year[z],tmp);
 	  z++;
 	  get_next_word(&value,"{}:,; ",&tmp);
 	}
