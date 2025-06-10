@@ -5542,9 +5542,9 @@ void
 print_tree (world_fmt * world, long g, long *filepos)
 {
 #ifdef NEXUSTREE
-  static long counter = 0;
+  long counter = 0;
 #endif
-  static long count   = 1;
+  long count          = 1;
   long pos            = 0;
   long allocval       = 0;
   char *tmp;
