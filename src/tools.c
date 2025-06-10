@@ -3951,8 +3951,48 @@ void add_to_buffer(char *fp, long *bufsize, char **buffer, long *allocbufsize)
 }
 
 
+/** New print_to_buffer: */
+static size_t appendf(char **buf, size_t *alloc, size_t pos, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int need = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    if (need < 0) {
+        fprintf(stderr, "appendf: encoding error\n");
+        abort();
+    }
+    // ensure space for need chars + '\0'
+    if (pos + need + 1 > *alloc) {
+        *alloc = pos + need + 1;
+        *buf   = realloc(*buf, *alloc);
+        if (!*buf) { perror("realloc"); abort(); }
+    }
+    va_start(ap, fmt);
+    vsnprintf(*buf + pos, *alloc - pos, fmt, ap);
+    va_end(ap);
+    return pos + (size_t)need;
+}
+
+long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *pos,
+                     const char *fmt, ...)
+{
+  (void) tempbuffer;
+    va_list ap;
+    // We’ll forward args into appendf via a small stack buffer:
+    // First build the format + args into a temp string:
+    // (because appendf is variadic, we need to capture them)
+    char fmtbuf[1024];
+    va_start(ap, fmt);
+    vsnprintf(fmtbuf, sizeof(fmtbuf), fmt, ap);
+    va_end(ap);
+
+    // Now append that into *buffer:
+    *pos = appendf(buffer, (size_t*)maxbufsize, *pos, "%s", fmtbuf);
+    return *pos;
+}
+
 /// sticks a text into the printing buffer
-long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *pos, const char *fmt, ...)
+long print_to_buffer_old(char **buffer, long *maxbufsize, char *tempbuffer, long *pos, const char *fmt, ...)
 {
   long mypos=0;
   char *p = tempbuffer;
