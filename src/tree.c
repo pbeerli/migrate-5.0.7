@@ -5548,7 +5548,7 @@ print_tree (world_fmt * world, long g, long *filepos)
   long pos            = 0;
   long allocval       = 0;
   char *tmp;
-  tmp = (char *) calloc(1024,sizeof(char));
+  tmp = (char *) calloc(LONGLINESIZE,sizeof(char));
 
   switch (world->options->treeprint)
     {

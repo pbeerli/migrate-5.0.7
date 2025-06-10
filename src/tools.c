@@ -3963,7 +3963,7 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
   va_end(ap);
   if((*pos + mypos) < (*maxbufsize))
       {
-	(*pos) += mysnprintf((*buffer) + (*pos),mypos+1, "%s",p);
+	(*pos) += mysnprintf((*buffer) + (*pos),mypos, "%s",p);
 	//	if(*pos + mypos >= *maxbufsize )
 	//  {
 	//    printf("%i> pos=%li + mypos=%li >  maxbufsize=%li \n",myID, *pos, mypos, *maxbufsize); 
@@ -3971,9 +3971,9 @@ long print_to_buffer(char **buffer, long *maxbufsize, char *tempbuffer, long *po
       }
     else
       {
-	*maxbufsize = *pos + 4 * mypos; // add some extra space
+	*maxbufsize += *pos + mypos; // add some extra space
 	(*buffer) = (char *) myrealloc ((*buffer), (*maxbufsize) * sizeof (char));
-	(*pos) += mysnprintf((*buffer) + (*pos), 4 * mypos+1, "%s",p);
+	(*pos) += mysnprintf((*buffer) + (*pos), *maxbufsize - *pos - mypos, "%s",p);
       }
   //  myfree(p);
   return (*pos);
