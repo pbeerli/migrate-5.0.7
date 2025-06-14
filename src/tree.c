@@ -5547,8 +5547,8 @@ print_tree (world_fmt * world, long g, long *filepos)
   long count          = 1;
   long pos            = 0;
   long allocval       = 0;
-  char *tmp;
-  tmp = (char *) calloc(LONGLINESIZE,sizeof(char));
+  char *tmp = NULL; //not used because we changed print_to_buffer()
+  //tmp = (char *) calloc(LONGLINESIZE,sizeof(char));
 
   switch (world->options->treeprint)
     {
@@ -5663,7 +5663,7 @@ print_tree (world_fmt * world, long g, long *filepos)
       break;
     }
   fflush(world->treefile);
-  myfree(tmp);
+  //myfree(tmp);
 }
 
 

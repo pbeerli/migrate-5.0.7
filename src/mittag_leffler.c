@@ -583,7 +583,7 @@ double propose_new_mlftime(double lambda, double alpha, double r1, double r2)
   double denoma = 1.0 / alpha;
   double denomlambda = 1.0 / lambda;
   //return -pow(denomlambda,denoma) * pow(sin(pia)/(tan(pia*(1-r1))) - cos(pia),denoma) * log(r2);
-  return -pow(denomlambda * (sin(pia)/(tan(pia*(1-r1))) - cos(pia)),denoma) * log(r2);
+  return -pow(denomlambda,denoma) * pow((sin(pia)/(tan(pia*(1-r1))) - cos(pia)),denoma) * log(r2);
 }
 
 void change_mittag_leffler(world_fmt * world)

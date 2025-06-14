@@ -4160,6 +4160,12 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     if(world->options->heated_chains>1)
         bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_thermo");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_harmonic");
+#ifdef STEPPINGSTONE
+    for(i=0;i<world->options->heated_chains;i++)
+        bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tss_%f", world->options->heat[i]);
+    if(world->options->heated_chains>1)
+        bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tss_t");
+#endif
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"\n");
     
 #ifdef MPI
