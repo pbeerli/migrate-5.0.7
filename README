@@ -7,21 +7,47 @@ Quick installation guide
 ------------------------
 - Unpack the compressed distribution file
 - in the top directory do:
+  if you get the pacakge this from the github repository
+  you will need
+
+  autoreconf -i
+
+  If this fails: To install autoreconf, you need to install
+  the Autotools build system. On Ubuntu use
+
+  sudo apt-get install autoconf automake.
+
+  On macOS, you can use Homebrew with
+
+  brew install autoconf automake
+
+  After installation, redo the autoreconf -i
+
+  if you download the source from the migrate website you should use
+  
   ./configure
+
   or
+
   ./configure --enable-debug
+
   and then do
+
   make
+
   this should create the binary and
-  if you have openmpi installed: it should create also the parallel version migrate-n-mpi
+  if you have openmpi installed (check how to download for your system):
+  it should create also the parallel version migrate-n-mpi
+
   sudo make install
   will move the binaries to /usr/local/bin,
   if you do not have access to that use
+
   ./configure --prefix=/pathtoyourhomedirectory
   make
   
-  if I have time I will distribute binaries for mac and windows, for unix (and mac) the source install should
-  work best.
+  if I have time I will distribute binaries for mac and windows,
+  for unix (and mac) the source install should work best.
   
 
 Content
