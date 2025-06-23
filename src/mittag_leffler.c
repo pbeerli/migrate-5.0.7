@@ -44,7 +44,8 @@
 #include "priors.h"
 #include "sighandler.h"
 #include "speciate.h"
-
+#include "sighandler.h"
+#include <assert.h>
 //!Mittage-Leffler function in the real case
 //!Somayeh Mashayekhi March 2017
 // translated from Fortran to C Peter Beerli March 2017
@@ -70,6 +71,9 @@
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
+#ifdef STANDALONEMITTAGLEFFLER
+#define warning printf
+#endif
 MYCOMPLEX mittag_leffler(double alpha, double beta, MYCOMPLEX z);
 MYCOMPLEX  K(double alpha, double beta, double x, MYCOMPLEX z);
 MYCOMPLEX P(double alpha, double beta, double eps, double phi, MYCOMPLEX z); // returns , MYCOMPLEX P1
@@ -80,8 +84,24 @@ double interval_mittag_leffler(double r, double alpha, double lambda, double tmi
 void set_mittag_leffler(option_fmt * options);
 double interval_mittag_leffler_func(double r, double alpha, double t0, double mu, double sigma, species_fmt *s, double tmin, double tmax);
 double propose_new_mlftime(double lambda, double alpha, double r1, double r2);
+double propose_new_mlftime_old(double lambda, double alpha, double r1, double r2);
 
+
+
+double complex my_cdiv(double complex a, double complex b) ;
 void change_mittag_leffler(world_fmt* world);
+
+
+// Define your own complex division function with the same signature as cdiv
+double complex my_cdiv(double complex a, double complex b) {
+    double denominator = creal(b) * creal(b) + cimag(b) * cimag(b);
+    double complex result;
+    result = ((creal(a) * creal(b) + cimag(a) * cimag(b)) + (_Complex double) I * (cimag(a) * creal(b) - creal(a) * cimag(b))) / denominator;
+    return result;
+}
+
+
+
 
 // calculates internals of the generalized mittag-leffler function for z with alpha and beta
 // with precision Q and X0
@@ -117,10 +137,10 @@ MYCOMPLEX  ML(MYCOMPLEX z, double alpha, double beta, double Q, double X0)
 	  b = myadd(b,ctemp);
 	}
 #else
-      double invK0 = 1.0/K0;
+      double invK0 = 1.0/(double)K0;
       for (i=0; i<K0; ++i)
 	{
-	  b += cpow(z,invK0) * cexp(2.0*Pi*J*i/K0);
+	  b += cpow(z,invK0) * cexp(2.0*Pi*J*i*invK0);
 	}
 #endif
       //printf("1 z= %.5f alpha > 1.0 \n", creal(z));
@@ -137,7 +157,7 @@ MYCOMPLEX  ML(MYCOMPLEX z, double alpha, double beta, double Q, double X0)
   else if (z==0.0) // z==0
 #endif
     {
-      //printf("2 (z=%.5f)==0 alpha < 1.0 \n", creal(z));
+      //Print (Z)==0 < 1.0 \n", creal(z));
 #ifdef WINDOWS
 #ifdef NMAKE
       MYCOMPLEX b2 = { 1.0/tgamma(beta) , 0.0};
@@ -162,8 +182,11 @@ MYCOMPLEX  ML(MYCOMPLEX z, double alpha, double beta, double Q, double X0)
       double tempb = ceil(creal(tempd));
       K0 = (long) max(tempa,tempb);
       MYCOMPLEX b = {0.0, 0.0};
-#else   
-      K0 = (long) max((ceil ((1.0-beta)/alpha)),ceil(creal(clog(Q*(1.0-cabs(z)))/clog(cabs(z)))));
+#else
+      MYCOMPLEX clognum = clog(Q*(1.0-cabs(z)));
+      MYCOMPLEX clogdenom = clog(cabs(z));
+      MYCOMPLEX clogval = my_cdiv(clognum,clogdenom);
+      K0 = (long) max((ceil ((1.0-beta)/alpha)),ceil(creal(clogval)));
       b = 0.0;
 #endif
       K0 = (long) min(200,K0);
@@ -193,7 +216,10 @@ MYCOMPLEX  ML(MYCOMPLEX z, double alpha, double beta, double Q, double X0)
        K0= (long) (floor(-creal(div)));
        MYCOMPLEX c = {0.0, 0.0};
 #else
-       K0= (long) (floor(creal(-clog(Q)/clog(cabs(z)))));
+       MYCOMPLEX cz = clog(cabs(z));
+       MYCOMPLEX cz1 = -clog(Q);
+       MYCOMPLEX cz1cz = my_cdiv(cz1,cz);
+       K0= (long) (floor(creal(cz1cz)));
        double complex c = 0.0;
 #endif
       K0 = min(200,K0);
@@ -402,9 +428,12 @@ MYCOMPLEX  K(double alpha, double beta, double x, MYCOMPLEX z)
   K1 = mydiv(K1,denom);  // if this does not fail than lots of things can be simplified
 #else
   //  ((x*csin(Pi*(1.0-beta))-z*csin(Pi*(1.0-beta+alpha)))/(x*x-2.0*x*z*ccos(alpha*Pi)+z*z))
+  MYCOMPLEX aaa = ((x*csin(Pi*(1.0-beta))-z*csin(Pi*a)));
+  MYCOMPLEX bbb = (x*x-2.0*x*z*ccos(b)+z*z);
+  MYCOMPLEX ccc = my_cdiv(aaa,bbb);
   MYCOMPLEX K1=a0*cpow(x,a)*
-    cexp(-cpow(x,(1.0/alpha)))*
-    ((x*csin(Pi*(1.0-beta))-z*csin(Pi*a))/(x*x-2.0*x*z*ccos(b)+z*z));
+    cexp(-cpow(x,(1.0/alpha)))*ccc;
+  //    ((x*csin(Pi*(1.0-beta))-z*csin(Pi*a))/(x*x-2.0*x*z*ccos(b)+z*z));
 #endif
     return K1;
 }
@@ -425,8 +454,11 @@ MYCOMPLEX P(double alpha, double beta, double eps, double phi, MYCOMPLEX z) // r
   MYCOMPLEX temp4 = mysub(temp3,z);
   P1 = mydiv(P1,temp4);
 #else
-  MYCOMPLEX omega = phi * (1.0+ (1.0-beta)/alpha) + cpow(eps,(1.0/alpha)) * csin(phi/alpha);    
-  MYCOMPLEX P1 = (1.0/(2.0*alpha*Pi)) * cpow(eps,(1.0+(1.0-beta)/alpha)) * cexp(cpow(eps,(1.0/alpha)) * ccos(phi/alpha)) * (ccos(omega)+J*csin(omega))/(eps*cexp(J*phi)-z);
+  MYCOMPLEX omega = phi * (1.0+ (1.0-beta)/alpha) + cpow(eps,(1.0/alpha)) * csin(phi/alpha);
+  MYCOMPLEX aaa = (ccos(omega)+J*csin(omega));
+  MYCOMPLEX bbb = (eps*cexp(J*phi)-z);
+  MYCOMPLEX ccc = my_cdiv(aaa,bbb);
+  MYCOMPLEX P1 = (1.0/(2.0*alpha*Pi)) * cpow(eps,(1.0+(1.0-beta)/alpha)) * cexp(cpow(eps,(1.0/alpha)) * ccos(phi/alpha)) * ccc;
 #endif
   return P1;
 }
@@ -461,7 +493,7 @@ MYCOMPLEX mittag_leffler(double alpha, double beta, MYCOMPLEX z)
     }
 #ifndef MLF_SLOW
   MYCOMPLEX b;
-  if (beta==1.0 || fabs(alpha-beta)<EPSILON)
+  if (beta==1.0 || fabs(alpha-beta)<EPSILON) //dec 20 2023 changed > to < because interpol should work with alpha=beta!!!!
     b = MLinterpol(z,alpha, beta, Q, X0);
   else
     b = clog(ML(z,alpha, beta, Q, X0));
@@ -577,22 +609,181 @@ double interval_mittag_leffler_func(double r, double alpha, double t0, double mu
 }
 
 // Somayeh Mashayekhi 
-double propose_new_mlftime(double lambda, double alpha, double r1, double r2)
+double propose_new_mlftime_old(double lambda, double alpha, double r1, double r2)
 {
   double pia = PI * alpha;
   double denoma = 1.0 / alpha;
-  double denomlambda = 1.0 / lambda;
-  //return -pow(denomlambda,denoma) * pow(sin(pia)/(tan(pia*(1-r1))) - cos(pia),denoma) * log(r2);
-  return -pow(denomlambda,denoma) * pow((sin(pia)/(tan(pia*(1-r1))) - cos(pia)),denoma) * log(r2);
+  double denomlambda;
+  if (lambda>0.0)
+    denomlambda = 1.0 / lambda;
+  else
+    return (double) HUGE;
+  //return - log(r1) * denomlambda;
+  //return -pow(denomlambda,denoma) * pow((sin(pia)/(tan(pia*(1.0-r1))) - cos(pia)),denoma) * log(r2);
+  return -pow(denomlambda * (sin(pia)/(tan(pia*(1.0-r1))) - cos(pia)),denoma) * log(r2);
 }
 
+
+
+double propose_new_mlftime_growth(double theta, double alpha, double r1, double r2, double g, double t) {
+    if (alpha <= 0.0 || theta <= 0.0 || r2 <= 0.0) {
+        // Handle cases where parameters would lead to undefined behaviors.
+        return HUGE_VAL;
+    }
+
+    double gamma_alpha = tgamma(1.0 + alpha);
+    double lambda;
+    
+    if (g == 0.0) {
+        lambda = theta * gamma_alpha;
+    } else {
+        lambda = theta * gamma_alpha / exp(-g * t);
+    }
+
+    double pia = PI * alpha;
+    double denoma = 1.0 / alpha;
+    double denomlambda = 1.0 / lambda;
+
+    double sin_term = sin(pia);
+    double tan_term = tan(pia * (1.0 - r1));
+    double cos_term = cos(pia);
+
+    if (tan_term == 0.0) {
+        // Avoid division by zero in the tangent term.
+        return 0.0;
+    }
+
+    double base = denomlambda * (sin_term / tan_term - cos_term);
+    if (base <= 0.0) {
+        // When the base is less than or equal to zero, the pow function cannot operate correctly.
+        return 0.0;
+    }
+
+    double exponent = -pow(base, denoma);
+    if (isinf(exponent)) {
+        return HUGE_VAL;
+    } else if (isnan(exponent)) {
+        // Handle cases where exponent computation results in NaN.
+        return 0.0;
+    }
+
+    double result = exponent * log(r2);
+    if (isinf(result) || isnan(result)) {
+        // Check for overflows or invalid results in the final computation.
+        return result > 0 ? HUGE_VAL : 0.0;
+    }
+
+    return result > 0.0 ? result : 0.0;  // Ensure non-negative results.
+}
+
+/* test code int main() {
+    double theta = 4000;  // Mutation-scaled population size
+    double alpha = 0.5;   // Shape parameter
+    double g = 0.01;      // Growth rate (can be negative, zero, or positive)
+    double t = 0.0;       // Current time
+
+    double r1 = (double)rand() / RAND_MAX;
+    double r2 = (double)rand() / RAND_MAX;
+
+    double waiting_time = propose_new_mlftime_growth(theta, alpha, r1, r2, g, t);
+    printf("Waiting time: %f\n", waiting_time);
+
+    return 0;
+*/
+
+#endif
+
+
+// generating times using mittag-leffer,
+// using the formula (39)? [check because that was in the preprint] in
+//Shev MacNamara, Bruce Henry, and William McLean. Fractional euler limits and their applications. SIAM Journal on Applied Mathematics, 77(2):447–469, 2017.
+//mathematica:pia=Pi*alpha;  -(1/lambda)^(1/alpha) (Sin[pia]/Tan[pia*(1 - u1)] - Cos[pia])^(1/alpha) *  Log[u2]
+//==mathematica: -(1/lambda)^((1/alpha)) Log[u2] (-Cos[alpha \[Pi]]+Cot[alpha \[Pi] (1 - u1)] Sin[alpha \[Pi]])^(1/alpha)
+//it seems that treating border cases and underflow/overflow
+// define issues with no data, for example setting values that return 0.0 (see xxx tag) to HUGE
+// creates too large posteriors for theta and too narrow posteriors at alpha=1 for no data for
+// theta with gamma and for mlf-alpha beta distributions
+// coding remedy for Nan etc from chatgpt 4
+double propose_new_mlftime(double lambda, double alpha, double r1, double r2)
+{
+  // comments in here discuss checking distributions when data is all ? one would expect
+  // priors should be returned. Without alpha estimation, for example fixing alpha=1 the priors are
+  // correctly returned:
+  //alpha = 1.0 ; // delivers correct distros with no data for population sizes but no mlf-alpha.
+  
+  // alpha is within bounds: 0.0 < alpha <= 1.0
+  // lambda should be bigger than zero
+  if (alpha > 1.0 || alpha <= 0.0 || lambda <= 0.0) {
+    return (double) HUGE;
+  }
+  //this assumes no mlf-alpha:
+  // return -log(r1) / (lambda);
+  //
+  //too much output: printf("mlf: r1=%f, r2=%f\n",r1,r2);
+  double pia = PI * alpha;
+  double denoma = 1.0 / alpha;
+  double denomlambda = 1.0 / lambda;
+  
+  double sin_term = sin(pia);
+  double tan_term = tan(pia * (1.0 - r1));
+  double cos_term = cos(pia);
+
+  if (tan_term == 0.0)
+    {
+      // Avoid division by zero in the tangent term.
+      //  warning("tan is %f\n", tan_term);
+      tan_term = EPSILON;
+    }
+
+  double base = denomlambda * (sin_term / tan_term - cos_term);
+  if (base <= 0)
+    {
+	// When the base is less than or equal to zero, the pow function cannot operate correctly.
+	warning("base is %f\n", base);
+        return 0.0;
+      }
+    double exponent = -pow(base, denoma);
+    if (isinf(exponent))
+      {
+        return (double) HUGE;
+      }
+    else if (isnan(exponent)) {
+        // this should never execute because we caught NaN by excluding negative base.
+      warning("exponent is %f = %f^%f\n", exponent, base, denoma);
+      exit(EXIT_FAILURE);
+      //  return 0.0;
+    }
+
+    double result = exponent * log(r2);//exponent is always negative, log(r2) is always negative,
+    //    if (result > 1000000000)
+    // warning("result=%f base=%f denoma=%f denomlabda=%f r1=%f r2=%f\n",result,base,denoma,denomlambda,r1,r2);
+    // result should be always positive.
+    //if (isinf(result) || isnan(result)) {
+    //  // Check for overflows or invalid results in the final computation.
+    //  warning("prognose_new_mlf() l 741 mittag_leffler.c");
+    //  return HUGE; //result > 0 ? HUGE : 0.0;
+    //}
+    //if (result <= 0.0)
+    //  {
+    //	warning("prognose_new_mlf() l 745 mittag_leffler.c: time=%f\n",result);
+    //	return HUGE;
+    //}
+    return result ;//> 0.0 ? result : 0.0;  // Ensure non-negative results.
+}
+
+#ifndef STANDALONEMITTAGLEFFLER
 void change_mittag_leffler(world_fmt * world)
 {
+  // this should not be used, was used in updating() world.c
+  // but is not needed choices are either fixed mlalpha --> no change needed
+  // or then mlalpha changes per population and is handled in bayes_update() as a parameter
   //CAREFUL this still has hardcoded elements for the prior
+  usererror("Don't call change_mitta_leffler");
   double oldalpha = world->mlalpha;
   MYREAL r = UNIF_RANDUM();
   MYREAL delta = 0.05;
   MYREAL np = propose_uniform(oldalpha, 0.4, 1.0, &r, delta);
+  //MYREAL np = (*propose_new[world->which])(world->param0[world->which],world->which,world,&r);
   MYREAL oldval = probg_treetimes(world);
   world->mlalpha=np;
   MYREAL newval = probg_treetimes(world);
@@ -613,7 +804,8 @@ void set_mittag_leffler(option_fmt * options)
   printf("standard Exponential; with alpha < 1 the distribution has\n");
   printf("shorter coalescences near today, values are allowed\n");
   printf("between 0.01 and 1.00, using 2-digit precision.\n");
-  printf("[Default: alpha=1.00]\n");
+  printf("[Default: all populations have an alpha=1.00]\n");
+  printf("Enter a single number between 0.01 and 1.0\n");
   printf("> ");fflush(stdout);
   FGETS(input,LINESIZE,stdin);
   if(input[0]!='\0')
@@ -653,12 +845,21 @@ void help(int argc, char **argv)
       printf("Syntax: mlf z           #prints mlf(lambda=z,alpha=0.6,beta=0.6)\n");
       printf("Syntax: mlf z a         #prints mlf(lambda=z,alpha=a,beta=a)\n");
       printf("Syntax: mlf z a b       #prints mlf(lambda=z,alpha=a,beta=b)\n");
+      printf("Syntax: mlf r z a b     #prints r random numbers using mlf(lambda=z,alpha=a,beta=b)\n");
+      printf("Test returns logs!!\n");
       exit(-1);
     }
 }
 
+double randum()
+{
+  return (double)rand() / RAND_MAX;
+}
+
+
 int main(int argc, char ** argv)
 {
+  long r=0;
   double alpha=0.6;
   double beta = alpha;
   //double eps = 1e-8;
@@ -694,11 +895,30 @@ int main(int argc, char ** argv)
       alpha = atof(argv[2]);
       beta = atof(argv[3]);
       break;
+    case 5:
+      r = atol(argv[1]);
+      z = atof(argv[2]) + 0.0 * I;
+      alpha = atof(argv[3]);
+      beta = atof(argv[4]);
+      break;
     default:
       break;
     }
-  MYCOMPLEX b = mittag_leffler(alpha, beta, z);
-  printf("log(mlf(z=%f,alpha=%f,beta=%f)) =  %.8g %+.8gi\n", creal(z), alpha, beta, creal(b), cimag(b));
+  if (r>0)
+    {
+      long i;
+      for (i=0;i<r;i++)
+	{
+	  double r1 = UNIF_RANDUM();
+	  double r2 = UNIF_RANDUM();
+	  printf("%20.20lf\n",propose_new_mlftime(z, alpha, r1, r2));
+	}
+    }
+  else
+    {
+      MYCOMPLEX b = mittag_leffler(alpha, beta, z);
+      printf("log(mlf(z=%f,alpha=%f,beta=%f)) =  %.8g %+.8gi\n", creal(z), alpha, beta, creal(b), cimag(b));
+    }
   return 0;
 }
   

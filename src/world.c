@@ -3819,7 +3819,10 @@ boolean updating(world_fmt *world)
 long get_numparam(world_fmt* world)
 {
   //returns the number of total parameters
-  return world->numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
+  return world->numpop2 + \
+    world->bayes->mu + \
+    2 * world->species_model_size + \
+    world->grownum;
 }
 
 
