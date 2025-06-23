@@ -1,3 +1,0 @@
-[submodule "lib/haru"]
-	path = lib/haru
-	url = https://github.com/libharu/libharu.git
