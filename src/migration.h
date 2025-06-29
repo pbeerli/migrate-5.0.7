@@ -907,6 +907,10 @@ typedef struct _option
   long *growpops;
   long growpops_numalloc;
   long growpops_numpop;
+  long *mlalphapops;
+  long mlalphapops_numalloc;
+  long mlalphapops_numpop;
+
   //  boolean poprelabeled;
   boolean has_inheritance;
   MYREAL *inheritance_scalars;
@@ -1329,9 +1333,12 @@ typedef struct _worldoption
   MYREAL locusweight;    // use a weight to calculate the invariant locus
   boolean has_variableandone; // use only one invariant locus and reweight
   long firstinvariant; // locus number of first invariant locus to reweight using locusweight
-  long *growpops; // copy of options->growthpop to specify whether populations have different growth rate [growth is directly under world]
+  long *growpops; // copy of options->growthpops to specify whether populations have different growth rate [growth is directly under world]
   long growpops_numalloc;
   long growpops_numpop;
+  long *mlalphapops; // copy of options->mlalphapops to specify whether populations have different mlalpha [mlalpha is directly under world]
+  long mlalphapops_numalloc;
+  long mlalphapops_numpop;
   int smoothing[2];
   long smoothing_window[2];
 }
@@ -1646,9 +1653,6 @@ typedef struct _world
   long divtime_alloc;
   long divtime_num;
   FILE *divtimefile;
-  int tri_mlalpha;
-  double mlalpha; //mittag-leffler
-  double mlinheritance;
   double *steppingstones;
   double *steppingstone_scalars;
   double *steppingstone_counters;
@@ -1656,6 +1660,14 @@ typedef struct _world
   double *growth; // contains growth values: growpops={1,1,1,1} => growth={x},growpop={1,2,1} => growth={x1,x2}
   double *savegrowth;
   long grownum;
+  int tri_mlalpha; //deals with fixed alpha or population alpha -- needs review
+  boolean has_mlalpha;
+  double * mlalpha; //mittag-leffler
+  double mlinheritance;  
+  long mlalphanum;
+  long numparam; //holds the result from get_numparam [this is used so many times
+  long numparamcumvec[PRIORSIZE] //holds the cumulative numparam for each param group
+  long numparamvec[PRIORSIZE] //holds the  numparam for each param group
 }
 world_fmt;
 
