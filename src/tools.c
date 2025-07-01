@@ -163,6 +163,7 @@ void get_runtime (char *runtime, time_t start, time_t end);
 void print_llike (MYREAL llike, char *strllike);
 int sprint_tabdigits(double x, char * temp);
 /* searching and finding*/
+boolean is_notin(long x, long *order, long orderlen);
 boolean find (long i, long *list, long listlen);
 
 /* conversion between the parameter schemes*/
@@ -3479,6 +3480,16 @@ calc_sum (MYREAL *vector, long n)
 
 //==========================================
 // searching and finding
+boolean is_notin(long x, long *order, long orderlen)
+{
+  long i;
+  for (i=0;i<orderlen;i++)
+    {
+      if(x==order[i])
+	return FALSE;
+    }
+  return TRUE;
+}
 
 boolean
 find (long i, long *list, long listlen)

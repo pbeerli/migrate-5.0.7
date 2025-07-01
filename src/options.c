@@ -56,6 +56,8 @@ $Id: options.c 2158 2013-04-29 01:56:20Z beerli $
 #include "menu.h"
 #include "random.h"
 #include "options.h"
+#include "growth.h"
+#include "mlalpha.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -112,13 +114,13 @@ extern char * generator;
  "micro-max", "micro-threshold", "delimiter","burn-in",\
  "infile", "outfile", "smoothing", "title", \
  "long-chain-epsilon","print-tree","progress","l-ratio",\
- "fst-type","profile","custom-migration","population-growth","unused",\
+ "fst-type","profile","custom-migration","population-growth","population-mlalpha",\
  "long-sample", "replicate","datamodel","logfile", "seqerror-rate","uep", \
  "uep-rates","uep-bases", "mu-rates","heating","fluctuate", "resistance",\
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","mittag-leffler-alpha"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -247,7 +249,6 @@ long save_newpops_buffer (char **buffer, long *allocbufsize, option_fmt * option
 void set_growth(char **value, char **tmp, option_fmt *options);
 long save_growpops_buffer (char **buffer, long *allocbufsize, option_fmt * options);
 void set_bayes_options(char *value, option_fmt *options);
-long boolcheck (char ch);
 void read_random_theta(option_fmt *options, char ** buffer);
 void read_random_mig(option_fmt *options, char ** buffer);
 void read_theta (option_fmt * options, char *parmvar, char *varvalue, char **buffer);
@@ -576,6 +577,9 @@ void init_options (option_fmt * options)
     options->growpops=(long*) mycalloc(1, sizeof(long));
     options->growpops[0] = 0;
     options->growpops_numalloc  = 1;
+    options->mlalphapops=(long*) mycalloc(1, sizeof(long));
+    options->mlalphapops[0] = 0;
+    options->mlalphapops_numalloc  = 1;
 
     options->slice_sticksizes = (MYREAL*) mycalloc(1, sizeof(MYREAL));
     options->slice_sticksizes[0] = 1.0;
@@ -5715,8 +5719,11 @@ numbercheck (option_fmt * options, char *var, char *value)
         break;
     case 31:   /* population-growth */
       set_growth(&value, &tmp, options);
-        break;
-        /*case 32 and case 33 are fallthroughs to 2 and 3 */
+        break;	
+    case 32:   /* population-mlalpha */
+      set_mlalpha(&value, &tmp, options);
+        break;	
+        /*case 33 is a fallthroughs for case 5: */
     case 34:   /*replicate */
         switch (uppercase (value[0]))
         {

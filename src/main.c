@@ -50,6 +50,7 @@
 #include "bayes.h"
 #include "data.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "haplotype.h"
 #include "heating.h"
 #include "tables.h"
@@ -1431,7 +1432,7 @@ setup_locus (long locus, world_fmt * world, option_fmt * options,
   //  print_menu_locus (world->options->logfile, world, locus);
   world->start = TRUE;
   reset_growth(world);
-
+  reset_mlalpha(world);
   
   if(options->has_unassigned && locus>0)
     {

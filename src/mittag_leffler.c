@@ -779,17 +779,18 @@ void change_mittag_leffler(world_fmt * world)
   // or then mlalpha changes per population and is handled in bayes_update() as a parameter
   //CAREFUL this still has hardcoded elements for the prior
   usererror("Don't call change_mitta_leffler");
-  double oldalpha = world->mlalpha;
-  MYREAL r = UNIF_RANDUM();
-  MYREAL delta = 0.05;
-  MYREAL np = propose_uniform(oldalpha, 0.4, 1.0, &r, delta);
+  //double oldalpha = 1.0;//world->mlalpha;
+  //MYREAL r = UNIF_RANDUM();
+  //MYREAL delta = 0.05;
+  //MYREAL np = propose_uniform(oldalpha, 0.4, 1.0, &r, delta);
   //MYREAL np = (*propose_new[world->which])(world->param0[world->which],world->which,world,&r);
-  MYREAL oldval = probg_treetimes(world);
-  world->mlalpha=np;
-  MYREAL newval = probg_treetimes(world);
-  boolean success = bayes_accept(newval, oldval,world->heat, 0.0);
-  if (!success)
-    world->mlalpha=oldalpha;
+  //MYREAL oldval = probg_treetimes(world);
+  //world->mlalpha=np;
+  //MYREAL newval = probg_treetimes(world);
+  //boolean
+  //success = bayes_accept(newval, oldval,world->heat, 0.0);
+  //if (!success)
+  //  world->mlalpha=oldalpha;
 }
 
 void set_mittag_leffler(option_fmt * options)

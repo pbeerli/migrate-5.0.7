@@ -33,7 +33,6 @@
 #include "sighandler.h"
 #include "bayes.h"
 #include "tools.h"
-boolean is_notin(long x, long *order, long orderlen);
 void reset_growth(world_fmt * world);
 #if defined(MPI) && !defined(PARALIO) /* */
 void print_growth_record(float *temp, long *z, world_fmt *world);
@@ -92,16 +91,6 @@ boolean init_growpop(worldoption_fmt * wopt, option_fmt *options, long numpop)
   return use_growth;
 }
 
-boolean is_notin(long x, long *order, long orderlen)
-{
-  long i;
-  for (i=0;i<orderlen;i++)
-    {
-      if(x==order[i])
-	return FALSE;
-    }
-  return TRUE;
-}
 
 void init_growth(world_fmt * world, long numpop)
 {

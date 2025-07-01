@@ -795,9 +795,9 @@ MYREAL time_to_speciate_exp(world_fmt *world, long pop, MYREAL t0, char *event, 
   double interval= (double) HUGE;
   double intervalnew;
   boolean touched=FALSE;
-  double mlalpha = world->mlalpha;
+  double mlalpha; // = world->mlalpha;
   //double mlinheritance = world->mlinheritance;
-  boolean has_mlalpha = mlalpha < 1.0;
+  boolean has_mlalpha = world->has_mlalpha; //mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -813,6 +813,7 @@ MYREAL time_to_speciate_exp(world_fmt *world, long pop, MYREAL t0, char *event, 
       //double priormax = s->max; 
       if(has_mlalpha)
 	{
+	  mlalpha = world->mlalpha[pop];
 	  intervalnew = propose_new_mlftime(1.0/mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	  //intervalnew = interval_mittag_leffler(UNIF_RANDUM(), mlalpha, 1.0/mu,tmin,tmax);
 	}
@@ -860,8 +861,8 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
   long sfrom = -1;
   long fromi;
   boolean touched=FALSE;
-  double mlalpha = world->mlalpha;
-  boolean has_mlalpha = mlalpha < 1.0;
+  double mlalpha; // = world->mlalpha;
+  boolean has_mlalpha = world->has_mlalpha;//mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -879,6 +880,7 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
       if (has_mlalpha)
 	{
 	  //r = UNIF_RANDUM();
+	  mlalpha = world->mlalpha[pop];
 	  interval = propose_new_mlftime(1.0/mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	    //interval_mittag_leffler_func(r, mlalpha, t0, mu, k, s,priormin,priormax);
 	  tnew = t0 + interval;
@@ -1152,8 +1154,8 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
   long sfrom = -1;
   long fromi;
   boolean touched=FALSE;
-  double mlalpha = world->mlalpha;
-  boolean has_mlalpha = mlalpha < 1.0;
+  double mlalpha ; //= world->mlalpha;
+  boolean has_mlalpha = world->has_mlalpha; //mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -1173,6 +1175,7 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
       //double priormax = s->max;
       if (has_mlalpha)
 	{
+	  mlalpha = world->mlalpha[pop];
 	  interval = propose_new_mlftime(mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	  //interval = interval_mittag_leffler_func(r, mlalpha, t0, mu, sigma, s, priormin, priormax);
 	  tnew = t0 + interval;
@@ -1242,6 +1245,13 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
     {
       growth = world->growth;
     }
+  double * mlalphas = NULL;
+  long * mlalphapops = world->options->mlalphapops;
+  if (world->has_mlalpha)
+    {
+      mlalphas = world->mlalpha;
+    }
+  
   world_fmt *w = world;
   long  lines;
   MYREAL  rate = w->options->mu_rates[w->locus];
@@ -1255,9 +1265,9 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
   MYREAL interval= (double) HUGE;
   MYREAL r=0.0;
   MYREAL logr = (double) -HUGE;
-  double mlalpha = world->mlalpha;
+  double mlalpha = 1.0;
   //double mlinheritance = world->mlinheritance;
-  boolean has_mlalpha = mlalpha < 1.0;
+  boolean has_mlalpha = world->has_mlalpha ; //mlalpha < 1.0;
   *from = -1;
   *to = -1;
   //timeslice=tentry->timeslice;
@@ -1266,6 +1276,9 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
   //double priormin = -10.;//w->bayes->minparam[pop];
   //double priormax = 10;//w->bayes->maxparam[pop];
   lines    = 2 * lineages[pop];
+  if(world->has_mlalpha && mlalphapops[pop]!=0)
+    mlalpha = world->mlalpha[mlalphapops[pop]-1];
+  
   if (lines == 0)
     {
       interval= (double) HUGE;
@@ -1314,6 +1327,20 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 {
   (void) lineages;
   (void) proposal;
+
+    double * growth = NULL;
+  long * growpops = world->options->growpops;
+  if (world->has_growth)
+    {
+      growth = world->growth;
+    }
+  double * mlalphas = NULL;
+  long * mlalphapops = world->options->mlalphapops;
+  if (world->has_mlalpha)
+    {
+      mlalphas = world->mlalpha;
+    }
+    
   long    addition=0;
   long    numpop = world->numpop;
   MYREAL  *skyparam = world->timek+(world->numpop2+addition)*timeslice;
@@ -1339,8 +1366,8 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
   long the_to = -1;
   long the_from = -1;
   long offlimit_from = -1; //nothing is offlimit
-  double mlalpha = world->mlalpha;
-  boolean has_mlalpha = mlalpha < 1.0;
+  double mlalpha = 1.0; //= world->mlalpha;
+  boolean has_mlalpha = world->has_mlalpha;//mlalpha < 1.0;
   
   //if (proposal!=NULL && proposal->divlist->div_elem > 0) 
   //  offlimit_from = proposal->divlist->divlist[0][1]; //4.2.9
@@ -1383,6 +1410,7 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 	      mm =  world->data->geo[i] * world->param0[i] * skyparam[i]/rate;
 	      if(has_mlalpha)
 		{
+		  mlalpha = mlalphas[mlalphapops[tox]-1];
 		  //DEBUG N^a 		  
 		  interval = propose_new_mlftime(mm, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 		  //interval = interval_mittag_leffler(UNIF_RANDUM(), mlalpha, mm, priormin, priormax);
@@ -1417,6 +1445,20 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 /// when the last two lines in the tree need to be worked on jointly
 MYREAL time_to_speciation(world_fmt * world, long pop, double age, char * event, long * to, long * from)
 {
+
+  double * growth = NULL;
+  long * growpops = world->options->growpops;
+  if (world->has_growth)
+    {
+      growth = world->growth;
+    }
+  double * mlalphas = NULL;
+  long * mlalphapops = world->options->mlalphapops;
+  if (world->has_mlalpha)
+    {
+      mlalphas = world->mlalpha;
+    }
+    
   MYREAL the_eventtime= (double) HUGE;
   //char the_event;
   char myevent=' ';

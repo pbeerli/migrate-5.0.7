@@ -1663,11 +1663,12 @@ typedef struct _world
   int tri_mlalpha; //deals with fixed alpha or population alpha -- needs review
   boolean has_mlalpha;
   double * mlalpha; //mittag-leffler
+  double * savemlalpha;
   double mlinheritance;  
   long mlalphanum;
   long numparam; //holds the result from get_numparam [this is used so many times
-  long numparamcumvec[PRIORSIZE] //holds the cumulative numparam for each param group
-  long numparamvec[PRIORSIZE] //holds the  numparam for each param group
+  long numparamcumvec[PRIOR_SIZE]; //holds the cumulative numparam for each param group
+  long numparamvec[PRIOR_SIZE]; //holds the  numparam for each param group
 }
 world_fmt;
 

@@ -1,9 +1,9 @@
 ################################################################################
-# Parmfile for Migrate 5.0.2(git:v5.0.2-0-gb89fa60-dirty)-December-1-2021
+# Parmfile for Migrate 5.0.7-May-01-2025
 # DO NOT REMOVE THE FIRST TWO LINES!
 #
 # generated automatically on
-# Mon Jan 31 22:26:40 2022
+# Tue Jul  1 08:11:16 2025
 #
 # please report problems to Peter Beerli
 #  email: beerli@fsu.edu
@@ -83,9 +83,11 @@ nmlength=10
 #         SEQENCEDATA: typical linked stretches of DNA, for example mtDNA
 #         NUCLEOTIDE: linked DNA stretches, all invariable sites removed
 #
-#          freqs-from-data=<YES | NO: freq(A), freq(C), freq(G), freq(T)>
+#          freqs-from-data=<YES | NO: freq(A), freq(C), freq(G), freq(T)> <[totalsites]>
 #                calculate the prior base frequencies from the data,
 #                or specify the frequencies
+#                the optional totalsites will be used to calculate
+#                invariant sites if the datatype is snps, otherwise it will not be used.
 #          ttratio=<RATIO1 RATIO2 ....> Default is 2.0,
 #                ratio between transitions and transversions.
 #          seqerror-rate=<{VALUE,VALUE,VALUE,VALUE}|Estimate:1|4> Default is 0.0, typical values for ABI 3700 
@@ -178,7 +180,7 @@ infile=twoswisstowns
 #      AUTO           uses computer system clock to generate seed
 #      OWN:seedfile   uses file seedfile with random number seed
 #      OWN:value      uses number value for seed
-random-seed=AUTO #OWN:410921499
+random-seed=AUTO #OWN:437842968
 #
 # Specify the title of the run, will be overridden by title in datafile
 #    Syntax: title=title text [up to 80 characters]
@@ -253,7 +255,7 @@ use-M=YES
 #         BEST print only the best tree visited
 #         LASTCHAIN print all trees in last chain
 #         with increment INCREMENT
-print-tree=NO
+print-tree=NONE
 #
 #-------------------------------------------------------------------------------
 #
@@ -399,7 +401,7 @@ geo=NO
 ################################################################################
 #
 # Bayesian MCMC Strategy method
-#       updatefreq=VALUE VALUE VALUE VALUE
+#       updatefreq=VALUE VALUE VALUE VALUE VALUE VALUE
 #         VALUE is a ratio between 0 and 1
 #               ratio of how many times the genealogy is updated compared to the parameters
 #               If the value is 0.4 in a 2-population scenario and with 1000000 steps
@@ -460,10 +462,15 @@ geo=NO
 #        burn-in=VALUE       VALUE is the number of updates to discard at the beginning
 #        auto-tune=<NO | YES:VALUE>  VALUE the the target acceptance ratio
 #                             if value is missing, it is set to 0.44
-#        assign=<YES | NO>    YES will assign individuals to populations
+#        assign=<YES:<FREQ|UNIFORM<:{pop1,pop2,...}>> | NO>    YES will assign individuals to populations
 #                             with '?' as first character
+#                             [FREQ uses past assignment during the MCMC
+#                             UNFORM picks a random population
+#                             optional list if populations to assign to
+#                             can be supplied using :{pop1,pop2,...}
 #
-updatefreq=0.500000 0.500000 0.1000000 0.1000000 #tree, parameter haplotype, timeparam updates
+# updatefreq= tree parameter haplotype timeparam assignment seqerror, ml-alpha
+updatefreq=0.500000 0.500000 0.100000 0.100000 0.200000 0.100000 0.100000 
 bayes-posteriorbins=1500 2000 3500 4000 4000 
 bayes-posteriormaxtype=TOTAL
 bayes-file=NO
@@ -475,12 +482,12 @@ bayes-proposals= DIVERGENCE METROPOLIS-HASTINGS Sampler
 bayes-proposals= DIVERGENCESTD METROPOLIS-HASTINGS Sampler
 bayes-proposals= GROWTH METROPOLIS-HASTINGS Sampler
 bayes-priors= THETA * * EXPPRIOR: 0.000000 0.010000 0.100000 
-bayes-priors= MIG 0 1 GAMMAPRIOR: 0.000000 100.000000 10000.000000 2.000000
+bayes-priors= MIG 0 1 GAMMAPRIOR: 0.000000 100.000000 10000.000000 2.000000 
 bayes-priors= MIG 1 0 GAMMAPRIOR: 0.000000 10.000000 10000.000000 1.000000 
-bayes-priors= RATE * * UNIFORMPRIOR: 0.000000 10000000000.000000 1000000000.000000 
+bayes-priors= RATE * * UNIFORMPRIOR: 0.000000 10000000000.000000 1000000000.000000
 bayes-priors= SPLIT 1 0 GAMMAPRIOR: 0.000000 0.010000 0.100000 1.250000 
-bayes-priors= SPLIT 0 1 GAMMAPRIOR: 0.000000 0.00010000 0.0100000 1.250000 
-bayes-priors= SPLITSTD * * UNIFORMPRIOR: 0.000000 0.100000 0.010000 
+bayes-priors= SPLIT 0 1 GAMMAPRIOR: 0.000000 0.000100 0.010000 1.250000 
+bayes-priors= SPLITSTD * * UNIFORMPRIOR: 0.000000 0.100000 0.010000
 #
 #  Hyper-prior for all parameters
 #  The parameter of the prior is drawn from a Gamma distribution with mean and alpha
@@ -496,7 +503,8 @@ long-inc=50
 long-sample=10000
 burn-in=5000  
 auto-tune=YES:0.440000
-assign=YES
+assign=YES:UNIFORM
+
 #
 #-------------------------------------------------------------------------------
 # Schemes to improve MCMC searching and/or thermodynamic integration

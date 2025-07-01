@@ -48,6 +48,7 @@ $Id: world.c 2169 2013-08-24 19:02:04Z beerli $
 #include "reporter.h"
 #include "tools.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "bayes.h"
 #include "laguerre.h"
 #include "options.h"
@@ -289,6 +290,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     //
     // fill in growth using growpops in options
     init_growpop(wopt,options, numpop);
+    // fill in mlalpha using mlalphapops in options
+    init_mlalphapop(wopt,options, numpop);
     //
     // allow to run the prior only
     wopt->prioralone = options->prioralone;
@@ -557,9 +560,9 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
   long maxreplicate;
   long numchains=1;
   long npall;
-  //mittag-leffler
-  world->mlalpha = options->mlalpha;
-  world->mlinheritance = options->mlinheritance;
+  //mittag-leffler moved to init_mlalpha() jsut after init_growth() 
+  //world->mlalpha = options->mlalpha;
+  //world->mlinheritance = options->mlinheritance;
   world->options = (worldoption_fmt *) mycalloc (1, sizeof (worldoption_fmt));
   world->buffer = (char *) mycalloc (LINESIZE, sizeof (char));
   if(options->murates_fromdata)
@@ -680,6 +683,9 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  init_speciesvector(world, options);
 	  // growth
 	  init_growth(world,numpop);
+	  init_mlalpha(world,numpop);
+	  set_numparam(world); //sets world->numparam and world->numparamvec and world->paramcumvec
+		
 	  bayes_init(world->bayes,world, options);
 	  if(world->cold)
 	    {
@@ -760,7 +766,6 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  error("Only Bayesian inference is allowed");
 	}
 
-      set_numparam(world); //sets world->numparam and world->numparamvec and world->paramcumvec
       
       //addition = world->species_model_size * 2 + world->bayes->mu + world->grownum;//#speciation*mu-rate+#growthmax
 #ifdef LONGSUM
@@ -771,7 +776,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
       world->likelihood = (MYREAL *) mycalloc (world->alloclike , sizeof (MYREAL)); //debug
       world->lineages = (long *) mycalloc (world->numpop, sizeof (long));
       world->param0 = (MYREAL *) mycalloc (world->numparam, sizeof (MYREAL));
-      world->param00 = (MYREAL *) mycalloc ((world->numparam, sizeof (MYREAL));
+      world->param00 = (MYREAL *) mycalloc (world->numparam, sizeof (MYREAL));
       // skyline parameters
       world->timeelements = options->timeelements;
       world->times = (MYREAL *) mycalloc ((world->timeelements +  world->timeelements * (world->numpop2)), sizeof (MYREAL));
@@ -931,7 +936,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	}
       /*Allocation of memory for effective sample size and autocorrelation 
         for all parameters (incl rate and speciation PLUS the tree*/
-      size = 1 + world->numpop2+options->bayesmurates + world->species_model_size * 2 + world->grownum;
+      size = 1 + world->numparam;
       world->autocorrelation =  (MYREAL *) mycalloc((2 * size),sizeof(MYREAL));
       world->effective_sample =  world->autocorrelation + size; 
       if(world->cold)

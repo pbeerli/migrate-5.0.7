@@ -60,6 +60,7 @@
 #include "priors.h"
 #include "mittag_leffler.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "savitzky_golay.h"
 #include "kernel_smooth.h"
 #ifdef PRETTY
@@ -368,13 +369,14 @@ MYREAL probg_treetimes(world_fmt* world)
     const MYREAL *geo = world->data->geo;
     //const MYREAL *lgeo = world->data->lgeo;
     const  long numpop = world->numpop;
-    const  long numpop2 = world->numpop2;
+    //const  long numpop2 = world->numpop2;
     //const long locus = world->locus;
-    const  long npp = numpop2 + ( long) world->bayes->mu;
-    const  long nppall = npp + 2 * world->species_model_size; //OK, do not add growth here!
+    const  long npp = world->numparamcumvec[RATEPRIOR];
+    const  long nppall = world->numparamcumvec[SPLITSTDPRIOR]; //OK, don't add growth here!
     species_fmt *s;
     long i;
-     long pop;
+    long pop;
+    long ypop;
     MYREAL t0;
     MYREAL t1;
     double tx;
@@ -403,10 +405,10 @@ MYREAL probg_treetimes(world_fmt* world)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
-    double mlalpha = world->mlalpha;
+    double mlalpha;// = world->mlalpha;
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
-    boolean has_mlalpha = mlalpha<1.0;
+    boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
     //boolean hasnot_mlalpha = !has_mlalpha;
     double x;
     double g;
@@ -415,6 +417,12 @@ MYREAL probg_treetimes(world_fmt* world)
     if (world->has_growth)
       {
 	growth = world->growth;
+      }
+    long * mlalphapops = world->options->mlalphapops;
+    double *mlalphas=NULL;
+    if (world->has_mlalpha)
+      {
+	mlalphas = world->mlalpha;
       }
 
     //double alphapart = exp(LGAMMA(1.0+mlalpha));
@@ -429,11 +437,12 @@ MYREAL probg_treetimes(world_fmt* world)
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
       type = tli->eventnode->type;
-
+      ypop = tli->eventnode->actualpop;
       deltatime = t0 - t1; // should be negative
       deltatime2 = t1 - t0; // should be positive
       if(has_mlalpha)
 	{
+	  mlalpha = mlalphas[mlalphapops[ypop]-1];
 	  deltatime = -pow(deltatime2,mlalpha);
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
@@ -517,6 +526,7 @@ MYREAL probg_treetimes(world_fmt* world)
 		}
 	    }
 	  long xpop = tli->eventnode->actualpop;
+	  assert(xpop == ypop);
 	  switch(type)
 	    {
 	    case 'i':
@@ -566,6 +576,7 @@ MYREAL probg_treetimes(world_fmt* world)
       //sumprob += deltatime * (waitprob + waitprob_spec) + eventprob;
       if(has_mlalpha)
 	{
+	  mlalpha = mlalphas[mlalphapops[ypop]-1];
 	   //mittag-leffler
 	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
 #ifdef WINDOWS
@@ -580,7 +591,7 @@ MYREAL probg_treetimes(world_fmt* world)
 	  assert(!isnan(sumprob));
 	  //fprintf(stderr,"%i> locus %li sumprob=%f\n",myID,locus,sumprob);
 	}
-	  else
+      else
 	{
 	  //#ifdef DEBUGWEIRD
 	  if (isinf(waitprobcoal) && isinf(eventprob))
@@ -597,6 +608,7 @@ MYREAL probg_treetimes(world_fmt* world)
     assert(!isnan(sumprob));
     return sumprob;
 }
+
 //newlocal
 // used for assignment calculation [see world.c: updating(), speciate.c newtree_update()]
 MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
@@ -611,6 +623,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     species_fmt *s;
     long i;
      long pop;
+     long ypop;
     MYREAL t0;
     MYREAL t1;
     double tx;
@@ -639,10 +652,10 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
-    double mlalpha = world->mlalpha;
+    double * mlalpha = world->mlalpha;
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
-    boolean has_mlalpha = mlalpha<1.0;
+    boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
     //boolean hasnot_mlalpha = !has_mlalpha;
     double x;
     double g;
@@ -665,15 +678,20 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
       if (tli->eventnode == NULL)
-	type = tli->type;
+	{
+	  type = tli->type;
+	  ypop = tli->to;//<=====check
+	}
       else
-	type = tli->eventnode->type;
-
+	{
+	  type = tli->eventnode->type;
+	  ypop = tli->eventnode->actualpop;
+	}
       deltatime = t0 - t1; // should be negative
       deltatime2 = t1 - t0; // should be positive
       if(has_mlalpha)
 	{
-	  deltatime = -pow(deltatime2,mlalpha);
+	  deltatime = -pow(deltatime2,mlalpha[ypop]);
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
       if(type == 't')
@@ -817,6 +835,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
       if(has_mlalpha)
 	{
 	   //mittag-leffler
+	  double mlalpha = world->mlalpha[pop];
 	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
 #ifdef WINDOWS
 	  _Dcomplex pwc = {pw,0.0};
@@ -1931,8 +1950,8 @@ bayes_update (world_fmt * world)
     const long        numpop = world->numpop;
     const long        numpop2 = world->numpop2;
     //const long        numpop2rate = world->numpop2 + mu;
-    const long        npx2 = get_numparam(world);
-    const long        npx = npx2 - world->grownum;
+    const long        npx2 = world->numparam;
+    const long        npx = world->numparamcumvec[SPLITSTDPRIOR];
     const MYREAL      murate = world->options->mu_rates[world->locus];
     const boolean     writelog = (myID==MASTER &&
                                   world->options->progress &&
@@ -2530,8 +2549,8 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 // Initialize the Bayesian framwork
 void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options)
 {
-  long sizeg = get_numparam(world);
-  long size =  sizeg - world->grownum;
+  long sizeg = world->numparam;
+  long size =  world->numparamcumvec[SPLITSTDPRIOR];
     long invalids;
     bayes->numpop2 = world->numpop2;
     bayes->mu = options->bayesmurates;
@@ -2600,8 +2619,8 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
     bayes_fmt *bayes = world->bayes;
     long loc;
     //long i;
-    long np = get_numparam(world) - world->grownum;
-    long npp = get_numparam(world); 
+    long np = world->numparamcumvec[RATEPRIOR];
+    long npp = world->numparam; 
     //long npp = np + (bayes->mu) + 2 * world->species_model_size;
     //long nppt = np + (bayes->mu)  + 2 * world->species_model_size;
     long pa;
@@ -2647,7 +2666,7 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
 		if (pa>=np)
 		  bins = options->bayes_priors[0].bins;
 		else
-                bins = options->bayes_priors[pa].bins;
+		  bins = options->bayes_priors[pa].bins;
                 hist->bins[pa] = bins;
                 hist->binsum += bins;
                 hist->minima[pa] = (double) HUGE;

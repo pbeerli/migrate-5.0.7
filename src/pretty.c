@@ -1644,9 +1644,9 @@ void pdf_print_bayestable(world_fmt *world)
     double meanmu;
     long j0, j;
     long l;
-    long size = get_numparam(world);
+    long size = world->numparam;
     long npp = size ;
-    long nppspec = npp - world->grownum;
+    long nppspec = world->numparamcumvec[SPLITSTDPRIOR];
     double lx;
     double *offset;
     bayes_fmt * bayes = world->bayes;
@@ -1774,7 +1774,7 @@ void pdf_print_bayestable(world_fmt *world)
 		}		      
 	      else if(world->has_growth && j < npp)
 		{
-		  long d=j0-npp;
+		  long d=0;//j0-npp;
 		  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 		    {
 		      d++;
@@ -1837,7 +1837,7 @@ pdf_bayes_print_accept(world_fmt *world)
     char *stempo;       // string variable holding print-string
     char *stemp;        // pointer to string, seems to be need to don't get MYREAL free warnings
     long trials   =0;   //
-    long tc = get_numparam(world);//position of genealogy accept rates
+    long tc = world->numparam;//position of genealogy accept rates
     bayes_fmt *bayes = world->bayes;
     species_fmt *  s;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
