@@ -910,7 +910,9 @@ typedef struct _option
   long *mlalphapops;
   long mlalphapops_numalloc;
   long mlalphapops_numpop;
-
+  double * mlalpha;
+  long mlalpha_numalloc;
+  long mlalpha_num;
   //  boolean poprelabeled;
   boolean has_inheritance;
   MYREAL *inheritance_scalars;
@@ -1000,7 +1002,7 @@ typedef struct _option
   boolean recorddivtime;
   long species_model_dist;
   int tri_mlalpha;
-  double mlalpha;
+  //double mlalpha;
   double mlinheritance;
   int smoothing[2];
   long smoothing_window[2];
@@ -1660,7 +1662,7 @@ typedef struct _world
   double *growth; // contains growth values: growpops={1,1,1,1} => growth={x},growpop={1,2,1} => growth={x1,x2}
   double *savegrowth;
   long grownum;
-  int tri_mlalpha; //deals with fixed alpha or population alpha -- needs review
+  int tri_mlalpha; //deals with fixed alpha or population alpha -- copy from options.
   boolean has_mlalpha;
   double * mlalpha; //mittag-leffler
   double * savemlalpha;

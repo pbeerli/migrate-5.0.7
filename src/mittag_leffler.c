@@ -86,7 +86,7 @@ double interval_mittag_leffler_func(double r, double alpha, double t0, double mu
 double propose_new_mlftime(double lambda, double alpha, double r1, double r2);
 double propose_new_mlftime_old(double lambda, double alpha, double r1, double r2);
 
-
+void fill_mlalpha(option_fmt *options, const char *input);
 
 double complex my_cdiv(double complex a, double complex b) ;
 void change_mittag_leffler(world_fmt* world);
@@ -793,6 +793,29 @@ void change_mittag_leffler(world_fmt * world)
   //  world->mlalpha=oldalpha;
 }
 
+
+void fill_mlalpha(option_fmt *options, const char *input)
+{
+    char *token;
+    char *input_copy = strdup(input);
+    char *ptr = input_copy;
+    int count = 0;
+
+    while ((token = strsep(&ptr, " ")) != NULL) {
+        if (*token == '\0')
+	  continue; 
+
+        if (count >= options->mlalpha_numalloc)
+	  {
+	    options->mlalpha_numalloc += 1;
+            options->mlalpha = myrealloc(options->mlalpha, options->mlalpha_numalloc * sizeof(double));
+	  }
+	options->mlalpha[count++] = atof(token);
+    }
+    options->mlalpha_num = count;
+    free(input_copy);
+}
+
 void set_mittag_leffler(option_fmt * options)
 {
   char *input;
@@ -806,16 +829,17 @@ void set_mittag_leffler(option_fmt * options)
   printf("shorter coalescences near today, values are allowed\n");
   printf("between 0.01 and 1.00, using 2-digit precision.\n");
   printf("[Default: all populations have an alpha=1.00]\n");
-  printf("Enter a single number between 0.01 and 1.0\n");
+  printf("Enter a number for each population between 0.01 and 1.0, use a space to separate\n");
   printf("> ");fflush(stdout);
   FGETS(input,LINESIZE,stdin);
   if(input[0]!='\0')
     {
-      options->mlalpha = atof(input);
+      fill_mlalpha(options, input);
     }
   else
     {
-      options->mlalpha = 1.0;
+      options->mlalpha[0] = 1.0;
+      options->mlalpha_num = 1;
     }
 }
 #endif

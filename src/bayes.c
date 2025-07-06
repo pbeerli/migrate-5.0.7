@@ -290,7 +290,7 @@ void bayes_check_and_fix_param(world_fmt *world)
      long i;
     //    long frompop, topop;
     //MYREAL theta;
-    const  long npp = world->numpop2 + ( long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
+     const  long npp = world->numparam;//world->numpop2 + ( long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
     MYREAL *maxparam = world->bayes->maxparam;
     MYREAL *minparam = world->bayes->minparam;
     
@@ -1502,7 +1502,7 @@ MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val)
 
 MYREAL calculate_prior(world_fmt *world)
 {
-    const long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  const long np = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     long i;
     MYREAL retval=0.0;
     
@@ -1517,7 +1517,7 @@ MYREAL calculate_prior(world_fmt *world)
 void calculate_plotter_priors(world_fmt *world)
 {
     bayes_fmt *bayes = world->bayes;
-    long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    long np = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     MYREAL *priors;
     MYREAL *maxpriors;
     MYREAL *totalspriors;
@@ -1633,7 +1633,7 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
     //static long counter = 0;
     const long  numpop2 = world->numpop2;
     const long  npx = numpop2 + world->species_model_size * 2;
-    //const long  npx2 = npx + world->grownum;
+    const long  npx2 = world->numparam;
     const MYREAL themin = world->bayes->minparam[which];
     const MYREAL themax = world->bayes->maxparam[which];
     //  MYREAL      mean;
@@ -2107,9 +2107,10 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     long i;//,i0;
     //long frompop      = 0;
     //long topop        = 0;
-    
-    long n0           = world->numpop2 + (world->bayes->mu) + world->species_model_size * 2;
-    long n            = n0 + world->grownum;
+    //ADAPT to mlalpha!!
+    long ns           = world->numparamcumvec[SPLITSTDPRIOR];
+    long ng           = world->numparamcumvec[GROWTHPRIOR];
+    long n            = world->numparam;
     long nn           = 2 + n;
     long numpop       = world->numpop;
     long numpop2      = world->numpop2;
@@ -2124,7 +2125,9 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     //MYREAL nm;
     (bayes->params+(nnpnum))[0] = bayes->oldval;
     (bayes->params+(nnpnum))[1] = world->likelihood[world->G];
-    
+
+    //assums that all parameter vallues are consistentin the param0 vector
+    //growth and mlalpha may be problematic with this
     memcpy(bayes->params+(nnpnum+2), param0,sizeof(MYREAL) * (size_t) n);
     if(inheritance_scalar != 1.0)
     {
@@ -2141,7 +2144,12 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     if(world->has_growth)
       {
 	// check whether this is needed
-	memcpy(bayes->params+(nnpnum+2+n0), world->growth, sizeof(double)* (size_t) world->grownum);
+	memcpy(bayes->params+(nnpnum+2+ns), world->growth, sizeof(double)* (size_t) world->grownum);
+      }
+    if(world->has_mlalpha)
+      {
+	// check whether this is needed
+	memcpy(bayes->params+(nnpnum+2+ng), world->mlalpha, sizeof(double)* (size_t) world->mlalphanum);
       }
     if(wopt->has_bayesmdimfile)
     {
@@ -2334,7 +2342,7 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
 // Save the Bayesian results for printout into bayesfile
 void bayes_save(world_fmt *world, long step)
 {
-  long np           = 2 + world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;// + growth
+  long np           = 2 + world->numparam; //world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;// + growth
     long pnum         = world->bayes->numparams;
     long allocparams  = world->bayes->allocparams;
     
@@ -2411,21 +2419,21 @@ void  set_map_groups(long numpop, long t, long size, longpair *map, long lastold
 long setup_bayes_map(longpair *map, world_fmt *world, long size)
 {
   long specdistrib = world->species_model_dist;
-    char *custm2 = world->options->custm2;
-    const long numpop = world->numpop;
-    const long numpop2 = world->numpop2;
-    long invalid_count = 0;
-    long j1, j2;
-    long n = (long) strlen(custm2);
-    long s = MIN(n,numpop2);
-    long t = MIN(s,size);
-    long i;
-    long frompop;
-    long topop;
-    //long first = 0;
-    boolean mu = world->bayes->mu;
-    long species_start = mu + numpop2;
-    long old = -2;
+  char *custm2 = world->options->custm2;
+  const long numpop = world->numpop;
+  const long numpop2 = world->numpop2;
+  long invalid_count = 0;
+  long j1, j2;
+  long n = (long) strlen(custm2);
+  long s = MIN(n,numpop2);
+  long t = MIN(s,size);
+  long i;
+  long frompop;
+  long topop;
+  //long first = 0;
+  boolean mu = world->bayes->mu;
+  long species_start = mu + numpop2;
+  long old = -2;
 #ifdef DEBUG
     fprintf(stdout,"%i> @@@@@@@ heatid=%li custm=%s custm2=%s  (species: %li)\n",
 	    myID, world->heatid, world->options->custm, world->options->custm2, specdistrib);
@@ -2518,14 +2526,26 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 	  break;
         }
     }
-    if (size>t)
+    if (size>t) // includes growth and mlalpha cases
       {
 	// growth
-	long npx2 = numpop2 + mu + 2 * world->species_model_size;
+	long npx2 = world->numparamcumvec[SPLITSTDPRIOR];
+	  // numpop2 + mu + 2 * world->species_model_size;
 	for (i=npx2;i<world->grownum+npx2;i++)
 	  {
 	    map[i][0] = i;
 	    map[i][1] = i;
+	  }
+	// growth
+	long npx3 = world->numparamcumvec[GROWTHPRIOR];
+	  // numpop2 + mu + 2 * world->species_model_size;
+	for (i=npx3;i<world->mlalphanum+npx3;i++)
+	  {	    
+	    map[i][0] = i;
+	    if (world->tri_mlalpha == FIXED)
+	      map[i][1] = INVALID;
+	    else
+	      map[i][1] = i;
 	  }
       }
   set_map_groups(numpop, t, size, map, old);
@@ -2642,7 +2662,7 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
         hist->results = NULL; //calloc(hist->binsum, sizeof(MYREAL));   // contains histogram, size is bins*numparam
         // on a per parameter basis
         // structure has a data storage vectors and the following are all pointers into it
-        hist->numparam = npp;    // number of parameters: thetas + migrates + murate + growth + speciesnum
+        hist->numparam = npp;    // number of parameters: thetas + migrates + murate + growth + speciesnum + mlalpha
         hist->datastore = (MYREAL *) mycalloc((11*npp), sizeof(MYREAL)); // data storage, size is numparam*11
         // pointers into data storage
         hist->minima = hist->datastore;    // contains minimal values for each parameter
@@ -3633,7 +3653,7 @@ void construct_locus_histogram(world_fmt *world, long locus, MYREAL *mini, MYREA
     bayes_fmt *bayes = world->bayes;
     long npa = world->numpop2 + bayes->mu;
     long np = npa + 2 * world->species_model_size;
-    long npg = np + world->grownum;
+    long npg = world->numparam; //np + world->grownum;
     MYREAL themean=0.0;
     MYREAL thestd=0.0;
     visited = (boolean *) mycalloc(npg, sizeof(boolean));
@@ -3678,7 +3698,7 @@ void adjust_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL
     //MYREAL delta;
     long pa0, pa;
     const long numpop2 = world->numpop2;
-    const long np = numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
+    const long np = world->numparam;//numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
     
     for(pa0=0; pa0 < np; pa0++)
     {
@@ -3706,7 +3726,7 @@ void find_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL *
 {
   (void) adjmaxi;
     long pa0, pa;
-    long np = world->numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
+    long np = world->numparam; //world->numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
     
     for(pa0=0; pa0 < np; pa0++)
     {
@@ -4615,7 +4635,7 @@ void bayes_combine_loci(world_fmt * world)
   const long loci    = world->loci;
   const long numpop2 = world->numpop2;
   //const long np      = numpop2 + world->bayes->mu + 2 * world->species_model_size;
-  const long np2     = numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
+  const long np2     = world->numparam;
   long    targetstartbin;
   long    locus;
   long    pa0;
@@ -4900,7 +4920,7 @@ void calculate_credibility_interval(world_fmt * world, long locus)
     MYREAL *maxi;
     MYREAL *adjmaxi;
     //    long i;
-    long np = world->numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
+    long np = world->numparam; //world->numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
     
     mini =  world->bayes->histogram[locus].minima;
     maxi =  world->bayes->histogram[locus].maxima;

@@ -2997,7 +2997,8 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
     bayeshistogram_fmt  *hist;
     long                total = 0;
     long                np2 = world->numpop2; 
-    long                npp = np2 + bayes->mu + world->species_model_size * 2 + world->grownum; 
+    //long                npp = np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
+    long npp = world->numparam;
     long                npp11 = 11 * npp;
     long                loci = world->loci > 1 ?  world->loci -1 : 0;
     //

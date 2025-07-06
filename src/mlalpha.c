@@ -7,7 +7,7 @@
  Peter Beerli 2013-2020, Tallahassee
  beerli@fsu.edu
  
- Copyright 2017 Peter Beerli
+ Copyright 2025 Peter Beerli
  
  Permission is hereby granted, free of charge, to any person obtaining
  a copy of this software and associated documentation files (the
@@ -50,10 +50,13 @@ void reset_mlalpha(world_fmt * world)
   long i;
   if (world->has_mlalpha)
     {
-      for(i=0;i<world->options->mlalphapops_numalloc;i++)
+      if (world->tri_mlalpha != FIXED)
 	{
-	  if (world->options->mlalphapops[i]!=0)
-	    world->mlalpha[world->options->mlalphapops[i]-1]=1.0;
+	  for(i=0;i<world->options->mlalphapops_numalloc;i++)
+	    {
+	      if (world->options->mlalphapops[i]!=0)
+		world->mlalpha[world->options->mlalphapops[i]-1]=1.0;
+	    }
 	}
     }
 }

@@ -3363,36 +3363,38 @@ void    pdf_print_distance_table (world_fmt * world, option_fmt * options, data_
 void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 {
   //const char text[8][20]={"All", "Multiplier", "Exponent.", "Exp window", "Gamma", "Uniform", "Truncated Normal", "-"};
-    char ptypename[STRSIZE];
-    double page_width;
-    //page_height = *orig_page_height;
-    left_margin = 55;
-    double right_margin = 300.;
-    double w;
-    //double width[11]={0, 85, 100, 105, 150, 210, 260, 300, 360, 420, 480};
-    double width[11]={0, -20, 100, 110, 180, 230, 290, 340, 400, 440, 500};
-    double width2[2]={0, 240};
-    char *title = "Options";
-    long i, j, tt, ii;
-    //long pop;
-    char mytext[LINESIZE];
-    char mytext1[LINESIZE];
-    char mytext2[LINESIZE];
-    char mytext3[LINESIZE];
-    char mytext4[LINESIZE];
-    char mytext5[LINESIZE];
-    char mytext6[LINESIZE];
-    char seedgen[LINESIZE], spacer[LINESIZE];
-    //char fromstring[LINESIZE];
-    //char tostring[LINESIZE];
-    //char **paramtgen;
-    boolean inheritance_table = FALSE;
-    char * priorkind = (char *) mycalloc(LINESIZE, sizeof(char));
-    //xcode page_width = HPDF_Page_GetWidth(page) - 120;
-    //charvec2d(&paramtgen,PRIOR_SIZE,LINESIZE);
-    char *paramtgen, *parammgen;
-    paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
-    parammgen = paramtgen + LINESIZE;
+  long slen;
+  char s[LINESIZE];
+  char ptypename[STRSIZE];
+  double page_width;
+  //page_height = *orig_page_height;
+  left_margin = 55;
+  double right_margin = 300.;
+  double w;
+  //double width[11]={0, 85, 100, 105, 150, 210, 260, 300, 360, 420, 480};
+  double width[11]={0, -20, 100, 110, 180, 230, 290, 340, 400, 440, 500};
+  double width2[2]={0, 240};
+  char *title = "Options";
+  long i, j, tt, ii;
+  //long pop;
+  char mytext[LINESIZE];
+  char mytext1[LINESIZE];
+  char mytext2[LINESIZE];
+  char mytext3[LINESIZE];
+  char mytext4[LINESIZE];
+  char mytext5[LINESIZE];
+  char mytext6[LINESIZE];
+  char seedgen[LINESIZE], spacer[LINESIZE];
+  //char fromstring[LINESIZE];
+  //char tostring[LINESIZE];
+  //char **paramtgen;
+  boolean inheritance_table = FALSE;
+  char * priorkind = (char *) mycalloc(LINESIZE, sizeof(char));
+  //xcode page_width = HPDF_Page_GetWidth(page) - 120;
+  //charvec2d(&paramtgen,PRIOR_SIZE,LINESIZE);
+  char *paramtgen, *parammgen;
+  paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
+  parammgen = paramtgen + LINESIZE;
 
     if (options->datatype != 'g')
     {
@@ -3674,10 +3676,24 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_printf_right_next(left_margin, &page_height,"Bayesian inference");
     //pdf_advance(&page_height);
     pdf_print_contents_at(left_margin, page_height," -Population size estimation:");
-    if (options->mlalpha<1.0)
-      mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
-    else
-      mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
+    switch(options->tri_mlalpha)
+      {
+      case ESTIMATE:
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha (estimated)");
+	break;
+      case FIXED:
+	slen = mysnprintf(s,LINESIZE,"{%.2f",options->mlalpha[0]);
+	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
+	  slen = mysnprintf(s+slen,STRSIZE,"%.2f", options->mlalpha[i]);
+	if (options->mlalpha_numalloc>1)
+	  slen = mysnprintf(s+slen,STRSIZE, "%.2f}", options->mlalpha[options->mlalpha_numalloc-1]);
+	else
+	  slen = snprintf(s+slen, STRSIZE, "}");
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
+	break;
+      default:
+	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
+      }
     pdf_printf_right_next(left_margin, &page_height,"%s",mytext6);
     //pdf_advance(&page_height);
 

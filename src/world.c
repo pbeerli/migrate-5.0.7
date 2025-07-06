@@ -560,7 +560,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
   long maxreplicate;
   long numchains=1;
   long npall;
-  //mittag-leffler moved to init_mlalpha() jsut after init_growth() 
+  //mittag-leffler moved to init_mlalpha() just after init_growth() 
   //world->mlalpha = options->mlalpha;
   //world->mlinheritance = options->mlinheritance;
   world->options = (worldoption_fmt *) mycalloc (1, sizeof (worldoption_fmt));
@@ -684,6 +684,8 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  // growth
 	  init_growth(world,numpop);
 	  init_mlalpha(world,numpop);
+	  memcpy(world->mlalpha,options->mlalpha,options->mlalpha_num * sizeof(double));
+	  world->tri_mlalpha = options->tri_mlalpha;
 	  set_numparam(world); //sets world->numparam and world->numparamvec and world->paramcumvec
 		
 	  bayes_init(world->bayes,world, options);

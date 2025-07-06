@@ -105,7 +105,7 @@ extern char * generator;
   "assign",\
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha"}
-#define NUMNUMBER 69
+#define NUMNUMBER 68
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -580,6 +580,9 @@ void init_options (option_fmt * options)
     options->mlalphapops=(long*) mycalloc(1, sizeof(long));
     options->mlalphapops[0] = 0;
     options->mlalphapops_numalloc  = 1;
+    options->mlalpha=(double*) mycalloc(1, sizeof(double));
+    options->mlalpha[0] = 1.0;
+    options->mlalpha_numalloc  = 1;
 
     options->slice_sticksizes = (MYREAL*) mycalloc(1, sizeof(MYREAL));
     options->slice_sticksizes[0] = 1.0;
@@ -599,8 +602,8 @@ void init_options (option_fmt * options)
     options->bayes_posterior_bins[3]=BAYESNUMBIN;
     options->bayes_posterior_bins[4]=BAYESNUMBIN;
     options->bayes_posterior_bins[5]=BAYESNUMBIN;
-    options->mlalpha = 1.0;
-    options->mlinheritance = 4.0;
+    options->mlalpha[0] = 1.0;
+    options->mlinheritance = 2.0;
 }
 
 void
@@ -981,6 +984,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
   char *paramtgen, *parammgen;
   long from;
   long to;
+  long slen=0;
   const long numpop = world->numpop;
   const long npp = world->numpop2 + world->bayes->mu + 2 * world->species_model_size;
   char * priorkind = (char *) mycalloc(LINESIZE, sizeof(char));
@@ -1016,7 +1020,14 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     switch(options->tri_mlalpha)
       {
       case FIXED:
-	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
+	slen = mysnprintf(s,LINESIZE,"{%.2f",options->mlalpha[0]);
+	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
+	  slen = mysnprintf(s+slen,STRSIZE,"%.2f", options->mlalpha[i]);
+	if (options->mlalpha_numalloc>1)
+	  slen = mysnprintf(s+slen,STRSIZE, "%.2f}", options->mlalpha[options->mlalpha_numalloc-1]);
+	else
+	  slen = snprintf(s+slen, STRSIZE, "}");
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
 	break;
       case NO:
 	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
@@ -3986,12 +3997,22 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
 #endif
 #ifdef NEWVERSION
     print_parm_comment(&bufsize, buffer, allocbufsize, "Use an alternative to exponential distribution [mittag-leffler]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-alpha=<NO|YES|YES:ESTIMATE|YES:number>");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  where numbers can have the range of 0.01 to 1.0, (NO=1.0=default=exp distrib)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-alpha=<NO|YES|YES:ESTIMATE|YES:<{number,..}|number>");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  where numbers can have the range of 0.01 to 1.0, (NO=1.0=default=Kingman)");
     switch(options->tri_mlalpha)
       {
-      case FIXED:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:%.2f", options->mlalpha);
+      case FIXED:
+	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:");
+	print_parm_mutable(&bufsize, buffer, allocbufsize, "{%.2f",
+			   options->mlalpha[0]);
+	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
+	  print_parm_mutable(&bufsize, buffer, allocbufsize, "%.2f",
+			     options->mlalpha[i]);
+	if (options->mlalpha_numalloc>1)
+	  print_parm_mutable(&bufsize, buffer, allocbufsize, "%.2f}",
+			     options->mlalpha[options->mlalpha_numalloc-1]);
+	else
+	  print_parm_mutable(&bufsize, buffer, allocbufsize, "}");
 	break;
       case NO:	
 	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=NO");
@@ -5131,18 +5152,17 @@ booleancheck (option_fmt * options, char *var, char *value)
       if (!has_mlalpha)
 	{
 	  options->tri_mlalpha = NO;
-	  options->mlalpha = 1.0;
+	  //options->mlalpha[0] = 1.0;
 	}
       else
 	{
 	  if (value!=NULL)
 	    {
-#ifdef NEWVERSION
-	      get_next_word(&value,":",&tmp);
+	      get_next_word(&value,":{",&tmp);
 	      if (value==NULL)
 		{
 		  options->tri_mlalpha = ESTIMATE;
-		  options->mlalpha = 1.0;
+		  options->mlalpha[0] = 1.0;
 		  options->mlinheritance = 2.0;
 		}
 	      else
@@ -5150,27 +5170,38 @@ booleancheck (option_fmt * options, char *var, char *value)
 		  if (value[0] == 'E' || value[0] == 'e')
 		    {
 		      options->tri_mlalpha = ESTIMATE;
-		      options->mlalpha = 1.0;;
+		      options->mlalpha[0] = 1.0;
 		      options->mlinheritance = 2.0; 
 		    }
 		  else
 		    {
 		      options->tri_mlalpha = FIXED;
-		      options->mlalpha = atof(value);
+		      long z = 0;
+		      while (value != NULL) 
+			{
+			  if (!strcmp(value,""))
+			      break;
+			  if (z >= options->mlalpha_numalloc)
+			    {
+			      options->mlalpha_numalloc = z+1;
+			      options->mlalpha = myrealloc(options->mlalpha,
+							   options->mlalpha_numalloc*sizeof(long));
+			    }
+			  get_next_word(&value,",;{} ",&tmp);
+			  if (tmp != NULL)
+			    {
+			      options->mlalpha[z] = atof(tmp);
+			      options->mlalpha_num++;
+			    }
+			  else
+			    warning("Expected a value in mittag-leffler-alpha:YES:...\n");
+			  z++;
+			}
 		      options->mlinheritance = 2.0; //atof(value);
 		    }
 		}
 	    }
-#else
-          options->tri_mlalpha = NO;
-	  options->mlalpha = 1.0;
-#endif
 	}
-      //else
-      //	{
-      //  if(options->tri_mlalpha)
-      //    options->mlalpha = 1.0;
-      //}
       break;
     default:
         return FALSE;
@@ -6337,7 +6368,8 @@ numbercheck (option_fmt * options, char *var, char *value)
       break;
     case 68: /*mittag-leffler-alpha=value*/
       //mittag-leffler
-      if (value!=NULL)
+      error("do not go here");
+      /*if (value!=NULL)
 	{
 #ifdef NEWVERSION
 	  get_next_word(&value,":",&tmp);
@@ -6345,7 +6377,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    {
 	      //if (tmp[0] === 'E' || tmp == 'e')
 	      options->tri_mlalpha = FIXED;
-	      options->mlalpha = atof(tmp);
+	      options->mlalpha[0] = atof(tmp);
 	      options->mlinheritance = 2.0;
 	    }
 	  else
@@ -6363,7 +6395,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	{
 	  options->tri_mlalpha = NO;
 	  options->mlalpha = 1.0;
-	}
+	  }*/
       break;
     default:
       myfree(keeptmp);
