@@ -2176,11 +2176,11 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
     //long grownum      = world->options->growpops_numalloc;
     long interval = mdiminterval > 0 ? mdiminterval : 1;
     boolean *visited;
-    long nn = world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+    long nn = world->numparam;//world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;
     // the recorder is dealing with the addition of species parameters and growth
     //#ifdef MPI
 #if defined(MPI) && !defined(PARALIO)
-    long addition = world->species_model_size*2 + world->grownum;
+    long addition = world->species_model_size*2 + world->grownum + world->mlalphanum;
     float *temp;
     long z=0;
 #else
@@ -2536,7 +2536,7 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 	    map[i][0] = i;
 	    map[i][1] = i;
 	  }
-	// growth
+	// mlalpha
 	long npx3 = world->numparamcumvec[GROWTHPRIOR];
 	  // numpop2 + mu + 2 * world->species_model_size;
 	for (i=npx3;i<world->mlalphanum+npx3;i++)
@@ -2802,7 +2802,7 @@ void bayes_fill(world_fmt *world, option_fmt *options)
     long locus;
     bayes_fmt * bayes = world->bayes;
     long numpop2 = world->numpop2;
-    long np = numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    long np = world->numparam;//numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     if (world->cold)
     which_prior(options->bayes_priors,np);
     
@@ -2897,8 +2897,10 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     long topop=0;
     long j=0, j0, j1;
     long numpop2 = world->numpop2;
-    long numparam1 = numpop2 + bayes->mu+ world->species_model_size * 2;
-    long numparam = numparam1 + world->grownum;
+    long numparam1 = world->numparamcumvec[SPLITSTDPRIOR];
+    //numpop2 + bayes->mu+ world->species_model_size * 2;
+    long numparam2 = world->numparamcumvec[GROWTHPRIOR];
+    long numparam = world->numparam; //numparam1 + world->grownum;
     //long np = numparam - world->grownum;
     int fmt;
 #ifdef DEBUG
@@ -3024,20 +3026,20 @@ void bayes_stat(world_fmt *world, data_fmt *data)
                         continue;
 		    if(world->has_speciation && j0 < numparam1)
 		      {
-                    j1 = (j0 - world->numpop2 - bayes->mu);
-                    z = j1 % 2;
-                    j1 = j1/2;
-                    species_fmt *s = &world->species_model[j1];
-                    if (z==0)
-                    {
-		      mysnprintf(stemp,LINESIZE, "D_%li->%li", s->from+1, s->to+1);
-                    }
-                    else
-                    {
-		      mysnprintf(stemp,LINESIZE, "S_%li->%li", s->from+1, s->to+1);
-                        //j1 = j1 + 1;
-                    }
-                }
+			j1 = (j0 - world->numpop2 - bayes->mu);
+			z = j1 % 2;
+			j1 = j1/2;
+			species_fmt *s = &world->species_model[j1];
+			if (z==0)
+			  {
+			    mysnprintf(stemp,LINESIZE, "D_%li->%li", s->from+1, s->to+1);
+			  }
+			else
+			  {
+			    mysnprintf(stemp,LINESIZE, "S_%li->%li", s->from+1, s->to+1);
+			    //j1 = j1 + 1;
+			  }
+		      }
 		    if(world->has_growth && j0 >= numparam1)
 		      {
 			long d=j0-numparam1;
@@ -3045,6 +3047,14 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 			  d++;
 			
 			mysnprintf(stemp,LINESIZE, "Growth_%-3li",d+1);
+		      }
+		    if(world->has_mlalpha && j0 >= numparam2)
+		      {
+			long d=j0-numparam2;
+			while (world->options->mlalphapops[d]==0 && d < world->options->mlalphapops_numalloc)
+			  d++;
+			
+			mysnprintf(stemp,LINESIZE, "ML-alpha_%-3li",d+1);
 		      }
 		}
                 //fmt = 2;
@@ -3168,7 +3178,8 @@ bayes_print_accept(FILE * file,  world_fmt *world)
     long trials   = 0;
     long accept   = 0;
     long tc = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
-    long tcg = tc+world->grownum;
+    long tcg = world->numparamcumvec[GROWTHPRIOR];//world->numparam;//tc+world->grownum;
+    long tca = world->numparam;//tc+world->grownum;
     bayes_fmt *bayes = world->bayes;
     //long estimated_trials=0;
     //species_fmt *s = NULL;
@@ -3280,6 +3291,22 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 	  while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
 	    d++;
 	  FPRINTF(file, "Growth_%li:               %8li/%-8li         %8.5f\n", d+1,
+		  world->accept_archive[j],
+		  world->trials_archive[j],
+		  (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
+	  //estimated_trials += world->trials_archive[j];
+        }
+    }
+    // accepted mlalpha
+    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+    {
+
+        for (j=tcg; j<tca; j++)
+        {
+	  long d=j-tcg;
+	  while (world->options->mlalphapops[d]==0 && d < world->options->mlalphapops_numalloc)
+	    d++;
+	  FPRINTF(file, "ML-alpha_%li:               %8li/%-8li         %8.5f\n", d+1,
 		  world->accept_archive[j],
 		  world->trials_archive[j],
 		  (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
@@ -3413,7 +3440,7 @@ bayes_progress(world_fmt *world, long ten)
   (void) ten;
   const boolean writelog = world->options->writelog; 
     const boolean progress = world->options->progress;
-    long np = world->numpop2 + world->bayes->mu + 2 * world->species_model_size;// growth is dealt independently
+    long np = world->numparamcumvec[SPLITSTDPRIOR];//world->numpop2 + world->bayes->mu + 2 * world->species_model_size;// growth is dealt independently
     char *buffer;
     long bufsize=0;
     char spacer[]="";

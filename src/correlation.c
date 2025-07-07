@@ -80,7 +80,7 @@ void covarianceBayes(world_fmt *world, long T, MYREAL *params, long offset, long
 {
   (void) locus;
   const long o=offset;
-  const long nn = world->numpop2+(long)(world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+  const long nn = world->numpop2+(long)(world->bayes->mu) + world->species_model_size * 2 + world->grownum + world->mlalphanum;
   const long nno = nn + o;
   MYREAL nk = 0;
   MYREAL *x;

@@ -26,8 +26,8 @@ MYREAL sumbezier(long intervals, MYREAL x0, MYREAL y0, MYREAL x1, MYREAL y1, MYR
 
 MYREAL combine_scaling_factor(world_fmt *world)
 { 
-  const long np = world->numpop2 + world->species_model_size * 2 + world->grownum;
-  const long np1 = np -  world->grownum;
+  const long np = world->numparam;//world->numpop2 + world->species_model_size * 2 + world->grownum;
+  const long np1 = world->numparamcumvec[SPLITSTDPRIOR];//np -  world->grownum;
   long pop;
   long i;
   MYREAL scaling_factor=0.0;

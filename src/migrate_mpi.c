@@ -682,7 +682,8 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
         replicate = temp[2];
         if (status.MPI_TAG != 0) //stop condition
           {
-	    nng=universe[0]->numpop2 + universe[0]->bayes->mu + 1 + universe[0]->species_model_size * 2 + universe[0]->grownum;	    
+	    nng=universe[0]->numparam;
+	      //numpop2 + universe[0]->bayes->mu + 1 + universe[0]->species_model_size * 2 + universe[0]->grownum;	    
 	    memset(universe[0]->accept_archive,0,sizeof(long)*2*nng);//resets also trials_archive
             run_replicate(locus, replicate, universe, options, data, heating_pool, usize,treefilepos, Gmax);
             rawmsgsize = 1 + mysnprintf(rawmessage,LINESIZE,"R%li ",replicate);
@@ -753,7 +754,7 @@ mpi_startparam_master(world_fmt * world)
 
     MPI_Status status;
 
-    long nn  = world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
+    long nn  = world->numparam; //world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
     long nng = nn + 1;
 
     tmp = (MYREAL*) mycalloc(nng,sizeof(MYREAL));
@@ -790,7 +791,7 @@ mpi_startparam_worker (world_fmt * world)
     long locus;
 
     MYREAL *tmp;
-    long nn  = world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
+    long nn  = world->numparam;//world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
     long nng = nn + 1;
 
     if(locidone>0)
@@ -2338,7 +2339,7 @@ unpack_result_buffer (MYREAL *buffer, world_fmt * world,
   long rep;
   long pop;
   long addon=0;
-  long nn = world->numpop2+ world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long nn = world->numparam; //world->numpop2+ world->bayes->mu + world->species_model_size * 2 + world->grownum;
   //  long numpop2 = world->numpop2;
   timearchive_fmt **atl = world->atl;
   MYREAL ***apg0 = world->apg0;
@@ -2382,7 +2383,7 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
   long z = 0;
   long addon = 0;
   long numpop2 = world->numpop2;
-  long nn = numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long nn = world->numparam; //numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   timearchive_fmt **atl = world->atl;
   MYREAL ***apg0 = world->apg0;
   
@@ -2500,7 +2501,7 @@ unpack_mighist_replicate_buffer(MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
@@ -2627,7 +2628,7 @@ unpack_mighist_buffer (MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
   eventbinnum = aa->migeventbinnum;
@@ -2734,7 +2735,7 @@ long pack_mighist_buffer (MYREAL **buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
@@ -2779,7 +2780,7 @@ unpack_skyline_buffer (MYREAL *buffer, world_fmt * world,
   long *receive_eventbinnum;
   MYREAL temp;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   receive_eventbinnum = (long *) mycalloc(npall, sizeof(long));
 
   aa = &world->mighistloci[locus];
@@ -2838,7 +2839,7 @@ long pack_skyline_buffer (MYREAL **buffer, world_fmt * world,
   long j, i;
   long z = 0L;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   long bufsize = npall + 1;
   aa = &world->mighistloci[locus];
   //printf("Buffer in pack_skyline()=%f (%p)(%p)\n",(*buffer)[0], (*buffer), buffer);
@@ -2903,7 +2904,7 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   //  long numbins     = 0;
   bayes_fmt *bayes = world->bayes;
   long np2         = world->numpop2;
-  long npp         = np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npp         = world->numparam;//np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
   bayeshistogram_fmt  *hist;
   hist = &(world->bayes->histogram[locus]);
   // memory for pack_single_bayes_buffer_part()
@@ -3130,7 +3131,7 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	      bayes->histogram[locus].smoothed = (boolean *) mycalloc(npp, sizeof(boolean));
 	    else
 	      memset(bayes->histogram[locus].smoothed,0,sizeof(boolean)*npp);
-	    calc_hpd_credibility(world, locus, world->numpop2, world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
+	    calc_hpd_credibility(world, locus, world->numpop2, world->numparam);//world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
 	  }
       }
 }
@@ -3197,7 +3198,7 @@ long unpack_ess_buffer(MYREAL *buffer, long start, world_fmt *world)
   long z = start;
   static long n=1;
   //long np2 = world->numpop2;
-  long npp = world->numpop2 + ((long) world->bayes->mu)  + world->species_model_size * 2 + world->grownum;
+  long npp = world->numparam;//world->numpop2 + ((long) world->bayes->mu)  + world->species_model_size * 2 + world->grownum;
 
 #ifdef DEBUG
   const MYREAL        rat = (MYREAL) numcpu / (world->maxreplicate * world->loci);
@@ -3230,7 +3231,7 @@ long unpack_hyper_buffer(MYREAL *buffer, long start, world_fmt *world)
   long z = start;
   hyper_fmt *hyper = world->bayes->hyperp;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
   if (world->bayes->hyperprior)
     {
       for(i=0;i<npp;i++)
@@ -3296,7 +3297,7 @@ long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
   long i;
   long z = start;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
   // (*buffer) = (MYREAL *) myrealloc(*buffer, (start + ((npp + 1) + (npp+1) * npp))*sizeof(MYREAL));
   for(i=0;i<npp;i++)
     {
@@ -3322,7 +3323,7 @@ long pack_hyper_buffer(MYREAL **buffer, long start, world_fmt *world)
   long i;
   long z = start;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum;
   if (world->bayes->hyperprior)
     {
       for(i=0;i<npp;i++)
@@ -3345,7 +3346,7 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
   // buffer memory needed is (npp + 11*npp + (3 * npp * hist->bins[i])
   long  j;
   long  i;
-  long  npp     = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum; 
+  long  npp     = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum; 
   long  numbins = 0;
   long  z       = startposition;
   bayes_fmt *bayes = world->bayes;
@@ -3682,7 +3683,7 @@ long unpack_single_bayes_buffer(MYREAL *buffer,bayes_fmt * bayes, world_fmt * wo
   //    long oldallocparams = world->bayes->allocparams;
   long repstart;
   long repstop;
-  long npp = world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
+  long npp = world->numparam;//world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
   long nn = npp + 2;
   set_replicates (world, world->repkind, world->options->replicatenum,
 		  &repstart, &repstop);
@@ -3743,7 +3744,7 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     long i, j;
     long bufsize;
     long z = 0;
-    long nn = 2 + world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
+    long nn = 2 + world->numparam;//world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
     const long nng= nn-1;
     bufsize = 2 * (nng); //acceptance ratio: params + tree
     bufsize += 2; // loci + numparams
@@ -3801,7 +3802,7 @@ long pack_single_bayes_buffer_part(MYREAL **buffer, bayes_fmt *bayes, world_fmt 
 {
     long j;
     long z = 0;
-    const long nng= world->numpop2 + world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
+    const long nng= 1+world->numparam;//world->numpop2 + world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
 
     (*buffer)[z++] = (MYREAL) locus;
     (*buffer)[z++] = (MYREAL) bayes->numparams;
@@ -4801,7 +4802,7 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
   long    numpop         = world->numpop;
   long    numpop2        = numpop * numpop;
   //long    numpop2plus    = numpop2 + 2 * numpop;
-  long    npp            = numpop2 + world->bayes->mu * world->loci;
+  long    npp            = world->numparam; //numpop2 + world->bayes->mu * world->loci;
   MYREAL  *buffer        = NULL;
   //  timearchive_fmt **ta   = world->atl;
   buffer = (MYREAL *) mycalloc (allocbufsize, sizeof (MYREAL));

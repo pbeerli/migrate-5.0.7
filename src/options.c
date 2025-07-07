@@ -3942,8 +3942,8 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_comment(&bufsize, buffer, allocbufsize, "Progress report to the window where the program was started");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: progress=<NO | YES>");
     print_parm_comment(&bufsize, buffer, allocbufsize, "         NO       nothing is printed to the console");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "         YES      some messages about progress are reported [default]");
-    //    print_parm_comment(&bufsize, buffer, allocbufsize, "         VERBOSE  more messages are reported to console");    
+    print_parm_comment(&bufsize, buffer, allocbufsize, "         YES      progress report, no data summary! [default]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "         VERBOSE  data summary and more console messages");    
     print_parm_mutable(&bufsize, buffer, allocbufsize, "progress=%s",
              options->progress ? (options->verbose ? "YES" : "YES") : "NO ");
     print_parm_br(&bufsize, buffer, allocbufsize);
