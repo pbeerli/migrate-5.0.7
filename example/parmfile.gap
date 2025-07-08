@@ -483,9 +483,9 @@ bayes-priors= SPLITSTD * * UNIFORMPRIOR: 0.000000 0.100000 0.010000
 bayes-hyperpriors=NO
 #
 long-chains=1
-long-inc=100
-long-sample=5000
-burn-in=10000  
+long-inc=10
+long-sample=500
+burn-in=100  
 auto-tune=YES:0.440000
 assign=NO
 #

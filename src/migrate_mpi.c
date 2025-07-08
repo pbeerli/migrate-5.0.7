@@ -1754,8 +1754,12 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
+#ifdef MPIDATAONDEMAND    
+      init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+#else
       init_mutationmodel_readsites3(s, s->datatype, s->numsites);
-
+#endif
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%li %li %li %lf\n",
 	      &s->startsite, &s->numstates, &s->numsiterates,&s->lambda); 
@@ -1801,7 +1805,13 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       s->dataclass = (dataclass==0) ? SITECHARACTER : SITEWORD;
       s->scaling = (scaling==0) ? FALSE : TRUE;
       s->estimateseqerror = (estimateseqerror==0) ? FALSE : TRUE;
+
+#ifdef MPIDATAONDEMAND    
+      init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+#else
       init_mutationmodel_readsites3(s, s->datatype, s->numsites);
+#endif
       for(i=0;i<s->numsites;i++)
 	{
 	  sgets_safe (&input, &inputsize, &buf);

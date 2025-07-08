@@ -6,10 +6,13 @@
  +   Bayesian inference using the structured coalescent           +
  +                                                                +
  ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  Compiled for a PARALLEL COMPUTER ARCHITECTURE
+  One master and 4 compute nodes are available.
   PDF output enabled [Letter-size]
   Version 5.0.7   [May-01-2025]
-  Program started at   Tue Jul  1 08:11:22 2025
-                                                                        
+  Program started at   Mon Jul  7 19:34:19 2025
+         finished at Mon Jul  7 19:34:59 2025
+                          
 
 
 Options in use:
@@ -42,7 +45,7 @@ Inheritance multipliers in use for Thetas (specified # 1)
 All inheritance multipliers are the same [1.000000]
 
 Pseudo-random number generator: Mersenne-Twister                                
-Random number seed (with internal timer)           4226420203
+Random number seed (with internal timer)           3250202146
 
 Start parameters:
    First genealogy was started using a random tree
@@ -80,38 +83,157 @@ Print options:
    Print data:                                            No
    Print genealogies:                                     No
 
-Summary of data:
-Title:                                two (fake) Swiss towns
-Data file:                                     twoswisstowns
-Datatype:                                      Sequence data
-Number of loci:                                            3
-Mutationmodel:
- Locus  Sublocus  Mutationmodel   Mutationmodel parameter
------------------------------------------------------------------
-     1         1 Tamura-Nei      [Bf:0.30 0.25 0.24 0.22, k1=1.300, k2=0.800]
-     1         2 Felsenstein 84  [Bf:0.24 0.28 0.22 0.27, t/t ratio=2.000]
-     2         1 Tamura-Nei      [Bf:0.27 0.23 0.24 0.26, k1=1.300, k2=2.000]
-     3         1 Jukes-Cantor    [Basefreq: =0.25]
 
 
-Sites per locus
----------------
-Locus    Sites
-     1     200 800
-     2     500
-     3     500
+Bayesian estimates
+==================
 
-Population                   Locus   Gene copies    
-----------------------------------------------------
-  1 Aadorf                       1        10
-  1 Aadorf                       1        10
-  1                              2        10
-  1                              3        10
-  2 Bern                         1        10
-  2 Bern                         1        10
-  2                              2        10
-  2                              3        10
-    Total of all populations     1        40
-                                 2        20
-                                 3        20
+Locus Parameter        2.5%      25.0%    mode     75.0%   97.5%     median   mean
+-----------------------------------------------------------------------------------
+    1  Theta_1         0.00000  0.00060  0.00290  0.01400  0.04393  0.01343  0.01607
+    1  Theta_2         0.00000  0.00000  0.00230  0.01267  0.04373  0.01270  0.01490
+    1  M_2->1         214.5000 744.0000 966.2500 991.5000 999.5000 752.2500 699.2576
+    1  M_1->2         185.0000 712.0000 917.7500 987.5000 999.5000 722.2500 672.3652
+    2  Theta_1         0.00000  0.00087  0.00290  0.01547  0.04793  0.01477  0.01773
+    2  Theta_2         0.00000  0.00000  0.00203  0.01153  0.03980  0.01157  0.01325
+    2  M_2->1         185.0000 732.0000 965.7500 992.0000 999.5000 739.7500 684.7564
+    2  M_1->2         240.0000 736.0000 969.7500 992.0000 999.5000 708.7500 661.8511
+    3  Theta_1         0.00000  0.00067  0.00277  0.01460  0.04567  0.01403  0.01669
+    3  Theta_2         0.00000  0.00080  0.00303  0.01520  0.04893  0.01457  0.01766
+    3  M_2->1         234.0000 732.0000 967.2500 990.0000 999.5000 731.2500 689.3400
+    3  M_1->2         215.5000 721.5000 959.2500 990.5000 999.5000 730.2500 684.9195
+  All  Theta_1         0.00733  0.03127  0.03517  0.04247  0.05600  0.03210  0.03174
+  All  Theta_2         0.00713  0.01667  0.02870  0.03607  0.05433  0.02850  0.02866
+  All  M_2->1         572.0000 861.5000 966.7500 988.5000 999.5000 870.7500 837.3243
+  All  M_1->2         524.0000 843.5000 964.7500 987.0000 999.5000 853.7500 817.9209
+-----------------------------------------------------------------------------------
 
+
+
+Log-Probability of the data given the model (marginal likelihood = log(P(D|thisModel))
+--------------------------------------------------------------------
+[Use this value for Bayes factor calculations:
+BF = Exp[log(P(D|thisModel) - log(P(D|otherModel)]
+shows the support for thisModel]
+
+
+
+Locus          TI(1a)       BTI(1b)         HS(2)
+-------------------------------------------------
+      1          0.00          0.00          0.00
+      2          0.00          0.00          0.00
+      3          0.00          0.00          0.00
+---------------------------------------------------------------
+  All          -17.13        -17.13        -17.13
+[Scaling factor = -17.126805]
+
+
+(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures
+(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!
+(2)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance
+
+
+
+MCMC run characteristics
+========================
+
+
+
+
+Acceptance ratios for all parameters and the genealogies
+---------------------------------------------------------------------
+
+Parameter           Accepted changes               Ratio
+Theta_1                  35339/156143            0.22632
+Theta_2                  35358/155809            0.22693
+M_2->1                   77314/156449            0.49418
+M_1->2                   78774/156381            0.50373
+Genealogies             724161/875218             0.82741
+
+
+
+Autocorrelation for all parameters and the genealogies
+-------------------------------------------------------------------
+
+Parameter           Autocorrelation           Effective Sample size
+Theta_1                   0.874                  2008.773
+Theta_2                   0.869                  2102.213
+M_2->1                    0.736                  4565.280
+M_1->2                    0.734                  4613.090
+Genealogies               1.000                     0.000
+(*) averaged over loci.
+
+
+
+Temperatures during the run using the standard heating scheme
+===========================================================================
+
+Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)
+    1    1.00000             0.00000  3356.66406
+    2    1.00000             0.00000  2202.31973
+    3    1.00000             0.00000   890.15208
+    4    1.00000             0.00000     6.66443
+
+POTENTIAL PROBLEMS
+------------------------------------------------------------------------------------------
+This section reports potential problems with your run, but such reporting is often not 
+very accurate. Whith many parameters in a multilocus analysis, it is very common that 
+some parameters for some loci will not be very informative, triggering suggestions (for 
+example to increase the prior range) that are not sensible. This suggestion tool will 
+improve with time, therefore do not blindly follow its suggestions. If some parameters 
+are flagged, inspect the tables carefully and judge wether an action is required. For 
+example, if you run a Bayesian inference with sequence data, for macroscopic species 
+there is rarely the need to increase the prior for Theta beyond 0.1; but if you use 
+microsatellites it is rather common that your prior distribution for Theta should have a 
+range from 0.0 to 100 or more. With many populations (>3) it is also very common that 
+some migration routes are estimated poorly because the data contains little or no 
+information for that route. Increasing the range will not help in such situations, 
+reducing number of parameters may help in such situations.
+------------------------------------------------------------------------------------------
+Param 3 (Locus 1): Upper prior boundary seems too low! 
+Param 4 (Locus 1): Upper prior boundary seems too low! 
+Param 3 (Locus 2): Upper prior boundary seems too low! 
+Param 4 (Locus 2): Upper prior boundary seems too low! 
+Param 3 (Locus 3): Upper prior boundary seems too low! 
+Param 4 (Locus 3): Upper prior boundary seems too low! 
+Param 3 (all loci): Upper prior boundary seems too low! 
+Param 4 (all loci): Upper prior boundary seems too low! 
+Genealogies 5: Effective sample size of run seems too short! 
+------------------------------------------------------------------------------------------
+
+
+
+
+Assignment of Individuals to populations
+========================================
+
+Individual Locus        1     2 
+---------- -------- ----- ----- 
+?BAH0              1 0.478 0.522 [7102/18013 = 0.394271]
+?BAH0              2 0.504 0.496 [7111/17925 = 0.396709]
+?BAH0              3 0.481 0.519 [7135/17825 = 0.400281]
+?BAH0            All 0.463 0.537 
+?BAF0              1 0.483 0.517 [7041/17792 = 0.395740]
+?BAF0              2 0.513 0.487 [7018/17898 = 0.392111]
+?BAF0              3 0.473 0.527 [7169/17669 = 0.405739]
+?BAF0            All 0.469 0.531 
+?BAG1              1 0.493 0.507 [7109/17974 = 0.395516]
+?BAG1              2 0.509 0.491 [7026/17732 = 0.396233]
+?BAG1              3 0.476 0.524 [7205/17888 = 0.402784]
+?BAG1            All 0.478 0.522 
+?BAJ1              1 0.485 0.515 [7011/17748 = 0.395030]
+?BAJ1              2 0.506 0.494 [7057/17928 = 0.393630]
+?BAJ1              3 0.476 0.524 [7207/17869 = 0.403324]
+?BAJ1            All 0.467 0.533 
+?BAH1              1 0.488 0.512 [7158/17877 = 0.400403]
+?BAH1              2 0.506 0.494 [6870/17818 = 0.385565]
+?BAH1              3 0.479 0.521 [7148/17942 = 0.398395]
+?BAH1            All 0.473 0.527 
+?BAI1              1 0.487 0.513 [7216/17865 = 0.403918]
+?BAI1              2 0.505 0.495 [7277/18049 = 0.403180]
+?BAI1              3 0.484 0.516 [6977/17833 = 0.391241]
+?BAI1            All 0.476 0.524 
+?BAF1              1 0.480 0.520 [7129/17859 = 0.399182]
+?BAF1              2 0.513 0.487 [7179/17793 = 0.403473]
+?BAF1              3 0.483 0.517 [7292/17819 = 0.409226]
+?BAF1            All 0.476 0.524 

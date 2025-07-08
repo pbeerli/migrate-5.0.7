@@ -2953,7 +2953,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     if(world->options->has_bayesfile)
     {
         print_locus_histogram_header(world->bayesfile, bayes->deltahist, bayes->custm2, world->numpop,
-                                     numparam, world->options->usem, bayes->mu, world);
+                                     numpop2, world->options->usem, bayes->mu, world);
         for(locus=0; locus < world->loci; locus++)
         {
             if(world->data->skiploci[locus])
@@ -3903,11 +3903,12 @@ void print_locus_histogram_header(FILE *bayesfile, MYREAL *deltas, char *custm2,
     print_param_order(&buf, &bufsize,&allocbufsize, world,numparam);
     fprintf(bayesfile, "#%s\n",buf);
     fprintf(bayesfile, "# Delta for Theta and M ");
-    for(pa=0;pa<numparam-1; pa++)
+    //    for(pa=0;pa<numparam-1; pa++)
+    for(pa=0;pa<numparam; pa++)
     {
         fprintf(bayesfile,"%f ", custm2[pa]!='0' ? deltas[pa] : -99);
     }
-    if(!mu)
+    if(mu)
         fprintf(bayesfile,"%f ", custm2[pa]!='0' ? deltas[pa] : -99);
     
     fprintf(bayesfile, "\n# -----------------------------------------------------------------------------------------\n");

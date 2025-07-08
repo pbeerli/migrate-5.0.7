@@ -106,10 +106,10 @@ void empty_world_unassigned(world_fmt *world)
       free(world->unassigned[i]->probloc);
       free(world->unassigned[i]->accept);
       free(world->unassigned[i]->trials);
-      for (no=0;no<world->unassigned[i]->ploidy;no++)
-	if (world->unassigned[i]->thenodes[no] != NULL)
-	    free(world->unassigned[i]->thenodes[no]->freqs);
-      free(world->unassigned[i]->thenodes);
+      //for (no=0;no<world->unassigned[i]->ploidy;no++)
+      //	if (world->unassigned[i]->thenodes[no] != NULL)
+      //    free(world->unassigned[i]->thenodes[no]->freqs);
+      //free(world->unassigned[i]->thenodes);
       free(world->unassigned[i]);
     }
   world->unassignednum=1;

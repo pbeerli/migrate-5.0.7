@@ -1160,7 +1160,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	    break;
 	  case GROWTHPRIOR:
 	    d=i-npp;
-	    while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
+	    while (d < world->options->growpops_numalloc && world->options->growpops[d]==0 )
 	      d++;		       
 	    mysnprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
 	    break;

@@ -6,10 +6,12 @@
  +   Bayesian inference using the structured coalescent           +
  +                                                                +
  ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  Compiled for a PARALLEL COMPUTER ARCHITECTURE
+  One master and 9 compute nodes are available.
   PDF output enabled [Letter-size]
   Version 5.0.7   [May-01-2025]
-  Program started at   Sun Jun 15 16:19:01 2025
-         finished at Sun Jun 15 16:23:38 2025
+  Program started at   Mon Jul  7 19:35:46 2025
+         finished at Mon Jul  7 19:36:46 2025
                           
 
 
@@ -36,7 +38,7 @@ Inheritance multipliers in use for Thetas (specified # 1)
 All inheritance multipliers are the same [1.000000]
 
 Pseudo-random number generator: Mersenne-Twister                                
-Random number seed (with internal timer)           1405491212
+Random number seed (with internal timer)           3105322251
 
 Start parameters:
    First genealogy was started using a random tree
@@ -73,148 +75,6 @@ Print options:
    Print data:                                            No
    Print genealogies:                                     No
 
-Summary of data:
-Title:                                                 Japan
-Data file:                                     infile.hapmap
-Datatype:                             SNP data (Hapmap data)
-Number of loci:                                            9
-Mutationmodel:
- Locus  Sublocus  Mutationmodel   Mutationmodel parameter
------------------------------------------------------------------
-     1         1 Jukes-Cantor    [Basefreq: =0.25]
-     2         1 Jukes-Cantor    [Basefreq: =0.25]
-     3         1 Jukes-Cantor    [Basefreq: =0.25]
-     4         1 Jukes-Cantor    [Basefreq: =0.25]
-     5         1 Jukes-Cantor    [Basefreq: =0.25]
-     6         1 Jukes-Cantor    [Basefreq: =0.25]
-     7         1 Jukes-Cantor    [Basefreq: =0.25]
-     8         1 Jukes-Cantor    [Basefreq: =0.25]
-     9         1 Jukes-Cantor    [Basefreq: =0.25]
-
-
-Sites per locus
----------------
-Locus    Sites
-     1     1
-     2     1
-     3     1
-     4     1
-     5     1
-     6     1
-     7     1
-     8     1
-     9     1
-
-Population                   Locus   Gene copies    
-----------------------------------------------------
-  1 Japan                        1        72
-  1                              2        90
-  1                              3        88
-  1                              4        90
-  1                              5        90
-  1                              6        88
-  1                              7        90
-  1                              8        90
-  1                              9        90
-    Total of all populations     1        72
-                                 2        90
-                                 3        88
-                                 4        90
-                                 5        90
-                                 6        88
-                                 7        90
-                                 8        90
-                                 9        90
-
-Allele frequency spectra
-========================
-
-Locus 1
-Allele  Pop1   All
----------------------
-     G  0.542  0.542
-     C  0.458  0.458
-Alleles    2      2
-Samples   72     72
-H_exp   0.497  0.497
-
-Locus 2
-Allele  Pop1   All
----------------------
-     G  1.000  1.000
-     A    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 3
-Allele  Pop1   All
----------------------
-     C  1.000  1.000
-     A    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 4
-Allele  Pop1   All
----------------------
-     G  0.125  0.125
-     A  0.875  0.875
-Alleles    2      2
-Samples   72     72
-H_exp   0.219  0.219
-
-Locus 5
-Allele  Pop1   All
----------------------
-     T  1.000  1.000
-     C    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 6
-Allele  Pop1   All
----------------------
-     C  1.000  1.000
-     T    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 7
-Allele  Pop1   All
----------------------
-     C  1.000  1.000
-Alleles    1      1
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 8
-Allele  Pop1   All
----------------------
-     G  1.000  1.000
-     T    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Locus 9
-Allele  Pop1   All
----------------------
-     A  1.000  1.000
-     G    -    0.000
-Alleles    1      2
-Samples   72     72
-H_exp   0.000  0.000
-
-Average expected heterozygosity
-Pop1   All
---------------
-0.079  0.079
-
-
 
 
 Bayesian estimates
@@ -222,15 +82,16 @@ Bayesian estimates
 
 Locus Parameter        2.5%      25.0%    mode     75.0%   97.5%     median   mean
 -----------------------------------------------------------------------------------
-    1  Theta_1         0.04773  0.06993  0.08210  0.09180  0.09993  0.07643  0.07506
-    2  Theta_1         0.05087  0.05807  0.06570  0.07127  0.08687  0.06690  0.06775
-    3  Theta_1         0.05413  0.08007  0.08830  0.09753  0.09993  0.08043  0.07902
-    4  Theta_1         0.06073  0.08353  0.08930  0.09880  0.09993  0.08377  0.08244
-    5  Theta_1         0.05227  0.07387  0.07777  0.09407  0.09993  0.07897  0.07769
-    6  Theta_1         0.06020  0.06813  0.07517  0.07720  0.09993  0.07917  0.07924
-    8  Theta_1         0.05200  0.07607  0.08757  0.09560  0.09993  0.07970  0.07812
-    9  Theta_1         0.05673  0.06040  0.06697  0.07800  0.09900  0.07397  0.07521
-  All  Theta_1         0.06513  0.06980  0.07390  0.07900  0.09367  0.07663  0.07820
+    1  Theta_1         0.02733  0.07747  0.09497  0.09813  0.09993  0.06717  0.06588
+    2  Theta_1         0.04040  0.07533  0.09577  0.09800  0.09993  0.07697  0.07446
+    3  Theta_1         0.04073  0.08040  0.09223  0.09827  0.09993  0.07590  0.07392
+    4  Theta_1         0.03980  0.07460  0.09643  0.09833  0.09993  0.07603  0.07370
+    5  Theta_1         0.03913  0.07313  0.09650  0.09873  0.09993  0.07423  0.07247
+    6  Theta_1         0.03960  0.07593  0.09530  0.09840  0.09993  0.07423  0.07254
+    7  Theta_1         0.03773  0.07467  0.09617  0.09873  0.09993  0.07577  0.07326
+    8  Theta_1         0.04040  0.07553  0.09557  0.09847  0.09993  0.07683  0.07423
+    9  Theta_1         0.03747  0.07413  0.09590  0.09847  0.09993  0.07503  0.07275
+  All  Theta_1         0.07247  0.08987  0.09603  0.09827  0.09993  0.09097  0.08881
 -----------------------------------------------------------------------------------
 
 
@@ -245,17 +106,18 @@ shows the support for thisModel]
 
 Locus          TI(1a)       BTI(1b)         HS(2)
 -------------------------------------------------
-      1        -61.93        -40.40         -5.84
-      2         -8.17         -8.01         -7.10
-      3        -43.45        -35.63         -6.63
-      4        -34.10        -31.10         -6.68
-      5        -16.47        -16.14         -6.83
-      6        -16.73        -16.36         -6.90
-      8        -24.55        -23.29         -7.26
-      9        -29.33        -27.46         -6.50
+      1          0.00          0.00          0.00
+      2          0.00          0.00          0.00
+      3          0.00          0.00          0.00
+      4          0.00          0.00          0.00
+      5          0.00          0.00          0.00
+      6          0.00          0.00          0.00
+      7          0.00          0.00          0.00
+      8          0.00          0.00          0.00
+      9          0.00          0.00          0.00
 ---------------------------------------------------------------
-  All         -238.89       -202.55       -125.45
-[Scaling factor = -4.156786]
+  All           -4.51         -4.51         -4.51
+[Scaling factor = -4.511018]
 
 
 (1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures
@@ -274,8 +136,8 @@ Acceptance ratios for all parameters and the genealogies
 ---------------------------------------------------------------------
 
 Parameter           Accepted changes               Ratio
-Theta_1                2733941/3999709           0.68353
-Genealogies            3338451/4000291            0.83455
+Theta_1                1859914/4500594           0.41326
+Genealogies            4499406/4499406            1.00000
 
 
 
@@ -283,8 +145,8 @@ Autocorrelation for all parameters and the genealogies
 -------------------------------------------------------------------
 
 Parameter           Autocorrelation           Effective Sample size
-Theta_1                   0.792                 10482.936
-Genealogies               0.552                 23434.270
+Theta_1                   0.821                  8863.794
+Genealogies               1.000                     0.000
 (*) averaged over loci.
 
 
@@ -293,7 +155,26 @@ Temperatures during the run using the standard heating scheme
 ===========================================================================
 
 Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)
-    1    1.00000            -6.71742   284.79628
-    2    0.66667           -11.76352   192.92660
-    3    0.33333           -35.26845   104.13031
-    4    0.00000           -75.26837    15.52067
+    1    1.00000             0.00000   341.19577
+    2    1.00000             0.00000   219.96589
+    3    1.00000             0.00000   112.12130
+    4    1.00000             0.00000    15.52001
+
+POTENTIAL PROBLEMS
+------------------------------------------------------------------------------------------
+This section reports potential problems with your run, but such reporting is often not 
+very accurate. Whith many parameters in a multilocus analysis, it is very common that 
+some parameters for some loci will not be very informative, triggering suggestions (for 
+example to increase the prior range) that are not sensible. This suggestion tool will 
+improve with time, therefore do not blindly follow its suggestions. If some parameters 
+are flagged, inspect the tables carefully and judge wether an action is required. For 
+example, if you run a Bayesian inference with sequence data, for macroscopic species 
+there is rarely the need to increase the prior for Theta beyond 0.1; but if you use 
+microsatellites it is rather common that your prior distribution for Theta should have a 
+range from 0.0 to 100 or more. With many populations (>3) it is also very common that 
+some migration routes are estimated poorly because the data contains little or no 
+information for that route. Increasing the range will not help in such situations, 
+reducing number of parameters may help in such situations.
+------------------------------------------------------------------------------------------
+Genealogies 2: Effective sample size of run seems too short! 
+------------------------------------------------------------------------------------------

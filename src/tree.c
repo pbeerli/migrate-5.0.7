@@ -1556,9 +1556,9 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 		  if (s->datatype==0)
 		    s->datatype = world->options->datatype;
 		  const long xs = sublocus - sublocistart;
-#ifdef DEBUG
-		  fprintf(stderr,"%i>locus=%li (%li),substart=%li,substop=%li\n",myID,locus,sublocus,sublocistart,sublociend);
-#endif		  
+		  //#ifdef DEBUG
+		  //fprintf(stderr,"%i>locus=%li (%li),substart=%li,substop=%li\n",myID,locus,sublocus,sublocistart,sublociend);
+		  //#endif		  
 #ifdef MPI
 #ifdef MPIDATAONDEMAND
 		  if (myID != MASTER)
