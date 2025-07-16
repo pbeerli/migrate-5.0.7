@@ -499,7 +499,7 @@ long chains is used */
 /* mutation model setting */
 #define MSAT_OFFSET 10
 /* prior setting */
-#define STARTGUESSNUM 5  /* used for options->startguess*/
+#define STARTGUESSNUM 7  /* used for options->startguess*/
 #define PRIOR  10
 #define RANDOMPRIOR 100
 #define VERBOSE  (boolean) 1 
@@ -559,6 +559,8 @@ long chains is used */
 #define BIGGEST_SPLITSTD   1e9
 #define SMALLEST_RATE 1e-10
 #define BIGGEST_RATE  1e10 
+#define SMALLEST_MLALPHA 0.3
+#define BIGGEST_MLALPHA  1.0 
 #define SMALLEST_DNASPECIES 0.0000001
 #define BIGGEST_DNASPECIES 100.0
 #define SMALLEST_ALLELESPECIES 0.0001

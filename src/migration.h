@@ -700,6 +700,10 @@ typedef struct startparam_fmt
   float *splitstd;
   long numrate;
   float *rate; 
+  long numgrowth;
+  float *growth; 
+  long nummlalpha;
+  float *mlalpha; 
 } startparam_fmt;
 
 /// data storage for all options
@@ -1318,7 +1322,7 @@ typedef struct _worldoption
   boolean slice_sampling[PRIOR_SIZE];
   MYREAL *slice_sticksizes;
   //@@@@@@@  MYREAL updateratio;
-  double choices[6];
+  double choices[6]; //updating choices: tree, param, ...
   boolean has_bayesfile;
   boolean has_bayesmdimfile;
   long bayesmdiminterval;

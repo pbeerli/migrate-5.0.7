@@ -651,10 +651,10 @@ void add_proposal_to_tl(proposal_fmt *proposal, timelist_fmt ** timevector)
   size_t ii;
   long slot = (*timevector)->T;
   long lastfrom;
-  size_t oldalloc;
+  //size_t oldalloc;
   if ((*timevector)->allocT < ((*timevector)->allocT + proposal->migr_table_counter + proposal->migr_table_counter2))
     {
-      oldalloc = (*timevector)->allocT;
+      //oldalloc = (*timevector)->allocT;
       (*timevector)->allocT = (*timevector)->allocT + proposal->migr_table_counter + proposal->migr_table_counter2 + HUNDRED;
       (*timevector)->tl = (vtlist *) myrealloc((*timevector)->tl, sizeof(vtlist) * (*timevector)->allocT);
       allocate_lineages (timevector, 0, proposal->numpop);
@@ -721,20 +721,20 @@ void fix_timelist(timelist_fmt *timevector, proposal_fmt *proposal)
   add_partlineages(proposal->numpop, &timevector, proposal->world);
   for(ii=0;ii<timevector->T;ii++)
   {
-    char type;
-    long actualpop;
-    long pop;
+    //char type;
+    //long actualpop;
+    //long pop;
     if (timevector->tl[ii].eventnode != NULL)
       {
-	type = timevector->tl[ii].eventnode->type;
-	actualpop = timevector->tl[ii].eventnode->actualpop;
-	pop = timevector->tl[ii].eventnode->pop;
+	//type = timevector->tl[ii].eventnode->type;
+	//actualpop = timevector->tl[ii].eventnode->actualpop;
+	//pop = timevector->tl[ii].eventnode->pop;
       }
     else
       {
-	type = timevector->tl[ii].type;
-	actualpop = -1;
-	pop = -1;
+	//type = timevector->tl[ii].type;
+	//actualpop = -1;
+	//pop = -1;
       }
     //printf("%i> ii=%li %0.5f  (%li->%li)[]%li, %li]  %c %3li\n",myID, ii, timevector->tl[ii].age,
     //	   timevector->tl[ii].from, timevector->tl[ii].to,actualpop,pop,
@@ -1743,7 +1743,7 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
     long rmc = rmigrcount (proposal);
     
     MYREAL rr;
-    MYREAL expo;
+    //MYREAL expo;
     
 #ifdef UEP
     node *first;

@@ -125,7 +125,7 @@ long get_fullbinsum(MYREAL *lowerbound, MYREAL *upperbound, world_fmt *world, op
   (void) locus;
   long temp=0;
   long i;
-  long n=world->numpop2;
+  //long n=world->numpop2;
   long ns = world->numparamcumvec[SPLITSTDPRIOR];
   long ng = world->numparamcumvec[GROWTHPRIOR];
   for(i = 0; i < world->numpop; i++)
@@ -143,14 +143,14 @@ long get_fullbinsum(MYREAL *lowerbound, MYREAL *upperbound, world_fmt *world, op
   if (world->bayes->mu)
     {
       i = world->numpop2;
-      n += 1;
+      //n += 1;
       temp += options->bayes_priors[i].bins;
       lowerbound[i] = options->bayes_priors[i].min;
       upperbound[i] = options->bayes_priors[i].max;
     }
   if (world->has_speciation)
     {
-      n +=  2* world->species_model_size;
+      //n +=  2* world->species_model_size;
       for(i = world->numpop2+world->bayes->mu; i < ns; i++)
 	{
 	  temp += options->bayes_priors[i].bins;

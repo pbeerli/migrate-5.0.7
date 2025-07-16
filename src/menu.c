@@ -1260,7 +1260,9 @@ menuInput(option_fmt * options) {
   char           *stringstep, *string2, *string3, *string4;
   char            treestr[4][20] = {"None", "All", "Best", "Last chain"};
   char            progress[3][8] = {"Verbose", "YES", "NO"};
+#ifdef ZNZ
   char           *extension;
+#endif
   //  int             retval;
   stringstep = (char *) mymalloc(sizeof(char) * 128);
   string2 = (char *) mymalloc(sizeof(char) * 128);
@@ -1487,8 +1489,8 @@ menuInput(option_fmt * options) {
 	      strcpy(options->bayesmdimfilename, input);
 	    }
 	    unpad(options->bayesmdimfilename, " ");
-	    extension = strrchr(options->bayesmdimfilename,'.');
 #ifdef ZNZ
+	    extension = strrchr(options->bayesmdimfilename,'.');
 	    if(extension!=NULL && !strncmp(extension,".gz",3))
 	      {
 		options->use_compressed = 1;
@@ -2321,11 +2323,11 @@ prior_fmt * set_theta_priormenu(option_fmt *options)
   long pop;
   double mini;
   double mean;
-  double maxi;
+  //double maxi;
   prior_fmt *prior=NULL;
   mini = SMALLEST_THETA;
   mean = strchr(SEQUENCETYPES,options->datatype) ? DNA_GUESS_THETA : ALLELE_GUESS_THETA; 
-  maxi = mean * 10.0;
+  //maxi = mean * 10.0;
   while(prior==NULL)
     {
       printf("N change number of populations (currently set to %li)\n",options->numpop);
@@ -2374,13 +2376,13 @@ prior_fmt * set_mig_priormenu(option_fmt *options)
   char * fromstr = (char *) calloc(2 * LINESIZE, sizeof(char));
   char * tostr = fromstr + LINESIZE;
   long pop;
-  double mini;
+  //double mini;
   double mean;
-  double maxi;
+  //double maxi;
   prior_fmt *prior=NULL;
-  mini = SMALLEST_MIGRATION;
+  //mini = SMALLEST_MIGRATION;
   mean = strchr(SEQUENCETYPES,options->datatype) ? DNA_GUESS_MIG : ALLELE_GUESS_MIG; 
-  maxi = mean * 10.0;
+  //maxi = mean * 10.0;
   while(prior == NULL)
     {
       printf("N change number of populations (currently set to %li)\n",options->numpop);
@@ -2433,21 +2435,21 @@ prior_fmt * set_split_priormenu(option_fmt *options, int type)
   long pop;
   double mini;
   double mean;
-  double maxi;
+  //double maxi;
   prior_fmt  *prior=NULL;
   char thistype[14] = "splitting";
-  int thisdefault = 3;
-  long splitstart;
+  //int thisdefault = 3;
+  //long splitstart;
   long mu = (options->bayesmurates == TRUE ? 1 : 0);
   if (type == SPLITSTDPRIOR)
     {
       strcpy(thistype,"splitting std"); 
-      thisdefault = 4;
+      //thisdefault = 4;
     }
-  splitstart = options->numpop*options->numpop + mu;
+  //splitstart = options->numpop*options->numpop + mu;
   mini = SMALLEST_SPLIT;
   mean = strchr(SEQUENCETYPES,options->datatype) ? DNA_GUESS_SPLIT : ALLELE_GUESS_SPLIT; 
-  maxi = mean * 10.0;
+  //maxi = mean * 10.0;
   while(prior == NULL)
     {
       printf("N change number of populations (currently set to %li)\n",options->numpop);

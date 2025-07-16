@@ -716,7 +716,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
       //}
       if(world->options->bayes_infer)
 	{
-	  npall =world->numpop2+world->bayes->mu+world->species_model_size*2 + world->grownum;
+	  npall =world->numparam;
 	  if (options->slice_sticksizes == NULL)
 	    options->slice_sticksizes = (MYREAL *) mycalloc(npall, sizeof (MYREAL));
 	  else
@@ -3391,7 +3391,7 @@ klone (world_fmt * original, world_fmt * kopie,
 #endif
   long locus=0;
   const long np = original->numpop;
-  const long npp = original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
+  const long npp = original->numparam; //original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
   kopie->repkind = SINGLECHAIN;
   kopie->loci = original->loci;
   kopie->skipped = original->skipped;
@@ -3516,6 +3516,7 @@ klone (world_fmt * original, world_fmt * kopie,
   //init_speciesvector(kopie);
   //fill_speciesvector(kopie,options);
   reset_growth(kopie);
+  reset_mlalpha(kopie);
 }
 
 
@@ -3527,7 +3528,7 @@ klone_part (world_fmt * original, world_fmt * kopie,
   (void) options;
   (void) data;
   (void) temperature;
-  long npp = original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
+  long npp = original->numparam; //original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
     long i;
 #ifdef UEP
     
@@ -3763,7 +3764,7 @@ boolean updating(world_fmt *world)
   double *choices = world->options->choices;
   long choice=0;
   const boolean has_mu = world->bayes->mu;
-  const long np = world->numpop2 + has_mu + world->species_model_size * 2 + world->grownum;
+  const long np = world->numparam; //world->numpop2 + has_mu + world->species_model_size * 2 + world->grownum;
   double r = RANDUM();
   while(r>choices[choice])
     {
@@ -3838,8 +3839,8 @@ void set_numparam(world_fmt* world)
   world->numparamvec[RATEPRIOR] = world->bayes->mu;
   world->numparamvec[SPLITPRIOR] = world->species_model_size;
   world->numparamvec[SPLITSTDPRIOR] = world->species_model_size ;
-  world->numparamvec[GROWTHPRIOR] = world->grownum;
-  world->numparamvec[MLFPRIOR] =  world->mlalphanum;
+  world->numparamvec[GROWTHPRIOR] = world->options->growpops_numalloc ;//world->grownum;
+  world->numparamvec[MLFPRIOR] =  world->options->mlalphapops_numalloc ;//world->mlalphanum;
   long i;
   world->numparamcumvec[THETAPRIOR] =   world->numparamvec[THETAPRIOR];
   world->numparamcumvec[MIGPRIOR]   =   world->numparamvec[MIGPRIOR]; 

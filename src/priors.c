@@ -1510,7 +1510,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
       set_option_prior(&result,SPECIESSTDPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
       break;
     case GROWTHPRIOR:
-      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, 0.0, UPPERGROWTH, BAYESNUMBIN);	   
+      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, UPPERGROWTH, 0.0, BAYESNUMBIN);  
+      break;
+    case MLFPRIOR:
+		       set_option_prior(&result, MLFPRIOR, SMALLEST_MLALPHA, BIGGEST_MLALPHA, 1.0, BAYESNUMBIN);
       break;
     default:
       error("no default prior found");
@@ -1526,7 +1529,7 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   const long numpop2 = numpop * numpop;
   const int  has_mu = (int) options->bayesmurates;
   const long a = world->species_model_size * 2;
-  const long np = numpop2 + has_mu + a + world->options->growpops_numalloc;
+  const long np = numpop2 + has_mu + a + world->options->growpops_numalloc + world->options->mlalphapops_numalloc;
   //MYREAL ratemin = 0.0;
   long       i;
   long       j=0;
@@ -1538,7 +1541,8 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   long w=0;
   long from;
   long to;
-  prior_fmt  *plist = (prior_fmt *) mycalloc(np, sizeof(prior_fmt));
+  long plist_numalloc = np;
+  prior_fmt  *plist = (prior_fmt *) mycalloc(plist_numalloc, sizeof(prior_fmt));
   for (i=0; i<numpop;i++)
     {
       find_prior(i, i, THETAPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
@@ -1579,13 +1583,37 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 	  //printf("@w %li %li\n",i, w);
 	  find_prior(i, i, GROWTHPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
 	  plist[w++].bins = options->bayes_posterior_bins[GROWTHPRIOR];
+	  if (w >= plist_numalloc)
+	    {
+	      plist_numalloc = w+1;
+	      plist = realloc(plist, plist_numalloc * sizeof(prior_fmt));
+	    }
+	}
+    }
+  if (world->has_mlalpha && world->tri_mlalpha != FIXED)
+    {
+      for (i=0; i<numpop;i++)
+	{
+	  //printf("@w %li %li\n",i, w);
+	  find_prior(i, i, MLFPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
+	  plist[w++].bins = options->bayes_posterior_bins[MLFPRIOR];
+	  if (w >= plist_numalloc)
+	    {
+	      plist_numalloc = w+1;
+	      plist = realloc(plist, plist_numalloc * sizeof(prior_fmt));
+	    }
+
 	}
     }
   myfree(options->bayes_priors);
   options->bayes_priors = plist;
   options->bayes_priors_num = np;
-  for(j=0;j<np;j++)
+  long j0;
+  for(j0=0;j0<np;j0++)
     {
+      if(shortcut(j0, world, &j))
+	continue;
+      
       options->bayes_priors[j].v[0]= (float) options->bayes_priors[j].min;
       options->bayes_priors[j].v[1]= (float) options->bayes_priors[j].max;
       //options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].mean;

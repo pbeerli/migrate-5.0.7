@@ -95,7 +95,7 @@ void fill_world_unassigned(world_fmt *world)
 
 void empty_world_unassigned(world_fmt *world)
 {
-  long no;
+  //long no;
   if (!world->has_unassigned)
     return;
   long i = world->unassignednum;
