@@ -1751,13 +1751,18 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
     for (locus = 0; locus < data->allsubloci; locus++)
     {
       s = &(data->mutationmodels[locus]);
+#ifdef MPIDATAONDEMAND    
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
-#ifdef MPIDATAONDEMAND    
+      long numpp = s->numpatterns;
       init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      s->numpatterns = numpp;
       s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
 #else
+      sgets_safe (&input, &inputsize, &buf);
+      sscanf (input,  "%c %i %i %li %li\n",
+	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
       init_mutationmodel_readsites3(s, s->datatype, s->numsites);
 #endif
       sgets_safe (&input, &inputsize, &buf);
@@ -1785,7 +1790,7 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       //if(s->datatype == 'b')
       //s->maxalleles = XBROWN_SIZE;
 #ifdef DEBUG
-      printf("@123456@@@@@@@@@@@@@@@@@ %i> datatype=%c maxalleles=%li \n",myID, s->datatype, s->maxalleles);
+      //printf("@123456@@@@@@@@@@@@@@@@@ %i> datatype=%c maxalleles=%li \n",myID, s->datatype, s->maxalleles);
 #endif	      
 
       sgets_safe (&input, &inputsize, &buf);
@@ -1805,13 +1810,13 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       s->dataclass = (dataclass==0) ? SITECHARACTER : SITEWORD;
       s->scaling = (scaling==0) ? FALSE : TRUE;
       s->estimateseqerror = (estimateseqerror==0) ? FALSE : TRUE;
-
-#ifdef MPIDATAONDEMAND    
-      init_mutationmodel_readsites2(s, s->datatype, s->numsites);
-      s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
-#else
-      init_mutationmodel_readsites3(s, s->datatype, s->numsites);
-#endif
+      //is this a false redo of earlier?
+      //#ifdef MPIDATAONDEMAND    
+      //init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      //s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+      //#else
+      //init_mutationmodel_readsites3(s, s->datatype, s->numsites);
+      //#endif
       for(i=0;i<s->numsites;i++)
 	{
 	  sgets_safe (&input, &inputsize, &buf);
@@ -2400,7 +2405,7 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
   if (maxrep > 1)
     addon = 1;
   
-  bufsize = (maxrep+addon) + (maxrep+addon) * 4 * numpop2 + maxrep * world->options->lsteps + \
+  bufsize = (maxrep+addon) + (maxrep+addon) * 4 * nn + maxrep * world->options->lsteps + \
     world->options->heated_chains * world->loci + 5 * world->loci + 1 + nn * 2 + nn*6 + 2 * world->options->heated_chains;
   (*buffer) = (MYREAL *) myrealloc (*buffer, sizeof (MYREAL) * bufsize);
   memset (*buffer, 0, sizeof (MYREAL) * bufsize);
@@ -2430,8 +2435,8 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
   z = pack_ess_buffer(buffer, z, world);
   // hyper material
   z = pack_hyper_buffer(buffer, z, world);
-#ifdef DEBUG_MPI
-  fprintf(stdout,"DEBUG: %i> z=%li, bufsize=%li\n", myID, z, bufsize);
+#ifdef DEBUG
+  fprintf(stdout,"#####DEBUG: %i> z=%li, bufsize=%li\n", myID, z, bufsize);
 #endif
   if(bufsize >= z)
     {
@@ -3303,7 +3308,7 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
  /// packing autocorrelation and ess buffer
 long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
 {
-  // buffer memory needs are (npp + 1) + (npp+1) (numpop2 + mu + speciesmodel*2)
+  // buffer memory needs are (npp + 1) + (npp+1)
   long i;
   long z = start;
   const long np2 = world->numpop2;
@@ -3330,6 +3335,7 @@ long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
  /// packing hyper buffer
 long pack_hyper_buffer(MYREAL **buffer, long start, world_fmt *world)
 {
+  // mmeory needs are 6 * npp
   long i;
   long z = start;
   const long np2 = world->numpop2;
@@ -3337,13 +3343,16 @@ long pack_hyper_buffer(MYREAL **buffer, long start, world_fmt *world)
   if (world->bayes->hyperprior)
     {
       for(i=0;i<npp;i++)
-	{      
-	  (*buffer)[z++] = world->bayes->hyperp[i].mean;
-	  (*buffer)[z++] = world->bayes->hyperp[i].meanstd;
-	  (*buffer)[z++] = world->bayes->hyperp[i].alpha;
-	  (*buffer)[z++] = world->bayes->hyperp[i].alphastd;
-	  (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].meann;
-	  (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].alphan;
+	{
+	  if(world->bayes->map[i][1] != INVALID)
+	    {
+	      (*buffer)[z++] = world->bayes->hyperp[i].mean;
+	      (*buffer)[z++] = world->bayes->hyperp[i].meanstd;
+	      (*buffer)[z++] = world->bayes->hyperp[i].alpha;
+	      (*buffer)[z++] = world->bayes->hyperp[i].alphastd;
+	      (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].meann;
+	      (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].alphan;
+	    }
 	}
     }
   return z;
@@ -3360,7 +3369,7 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
   long  numbins = 0;
   long  z       = startposition;
   bayes_fmt *bayes = world->bayes;
-#ifdef DEBUG_MPI
+#ifdef DEBUG
     printf("%i> pack_hist_bayes_buffer: position=%li last value = %f numparams=%li npp=%li\n",myID, startposition, (z > 0) ? (*buffer)[startposition] : -9999., hist->numparam, npp);
 #endif
 #ifdef DEBUG
@@ -4288,7 +4297,7 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
 	  }
       }
 #ifdef DEBUG
-    fprintf (stdout, " [%i @@@@@@@@@@@@@writing to bayesallfile] \n", myID);
+    //  fprintf (stdout, " [%i @@@@@@@@@@@@@writing to bayesallfile] \n", myID);
 #endif
 #ifdef ZNZ
     znzprintf(file,"%s\n",temp);
@@ -4699,7 +4708,7 @@ void mpi_mdim_send(float *values, long size)
       mysnprintf(p1,LINESIZE,"Z%li",size);
       MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
 #ifdef DEBUG
-      fprintf(stdout,"%i> mdimlast=%f\n",myID,values[size-1]);
+      //fprintf(stdout,"%i> mdimlast=%f\n",myID,values[size-1]);
 #endif
       MYMPISEND (values, size, MPI_FLOAT, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
 #endif
@@ -4850,6 +4859,7 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
     // BF material
   bufsize = world->options->heated_chains * world->loci + 5 * world->loci + 20 * (npp+1) + 6 * npp;
   buffer = (MYREAL *) myrealloc (buffer, bufsize *  sizeof (MYREAL));
+  bufsize = 0;
   if(!world->data->skiploci[locus])
     {
       //fprintf(stderr,"%i> REPLICANT: packed result locus=%li replicate %li\n",myID,locus, replicate);

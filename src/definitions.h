@@ -405,7 +405,7 @@ typedef int boolean;
 #define SMALLBUFSIZE    255L
 #define ONEMEGABYTE   1024000
 #define MAXBUFSIZE   10000000L
-#define LINESIZE        1024L /* setting this smaller can break */
+#define LINESIZE        2048L /* was 1024; setting this smaller can break */
 #define LONGLINESIZE  1000000L /* setting this smaller than 100000 can break */
 #define SUPERLINESIZE 1000000L /*used to read many many loci-sites and indiv numbers*/ 
 

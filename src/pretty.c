@@ -1646,7 +1646,8 @@ void pdf_print_bayestable(world_fmt *world)
     long l;
     long size = world->numparam;
     long npp = size ;
-    long nppspec = world->numparamcumvec[SPLITSTDPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
     double lx;
     double *offset;
     bayes_fmt * bayes = world->bayes;
@@ -1757,7 +1758,7 @@ void pdf_print_bayestable(world_fmt *world)
 		  fmt1 = 8;
 		  fmt2 = 5;
 		}
-	      else if (world->has_speciation && j < nppspec)
+	      else if (world->has_speciation && j < nps)
 		{
 		  // speciation
 		  s = get_which_species_model(j,world->species_model,world->species_model_size);
@@ -1771,15 +1772,26 @@ void pdf_print_bayestable(world_fmt *world)
 		    }
 		  fmt1 = 8;
 		  fmt2 = 5;
-		}		      
-	      else if(world->has_growth && j < npp)
+		}
+	      else if(world->has_growth && j < npg)
 		{
-		  long d=0;//j0-npp;
+		  long d=j0-nps;
 		  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 		    {
 		      d++;
 		    }
 		  pdf_print_line_growth(lx, page_height, offset[1], d);
+		  fmt1 = 8;
+		  fmt2 = 5;			      
+		}
+	      else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j < npp)
+		{
+		  long d=j0-npg;
+		  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		    {
+		      d++;
+		    }
+		  pdf_print_line_mlf(lx, page_height, offset[1], d);
 		  fmt1 = 8;
 		  fmt2 = 5;			      
 		}
@@ -1967,6 +1979,22 @@ pdf_bayes_print_accept(world_fmt *world)
 	    
 	  }
       }
+    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	for (j=0;j<world->mlalphanum;j++)
+	  {
+	    j0 = world->numparamcumvec[GROWTHPRIOR] + j;
+	    trials=world->trials_archive[j0];
+	    long d=j;
+	    while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+	      d++;
+	    symbol_mlf(left_margin, page_height, 12, d+1);
+	    pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j0],trials);
+	    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j0]/trials);
+	    pdf_advance(&page_height);
+	    
+	  }
+      }
     // accepted trees
     if((trials=world->trials_archive[tc])>0)
     {
@@ -2131,8 +2159,8 @@ pdf_bayes_print_ess(world_fmt *world)
     bayes_fmt *bayes = world->bayes;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
     stemp = stempo;
-    long tc = world->numpop2+world->bayes->mu + 2 * world->species_model_size;
-    long tcg = world->numpop2+world->bayes->mu + 2 * world->species_model_size + world->grownum;
+    long tc = world->numparamcumvec[SPLITSTDPRIOR];
+    //long tcg = world->numparamcumvec[GROWTHPRIOR];
     mysnprintf(title,LINESIZE,"MCMC-Autocorrelation and Effective MCMC Sample Size");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
@@ -2240,7 +2268,20 @@ pdf_bayes_print_ess(world_fmt *world)
 	  pdf_advance(&page_height);
         }
     }
-    // accepted growth
+    // accepted ml-alpha
+    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+    {
+        for (j1=tc+world->grownum; j1<tc+world->grownum+world->mlalphanum; j1++)
+        {
+	  long d=j1-tc;
+	  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+	    d++;
+	  symbol_mlf(left_margin, page_height, 12, d+1);
+	  pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+	  pdf_advance(&page_height);
+        }
+    }
     // likelihood of trees
     pdf_print_contents_at(left_margin, page_height,"Genealogies");
     pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
@@ -2776,9 +2817,9 @@ double pdf_locus_histogram(world_fmt *world, long locus)
     const long numpop  = world->numpop;
     const long numpop2 = world->numpop2;
     const long np2x    = numpop2 + (world->bayes->mu);
-    const long np2xx   = np2x + 2 * world->species_model_size;
-    const long np2xxx  = np2xx + world->grownum;
-    const long numparam= np2xxx;
+    const long /*np2xx*/ nps   = np2x + 2 * world->species_model_size;
+    const long /*np2xxx*/ npg  = nps + world->grownum;
+    const long numparam= world->numparam;
     long z             = 0;
     long numbins       = 0;
     long numbinsall    = 0;
@@ -2801,8 +2842,10 @@ double pdf_locus_histogram(world_fmt *world, long locus)
     double specmax      = 0;
     double growthmin    = (double) HUGE;
     double growthmax    = (double) -HUGE; 
-    double mlfmin    = (double) 0.4;
-    double mlfmax    = (double) 1.0; 
+    double mlalphamin    = (double) 1.0;
+    double mlalphamax    = (double) 0.0; 
+    //double mlfmin    = (double) 0.4;
+    //double mlfmax    = (double) 1.0; 
     page_height  = (double) HPDF_Page_GetHeight(page);
     double page_width   = (double) HPDF_Page_GetWidth(page);
     double lx;
@@ -2838,9 +2881,11 @@ double pdf_locus_histogram(world_fmt *world, long locus)
       find_posterior_min_max(&thetamin, &thetamax, 0, numpop, bayes, locus);
       find_posterior_min_max(&migmin, &migmax, numpop, numpop2, bayes, locus);
       if (world->has_speciation)
-	find_posterior_min_max(&specmin, &specmax, np2x, np2xx, bayes, locus);
+	find_posterior_min_max(&specmin, &specmax, np2x, nps, bayes, locus);
       if(world->has_growth)
-	find_posterior_min_max(&growthmin, &growthmax, np2xx, np2xxx, bayes, locus);
+	find_posterior_min_max(&growthmin, &growthmax, nps, npg, bayes, locus);
+      if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+	find_posterior_min_max(&mlalphamin, &mlalphamax, npg, numparam, bayes, locus);
       if(bayes->mu)
 	{
 	  find_posterior_min_max(&ratemin, &ratemax, numpop2, np2x, bayes, locus);
@@ -2905,7 +2950,7 @@ double pdf_locus_histogram(world_fmt *world, long locus)
 	      themin = ratemin;
 	      themax = ratemax;
             }
-      else if (world->has_speciation && rpa < np2xx)
+      else if (world->has_speciation && rpa < nps)
 	    {
 	      species_fmt * s = get_which_species_model(pa,world->species_model,world->species_model_size);
 	      frompop = s->from;
@@ -2925,15 +2970,25 @@ double pdf_locus_histogram(world_fmt *world, long locus)
 		  themax = (double) s->sigmamax;
 		}	
 	    }
-      else if (world->has_growth && rpa < np2xxx)
+      else if (world->has_growth && rpa < npg)
 	{
-	  long d=rpa-np2xx;
+	  long d=rpa-nps;
 	  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 	    d++;
 	  pdf_print_contents_at(lx-30,ly+125, "Freq");
 	  symbol_Growth(lx+80, ly-25, 12, d+1);
 	  themin = growthmin;
 	  themax = growthmax;
+	}
+      else if (world->has_mlalpha && rpa < numparam && world->tri_mlalpha != FIXED)
+	{
+	  long d=rpa-npg;
+	  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+	    d++;
+	  pdf_print_contents_at(lx-30,ly+125, "Freq");
+	  symbol_mlf(lx+80, ly-25, 12, d+1);
+	  themin = mlalphamin;
+	  themax = mlalphamax;
 	}
     	delta = (double) (maxi[rpa] - mini[rpa])/bins[rpa];
 	if (bayes->mu && rpa == numpop2)
@@ -3174,11 +3229,13 @@ void pdf_print_param_order(world_fmt *world)
     char *custm2 = world->options->custm2;
     boolean usem = world->options->usem;
     //bayes_fmt *bayes = world->bayes;
-    long numparam = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
+    long numparam = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2;
     pdf_advance(&page_height);
     pdf_printf_next(left_margin, &page_height,"Order of parameters:");
     //  fprintf(bayesfile,"# Parameter-number Parameter\n");
-    for(pa0=0;pa0<numparam+world->grownum;pa0++)
+    for(pa0=0;pa0<numparam;pa0++)
     {
       if(shortcut(pa0,world,&pa))
 	{
@@ -3203,7 +3260,7 @@ void pdf_print_param_order(world_fmt *world)
 		pdf_printf(left_margin+230, page_height,'L',"<displayed>");
 	    }
 	}
-      else /*migration or rate option or speciation or growth*/
+      else /*migration or rate option or speciation or growth or ml-alpha*/
 	{
 	  // do we estimate mutation rate changes?
 	  if(world->bayes->mu && pa0==numpop2)
@@ -3268,7 +3325,7 @@ void pdf_print_param_order(world_fmt *world)
 		}
 	      else  /*has speciation or growth*/
 		{
-		  if (world->has_speciation && pa < numparam)
+		  if (world->has_speciation && pa < nps)
 		    {
 		      species_fmt * s = get_which_species_model(pa, world->species_model, world->species_model_size);
 		      frompop = s->from;
@@ -3288,17 +3345,26 @@ void pdf_print_param_order(world_fmt *world)
 		    }
 		  else
 		    {
-		      if (world->has_growth && pa >= numparam)
+		      if (world->has_growth && pa < npg)
 			{
 			  pdf_printf(left_margin, page_height,'L',"%4li ",z++);
-			  long d=pa-numparam;
+			  long d=pa-nps;
 			  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 			    d++;
 			  symbol_Growth(left_margin+80, page_height, 12, d+1);
 			  pdf_printf(left_margin+230, page_height,'L',"<displayed>");
 			}
+		      else // ml-alpha
+			{
+			  if (world->has_mlalpha && pa < numparam && world->tri_mlalpha != FIXED)
+			  pdf_printf(left_margin, page_height,'L',"%4li ",z++);
+			  long d=pa-npg;
+			  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+			    d++;
+			  symbol_mlf(left_margin+80, page_height, 12, d+1);
+			  pdf_printf(left_margin+230, page_height,'L',"<displayed>");
+			}
 
-		      //?????? error("problem with PDF histogram plotting");
 		    }
 		}
 	    }
@@ -3803,7 +3869,7 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	  case MIGPRIOR: 	  mysnprintf(ptypename,STRSIZE,"%-s",options->usem ? "M" : "xNm");break;
 	  case RATEPRIOR: 	  mysnprintf(ptypename,STRSIZE,"%-s","Rate modif.");break;
 	  case SPECIESTIMEPRIOR: 	  mysnprintf(ptypename,STRSIZE,"%-s","Splittime mean");break;
-	  case SPECIESSTDPRIOR: 	  mysnprintf(ptypename,STRSIZE,"%-s","Splittime std");break;
+	  case MLFPRIOR: 	  mysnprintf(ptypename,STRSIZE,"%-s","ML-alpha");break;
 	  }
 	if(shortcut(i,world,&pa))
 	  continue;
@@ -6382,12 +6448,14 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
 /// print average temperatures
 void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 {
-    long a;
+    long t;
+    long locus;
     char **header;
     char ***elements;
     //  double position[10] = {55., 100., 150., 200., 250., 300., 350., 400., 450., 500.};
     double page_width;
-    charvec2d(&header, 2,LINESIZE);
+    const long hc = universe[0]->options->heated_chains;
+    charvec2d(&header, 4,LINESIZE);
     //print title
     page_width = (double) HPDF_Page_GetWidth(page);
     pdf_print_section_title(&page_width, &page_height, "Average temperatures during the run");
@@ -6395,18 +6463,40 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     // header
     mysnprintf(header[0],LINESIZE,"Chain");
     mysnprintf(header[1],LINESIZE,"Temperatures");
+    mysnprintf(header[2],LINESIZE,"log(marginal likelihood)");
+    mysnprintf(header[3],LINESIZE,"log(mL_steppingstone)");
     elements = (char ***) mycalloc(options->heated_chains, sizeof(char**));
-    for(a=0; a < options->heated_chains; a++)
-        charvec2d(&elements[a],2, LINESIZE);
-    for(a=0; a < options->heated_chains; a++)
+    for(t=0; t < options->heated_chains; t++)
+        charvec2d(&elements[t],4, LINESIZE);
+    for(t=0; t < options->heated_chains; t++)
     {
-        mysnprintf(elements[a][0],LINESIZE,"%5li ",a+1);
-	if (options->adaptiveheat == STANDARD)
-	  mysnprintf(elements[a][1],LINESIZE,"%10.5f ",universe[a]->averageheat);
-	else
-	  mysnprintf(elements[a][1],LINESIZE,"%10.5f ",universe[a]->heat);
+      //--------
+      double nloc=0.0;
+      double bfsum = 0.0;
+      double ssum = 0.0;
+      for(locus = 0; locus < universe[t]->loci; locus++)
+	{
+	  if(universe[t]->data->skiploci[locus])
+	    {
+	      continue;
+	    }
+	  else
+	    {
+	      nloc += universe[t]->data->locusweight[locus];
+	    }
+	  bfsum += universe[t]->data->locusweight[locus] * universe[t]->bf[locus * hc + t];
+	  ssum += log(universe[t]->steppingstones[locus * hc + t]) + universe[t]->steppingstone_scalars[locus * hc + t];
+	}      
+      //--------
+      mysnprintf(elements[t][0],LINESIZE,"%5li ",t+1);
+      if (options->adaptiveheat == STANDARD)
+	mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->averageheat);
+      else
+	  mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->heat);
+      mysnprintf(elements[t][2],LINESIZE,"%10.5f ", bfsum/nloc);
+      mysnprintf(elements[t][3],LINESIZE,"%10.5f ", ssum/nloc);
     }
-    pdf_table2( 2, (int) (options->heated_chains), header, NULL, elements, NULL, 2, 10.0);
+    pdf_table2( 4, (int) (options->heated_chains), header, NULL, elements, NULL, 2, 10.0);
     pdf_advance(&page_height);
     if (options->adaptiveheat == STANDARD)
       {
@@ -6417,8 +6507,8 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 	pdf_advance(&page_height);
       }
     free_charvec2d(header);
-    for(a=0; a < options->heated_chains; a++)
-        free_charvec2d(elements[a]);
+    for(t=0; t < options->heated_chains; t++)
+        free_charvec2d(elements[t]);
     myfree(elements);
 }
 

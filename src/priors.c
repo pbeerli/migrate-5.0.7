@@ -785,6 +785,10 @@ MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes,
       double val = logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam) -
       		logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam);
       ////printf("%f ", val);
+      if (newparam > 0.9999)
+	newparam = 0.9999;
+      if (oldparam > 0.9999)
+	oldparam = 0.9999;
       double num = (a - 1.) * LOG(newparam) + (b - 1.0) * LOG(1. - newparam);
       double den = (a - 1.) * LOG(oldparam) + (b - 1.0) * LOG(1. - oldparam);
       val = num - den;

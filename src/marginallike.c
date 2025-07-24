@@ -253,7 +253,7 @@ void      print_marginal_like(float *temp, long *z, world_fmt * world)
       temp[(*z)++] =  (float) world->bf[locus * hc + t-1];
       temp[(*z)++] =  (float) lsum;
 #ifdef DEBUG
-      printf("@MARGLIKE %f %f\n@",  world->bf[locus * hc + t-1], temp[(*z)-2]);
+      //printf("@MARGLIKE %f %f\n@",  world->bf[locus * hc + t-1], temp[(*z)-2]);
 #endif
     }
   temp[(*z)++] =  (float) (world->hmscale[locus] - log(world->hm[locus]));

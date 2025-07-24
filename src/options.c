@@ -5316,6 +5316,8 @@ numbercheck (option_fmt * options, char *var, char *value)
   long    mbins = BAYESNUMBIN;
   long    sbins = BAYESNUMBIN;
   long    rbins = BAYESNUMBIN;
+  long    gbins = BAYESNUMBIN;
+  long    abins = BAYESNUMBIN;
   
     MYREAL musum = 0., lastrate = 1.;
     long i = 0, z=0, cc = 0;
@@ -6105,6 +6107,8 @@ numbercheck (option_fmt * options, char *var, char *value)
       mbins = BAYESNUMBIN;
       rbins = BAYESNUMBIN;
       sbins = BAYESNUMBIN;
+      gbins = BAYESNUMBIN;
+      abins = BAYESNUMBIN;
       temp = strtok (value, " ,;\n\0");
       if (temp != NULL)
         {
@@ -6119,7 +6123,17 @@ numbercheck (option_fmt * options, char *var, char *value)
 		    rbins = atol (temp);
 		    temp = strtok (NULL, " ,;\n\0");
 		    if (temp != NULL)
-		      sbins = atol (temp);
+		      {
+			sbins = atol (temp);
+			temp = strtok (NULL, " ,;\n\0");
+			if (temp != NULL)
+			  {
+			    gbins = atol (temp);
+			    temp = strtok (NULL, " ,;\n\0");
+			    if (temp != NULL)
+			      abins = atol (temp);
+			  }
+		      }
 		  }
 	      }
 	}
@@ -6134,6 +6148,11 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  options->bayes_posterior_bins[3]=sbins;
 	  options->bayes_posterior_bins[4]=sbins;
 	}
+      if (gbins>0)
+	options->bayes_posterior_bins[5]=gbins;
+      if (abins>0)
+	options->bayes_posterior_bins[6]=abins;
+
 #ifdef DEBUG
       printf("%i> read from parmfile: bayesposteriobins %li %li %li %li %li\n\n\n\n\n\n",
 	     myID,

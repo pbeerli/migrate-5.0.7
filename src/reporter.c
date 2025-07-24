@@ -352,8 +352,8 @@ calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, 
 /// collect the autocorrelation values and the ESS values
 void collect_acceptance(world_fmt *world)
 {
-  const long nnn = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
-  // the archives have length of #theta + #mig + #loci_murates + #spec + #grow + + genealogy
+  const long nnn = world->numparam;
+  // the archives have length of #theta + #mig + #loci_murates + #spec + #grow + #mlalpha + genealogy
   long i;
   for(i=0;i<nnn; i++)
     {
@@ -399,6 +399,7 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   long trials   =0;    
   long tc1 = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
   long tc = tc1 + world->grownum;
+  long npa = world->numparam;
   bayes_fmt *bayes = world->bayes;
   
   //species_fmt *s = NULL;
@@ -493,6 +494,18 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	    FPRINTF(file, "g%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
 	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
 	      record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
+	  }
+      }
+    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	for(j0=0;j0<world->mlalphanum;j0++)
+	  {
+	    j = j0 + tc1;
+	    trials=world->trials_archive[j];
+	    mysnprintf(stemp,LINESIZE,"_%li",j0+1);
+	    FPRINTF(file, "ML-alpha%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      record_warnings(world,"Param %li: ML-alpha: Effective sample size of run seems too short! ",j+1);
 	  }
       }
     // accepted trees

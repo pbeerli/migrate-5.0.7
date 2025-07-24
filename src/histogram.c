@@ -125,32 +125,39 @@ long get_fullbinsum(MYREAL *lowerbound, MYREAL *upperbound, world_fmt *world, op
   (void) locus;
   long temp=0;
   long i;
+  long j;
   //long n=world->numpop2;
   long ns = world->numparamcumvec[SPLITSTDPRIOR];
   long ng = world->numparamcumvec[GROWTHPRIOR];
   for(i = 0; i < world->numpop; i++)
     {
-      temp += options->bayes_priors[i].bins;
-      lowerbound[i] = options->bayes_priors[i].min;
-      upperbound[i] = options->bayes_priors[i].max;
+      if (shortcut(i,world, &j))
+	continue;
+      temp += options->bayes_priors[j].bins;
+      lowerbound[j] = options->bayes_priors[j].min;
+      upperbound[j] = options->bayes_priors[j].max;
     }
   for(i = world->numpop; i < world->numpop2; i++)
     {
-      temp += options->bayes_priors[i].bins;
-      lowerbound[i] = options->bayes_priors[i].min;
-      upperbound[i] = options->bayes_priors[i].max;
+      if (shortcut(i,world, &j))
+	continue;
+      temp += options->bayes_priors[j].bins;
+      lowerbound[j] = options->bayes_priors[j].min;
+      upperbound[j] = options->bayes_priors[j].max;
     }
   if (world->bayes->mu)
     {
       i = world->numpop2;
-      //n += 1;
-      temp += options->bayes_priors[i].bins;
-      lowerbound[i] = options->bayes_priors[i].min;
-      upperbound[i] = options->bayes_priors[i].max;
+      if (!shortcut(i,world, &j))
+	{
+	  temp += options->bayes_priors[j].bins;
+	  lowerbound[j] = options->bayes_priors[j].min;
+	  upperbound[j] = options->bayes_priors[j].max;
+	}
     }
   if (world->has_speciation)
     {
-      //n +=  2* world->species_model_size;
+      //n +=  2* world->species_model_size;      
       for(i = world->numpop2+world->bayes->mu; i < ns; i++)
 	{
 	  temp += options->bayes_priors[i].bins;
@@ -160,21 +167,29 @@ long get_fullbinsum(MYREAL *lowerbound, MYREAL *upperbound, world_fmt *world, op
     }
   if(world->has_growth)
     {
-      for(i = ns; i < ns+world->grownum; i++)
+      for(i = ns; i < ns+world->options->growpops_numalloc; i++)
 	{
-	  temp += options->bayes_priors[i].bins;
-	  lowerbound[i] = options->bayes_priors[i].min;
-	  upperbound[i] = options->bayes_priors[i].max;
+	   if(shortcut(i,world,&j))
+	     {
+	       continue;
+	     }	   
+	  temp += options->bayes_priors[j].bins;
+	  lowerbound[j] = options->bayes_priors[j].min;
+	  upperbound[j] = options->bayes_priors[j].max;
 	}
 
     }
   if(world->has_mlalpha && world->tri_mlalpha != FIXED)
     {
-      for(i = ng; i < ng+world->mlalphanum; i++)
+      for(i = ng; i < ng+world->options->mlalphapops_numalloc; i++)
 	{
-	  temp += options->bayes_priors[i].bins;
-	  lowerbound[i] = options->bayes_priors[i].min;
-	  upperbound[i] = options->bayes_priors[i].max;
+	   if(shortcut(i,world,&j))
+	     {
+	       continue;
+	     }	   
+	  temp += options->bayes_priors[j].bins;
+	  lowerbound[j] = options->bayes_priors[j].min;
+	  upperbound[j] = options->bayes_priors[j].max;
 	}
 
     }
@@ -280,9 +295,9 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
   long bin;
   //const long numpop = world->numpop;
   const long numpop2 = world->numpop2;
-  const long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
-  const long npg = np + world->grownum;
-  const long nps = npg + world->mlalphanum;
+  const long nps = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+  const long npg = world->numparamcumvec[GROWTHPRIOR];//np + world->grownum;
+  const long npa = world->numparam; //npg + world->mlalphanum;
   const long hc = world->options->heated_chains; 
   long numbins = 0;
   long numbinsall = 0;
@@ -309,13 +324,13 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 #endif
   long f;
   done = (boolean *) mycalloc(world->loci, sizeof(boolean));
-  params = (MYREAL *) mycalloc((2 + nps), sizeof(MYREAL));
-  oldmeans = (MYREAL *) mycalloc((2+ nps), sizeof(MYREAL));
-  autocorrelation = (MYREAL *) mycalloc((2 * world->loci * nps), sizeof(MYREAL));
-  ess = autocorrelation + world->loci * nps;
-  lowerbound = (MYREAL *) mycalloc(nps, sizeof(MYREAL));
-  upperbound = (MYREAL *) mycalloc(nps, sizeof(MYREAL));
-  n = (long *) mycalloc((nps * world->loci), sizeof(long));
+  params = (MYREAL *) mycalloc((2 + npa), sizeof(MYREAL));
+  oldmeans = (MYREAL *) mycalloc((2+ npa), sizeof(MYREAL));
+  autocorrelation = (MYREAL *) mycalloc((2 * world->loci * npa), sizeof(MYREAL));
+  ess = autocorrelation + world->loci * npa;
+  lowerbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
+  upperbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
+  n = (long *) mycalloc((npa * world->loci), sizeof(long));
   input = (char *) mycalloc(SUPERLINESIZE, sizeof(char));
 #ifdef DEBUG  
   printf("Begin reading the bayesallfile back into the system\n");
@@ -413,7 +428,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		  bayes->histogram[locus].set95 = (char *) mycalloc(bayes->histogram[locus].binsum* 2 + 2, sizeof(char));
 		  bayes->histogram[locus].set50 = world->bayes->histogram[locus].set95 + bayes->histogram[locus].binsum + 1;
 		  if(bayes->histogram[locus].covariance==NULL)
-		    doublevec2d(&bayes->histogram[locus].covariance,npg,npg);
+		    doublevec2d(&bayes->histogram[locus].covariance,npa,npa);
 		}
 	      hist = &bayes->histogram[locus];
 	      numbinsall = 0;
@@ -443,7 +458,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		  hist->minima[j0] = lowerbound[j];
 		  hist->maxima[j0] = upperbound[j];
 		  hist->results[numbins + bin] += 1.;
-		  bayes->histtotal[locus * npg + j] += 1;
+		  bayes->histtotal[locus * npa + j] += 1;
 		}
 	      if(bayes->mu && j0==numpop2)
 		{
@@ -458,7 +473,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		  hist->minima[j0] = lowerbound[j0];
 		  hist->maxima[j0] = upperbound[j0];
 		  hist->results[numbins + bin] += 1.;
-		  bayes->histtotal[locus * nps + j0] += 1;
+		  bayes->histtotal[locus * npa + j0] += 1;
 		}
 	      if(world->has_speciation)
 		{
@@ -487,19 +502,21 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		      hist->minima[j0] = lowerbound[j];
 		      hist->maxima[j0] = upperbound[j];
 		      hist->results[numbins + bin] += 1.;
-		      bayes->histtotal[locus * nps + j] += 1;
+		      bayes->histtotal[locus * npa + j] += 1;
 		    }
 		}
 	      if (world->has_growth)
 		{
 		  long grownum = world->options->growpops_numalloc;
-		    for(j0=0; j0 < grownum; j0++)
+		    for(j0=nps; j0 < nps+grownum; j0++)
 		      {
-			long pick = world->options->growpops[j0];
-			if (pick == 0)
-			  continue;
-			else
-			  j = pick + np - 1;
+			if (shortcut(j0,world,&j))
+			    continue;
+			    //long pick = world->options->growpops[j0];
+			    //if (pick == 0)
+			    //continue;
+			    //else
+			    //j = pick + nps - 1;
 			if(inptr!=NULL)
 			  params[j+2] =  atof(strsep(&inptr,"\t"));
 			else
@@ -519,11 +536,43 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		      hist->minima[j] = lowerbound[j];
 		      hist->maxima[j] = upperbound[j];
 		      hist->results[numbins + bin] += 1.;
-		      bayes->histtotal[locus * nps + j] += 1;
+		      bayes->histtotal[locus * npa + j] += 1;
 		    }
 		}
 	      if (world->has_mlalpha && world->tri_mlalpha != FIXED)
-		error("needs fix");
+		{
+		  long mlalphanum = world->options->mlalphapops_numalloc;
+		    for(j0=npg; j0 < npg+mlalphanum; j0++)
+		      {
+			if (shortcut(j0, world, &j))
+			  continue;
+			//long pick = world->options->mlalphapops[j0];
+			//if (pick == 0)
+			//  continue;
+			//else
+			//  j = pick + npg - 1;
+			if(inptr!=NULL)
+			  params[j+2] =  atof(strsep(&inptr,"\t"));
+			else
+			  continue;
+			//n[j] += 1;
+			oldmeans[j] = hist->means[j];
+			hist->means[j] += (params[j+2] - hist->means[j]) / n[locus];//n[j];
+			numbinsall += hist->bins[j];
+			numbins = numbinsall - hist->bins[j];
+			
+			if (params[j+2]>upperbound[j])
+			  {
+			    warning("above upper bound: %f\n",params[j+2]);
+			    continue;
+			  }
+		      bin = (long) ((params[j+2]-lowerbound[j]) / delta[j]);
+		      hist->minima[j] = lowerbound[j];
+		      hist->maxima[j] = upperbound[j];
+		      hist->results[numbins + bin] += 1.;
+		      bayes->histtotal[locus * npa + j] += 1;
+		    }
+		}     
 	      
 	      hist->n = n[locus]; //assumes that all are the same (should be!)
 	      for(j0=0;j0 < numpop2; j0++)

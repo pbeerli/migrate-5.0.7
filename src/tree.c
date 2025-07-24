@@ -2824,6 +2824,9 @@ alloc_seqx (world_fmt * world, node * theNode, long locus)
 void     allocate_xseq(xarray_fmt *x, long sites, long categs)
 {
     long j;
+#ifdef DEBUG
+    //printf("allocate_xseq: sites=%li\n",sites);
+#endif
     (*x).s = (phenotype) mycalloc (sites, sizeof (ratelike *));
 #ifdef VARMUT
     (*x).s[0] = (ratelike) mycalloc (linkedloci * categs, sizeof (MYREAL) * sites[datamodeltype] * sitelikesize[datamodeltype]);
