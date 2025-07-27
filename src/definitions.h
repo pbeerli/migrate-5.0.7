@@ -277,8 +277,10 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 //#include "sighandler.h"
-#define FClose(file) if (file) fclose(file) ; file=NULL
-#define znzClose(file) if (file) znzclose(file) ; file=NULL
+#define FClose(file) do { if (file) { fclose(file); file = NULL; } } while(0)
+//#define FClose(file) if (file) fclose(file) ; file=NULL
+#define znzClose(file) do { if (file) { znzclose(file) ; file=NULL; } } while(0)
+//#define znzClose(file) if (file) znzclose(file) ; file=NULL
 #ifdef WIN32
 #ifndef WINDOWS
 #define WINDOWS

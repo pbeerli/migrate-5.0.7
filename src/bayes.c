@@ -3000,11 +3000,12 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	    }
           else if(j < world->numpop)
             {
-	      FPRINTF(world->outfile,"%5s ", st);
-	      FPRINTF(world->outfile,"Theta_%-3li      ",j0+1);
-	      FPRINTF(world->outfile, "%8.5f %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f\n",
-		      hist->cred95l[j], hist->cred50l[j], hist->modes[j],
-		      hist->cred50u[j], hist->cred95u[j],hist->medians[j], hist->means[j]);
+	      //FPRINTF(world->outfile,"%5s ", st);
+	      mysnprintf(stemp,LINESIZE,"Theta_%-3li      ",j0+1);
+	      //FPRINTF(world->outfile,"Theta_%-3li      ",j0+1);
+	      //FPRINTF(world->outfile, "%8.5f %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f\n",
+	      //	      hist->cred95l[j], hist->cred50l[j], hist->modes[j],
+	      //      hist->cred50u[j], hist->cred95u[j],hist->medians[j], hist->means[j]);
             }
 	  else if (j < numpop2)
 	    {
@@ -3288,7 +3289,7 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 	  long d=j-tc;
 	  if (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 	    continue;
-	  FPRINTF(file, "Growth_%li:               %8li/%-8li         %8.5f\n", d+1,
+	  FPRINTF(file, "Growth_%li:          %8li/%-8li         %8.5f\n", d+1,
 		  world->accept_archive[j],
 		  world->trials_archive[j],
 		  (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
@@ -3304,7 +3305,7 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 	  long d=j-tcg;
 	  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
 	    d++;
-	  FPRINTF(file, "ML-alpha_%li:               %8li/%-8li         %8.5f\n", d+1,
+	  FPRINTF(file, "ML-alpha_%li            %8li/%-8li         %8.5f\n", d+1,
 		  world->accept_archive[j],
 		  world->trials_archive[j],
 		  (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
@@ -3316,7 +3317,7 @@ bayes_print_accept(FILE * file,  world_fmt *world)
     trials=world->trials_archive[tcg];
     if(trials>0)
     {
-        FPRINTF(file, "Genealogies           %8li/%-8li          %8.5f\n", world->accept_archive[tcg], (long)
+        FPRINTF(file, "Genealogies           %8li/%-8li         %8.5f\n", world->accept_archive[tcg], (long)
                 trials, (MYREAL) world->accept_archive[tcg]/trials);
         //estimated_trials += trials;
     }
@@ -3552,7 +3553,7 @@ bayes_progress(world_fmt *world, long ten)
 	    long d=g;
 	    while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
 	      d++;			
-	    mysnprintf(paramstr,LINESIZE,"ML-alpha_%li",d+1);
+	    mysnprintf(paramstr,LINESIZE,"ML-alpha_%li  ",d+1);
 	    j = npg + d;
 	    if(bayes->trials[j]>0)
 	      accrat = (MYREAL) bayes->accept[j]/bayes->trials[j];

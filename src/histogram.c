@@ -326,11 +326,11 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
   done = (boolean *) mycalloc(world->loci, sizeof(boolean));
   params = (MYREAL *) mycalloc((2 + npa), sizeof(MYREAL));
   oldmeans = (MYREAL *) mycalloc((2+ npa), sizeof(MYREAL));
-  autocorrelation = (MYREAL *) mycalloc((2 * world->loci * npa), sizeof(MYREAL));
-  ess = autocorrelation + world->loci * npa;
+  autocorrelation = (MYREAL *) mycalloc((2 * (npa+1)), sizeof(MYREAL));
+  ess = autocorrelation + (npa+1);
   lowerbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
   upperbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
-  n = (long *) mycalloc((npa * world->loci), sizeof(long));
+  n = (long *) mycalloc((npa + 1), sizeof(long));
   input = (char *) mycalloc(SUPERLINESIZE, sizeof(char));
 #ifdef DEBUG  
   printf("Begin reading the bayesallfile back into the system\n");
@@ -664,12 +664,12 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
   if(world->options->datatype == 'g')
     {
       // reset the archiving machinery
-      memset(world->auto_archive,0, sizeof(MYREAL) * (size_t) (2 * (npg + 1)));
+      memset(world->auto_archive,0, sizeof(MYREAL) * (size_t) (2 * (npa + 1)));
       nnn = 1;
 	     //for(j=0;j<world->loci;j++)
 	     //{
 	  
-	  for(t=0;t<npg; t++)
+	  for(t=0;t<npa; t++)
 	    {
 	      // onepass mean of autocorrelation
 	      world->auto_archive[t] += (autocorrelation[t] - world->auto_archive[t])/nnn;

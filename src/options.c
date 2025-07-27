@@ -227,6 +227,8 @@ void print_parm_tipdate(long *bufsize, char **buffer, long *allocbufsize, option
 void print_parm_inheritance(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_newpops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_growpops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
+void print_parm_mlalphapops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
+void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_randomsubset(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options);
 void print_parm_usertree(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options);
 void print_parm_theta(long *bufsize, char ** buffer, long *allocbufsize, option_fmt * options);
@@ -3246,6 +3248,8 @@ void print_parm_growpops(long *bufsize, char **buffer, long *allocbufsize, optio
   myfree(input);
 }
 
+
+
 void print_parm_randomsubset(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options)
 {
     print_parm_comment(bufsize, buffer, allocbufsize, " random-subset=number:random_numberseed");
@@ -3543,43 +3547,44 @@ void   set_parm_prior_values(prior_fmt * prior, char * mytext)
       //	  strcat(mytext,tmp3);
       //	  strcat(mytext,tmp4);
       //	  break; 
-	case EXPPRIOR: 
-	  show_priormean(tmp2,prior);
-	  show_priormax(tmp3, prior);
-	  strcat(mytext,tmp2);
-	  strcat(mytext,tmp3);
-	  break;
-	case WEXPPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_priordelta(tmp4, prior);
-	  strcat(mytext,tmp2);
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-        case GAMMAPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_prioralpha(tmp4, prior);
-	  strcat(mytext,tmp2);	  
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-        case NORMALPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_prioralpha(tmp4, prior);
-	  strcat(mytext,tmp2);	  
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-	case UNIFORMPRIOR:
-	default:	  
-	  show_priormax(tmp3, prior);
-	  show_priordelta(tmp4, prior);
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
+    case EXPPRIOR: 
+      show_priormean(tmp2,prior);
+      show_priormax(tmp3, prior);
+      strcat(mytext,tmp2);
+      strcat(mytext,tmp3);
+      break;
+    case WEXPPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_priordelta(tmp4, prior);
+      strcat(mytext,tmp2);
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case GAMMAPRIOR:
+    case BETAPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_prioralpha(tmp4, prior);
+      strcat(mytext,tmp2);	  
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case NORMALPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_prioralpha(tmp4, prior);
+      strcat(mytext,tmp2);	  
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case UNIFORMPRIOR:
+    default:	  
+      show_priormax(tmp3, prior);
+      show_priordelta(tmp4, prior);
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
     }
 }
 
@@ -3638,6 +3643,11 @@ void print_parm_proposal(long *bufsize, char **buffer, long *allocbufsize, optio
     {
       print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= GROWTH %s",
 			 show_proposaltype(options->slice_sampling[GROWTHPRIOR]));
+    }
+  if(options->mlalphapops_numalloc>0)
+    {
+      print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= MLF %s",
+			 show_proposaltype(options->slice_sampling[MLFPRIOR]));
     }
 }
 
@@ -4092,36 +4102,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_br(&bufsize, buffer, allocbufsize);
 
 #endif
-#ifdef NEWVERSION
-    print_parm_comment(&bufsize, buffer, allocbufsize, "Use an alternative to exponential distribution [mittag-leffler]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-alpha=<NO|YES|YES:ESTIMATE|YES:<{number,..}|number>");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  where numbers can have the range of 0.01 to 1.0, (NO=1.0=default=Kingman)");
-    switch(options->tri_mlalpha)
-      {
-      case FIXED:
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:");
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "{%.2f",
-			   options->mlalpha[0]);
-	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
-	  print_parm_mutable(&bufsize, buffer, allocbufsize, "%.2f",
-			     options->mlalpha[i]);
-	if (options->mlalpha_numalloc>1)
-	  print_parm_mutable(&bufsize, buffer, allocbufsize, "%.2f}",
-			     options->mlalpha[options->mlalpha_numalloc-1]);
-	else
-	  print_parm_mutable(&bufsize, buffer, allocbufsize, "}");
-	break;
-      case NO:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=NO");
-	break;
-      case ESTIMATE:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:ESTIMATE");
-	break;
-      }
-    print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);	
-    print_parm_br(&bufsize, buffer, allocbufsize);
-#endif
+
     //
 print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mutation rate) instead of 4Nm or 2 Nm or Nm");
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax use-M=<NO | YES> Default is YES, the name 4Nm is ambiguous");
@@ -4405,6 +4386,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_mutable(&bufsize, buffer, allocbufsize, "custom-migration={%s}", options->custm);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_growpops(&bufsize, buffer, allocbufsize, options, data);
+    print_parm_mlalpha(&bufsize, buffer, allocbufsize, options, data);
+    print_parm_mlalphapops(&bufsize, buffer, allocbufsize, options, data);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Influence of geography on migration rate");
     print_parm_comment(&bufsize, buffer, allocbufsize, "a distance matrix between populations changes the migration rate matrix so that");
     print_parm_comment(&bufsize, buffer, allocbufsize, "(genetic?) migration rates =  inferred migration rate / distance ~ a dispersion coefficient");

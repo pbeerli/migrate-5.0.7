@@ -863,6 +863,7 @@ void pdf_histogram(double *binvals, char *set50, char *set95, long bins, double 
 #endif
         if(priors !=NULL)
         {
+	  if (priors[i]/binvalsmax < 1.0)
             pdf_print_dot(lx+x, ly + (((double) priors[i]/binvalsmax) * height) , 1, SQUARE, red);
         }
         x += delta;
@@ -1152,10 +1153,13 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
     pdf_print_options(world, options, data);
 	if(options->datatype!='g')
     {
-	    pdf_print_data_summary(world, options, data,  &page_height, &left_margin);
-	    pdf_print_data (world, options, data);
-	    if(options->murates_fromdata)
+      if (options->verbose)
+	{
+	  pdf_print_data_summary(world, options, data,  &page_height, &left_margin);
+	  pdf_print_data (world, options, data);
+	  if(options->murates_fromdata)
             pdf_print_mutationrate_weights(options->mu_rates, options->segregs, options->wattersons, world->loci);
+	}
     }
     ////////////////////////////////////
 }
@@ -6458,7 +6462,12 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     charvec2d(&header, 4,LINESIZE);
     //print title
     page_width = (double) HPDF_Page_GetWidth(page);
-    pdf_print_section_title(&page_width, &page_height, "Average temperatures during the run");
+    if(options->adaptiveheat==NOTADAPTIVE)
+      pdf_print_section_title(&page_width, &page_height, "Static temperatures during the run using standard heating");
+    else if (options->adaptiveheat==STANDARD)
+      pdf_print_section_title(&page_width, &page_height, "Standard average temperatures during the run");
+    else
+      pdf_print_section_title(&page_width, &page_height, "Bounded average temperatures during the run");
     pdf_advance(&page_height);
     // header
     mysnprintf(header[0],LINESIZE,"Chain");
@@ -6467,7 +6476,7 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     mysnprintf(header[3],LINESIZE,"log(mL_steppingstone)");
     elements = (char ***) mycalloc(options->heated_chains, sizeof(char**));
     for(t=0; t < options->heated_chains; t++)
-        charvec2d(&elements[t],4, LINESIZE);
+        charvec2d(&elements[t], 4, LINESIZE);
     for(t=0; t < options->heated_chains; t++)
     {
       //--------
@@ -6484,8 +6493,8 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 	    {
 	      nloc += universe[t]->data->locusweight[locus];
 	    }
-	  bfsum += universe[t]->data->locusweight[locus] * universe[t]->bf[locus * hc + t];
-	  ssum += log(universe[t]->steppingstones[locus * hc + t]) + universe[t]->steppingstone_scalars[locus * hc + t];
+	  bfsum += universe[0]->data->locusweight[locus] * universe[0]->bf[locus * hc + t];
+	  ssum += log(universe[0]->steppingstones[locus * hc + t]) + universe[0]->steppingstone_scalars[locus * hc + t];
 	}      
       //--------
       mysnprintf(elements[t][0],LINESIZE,"%5li ",t+1);
@@ -6498,7 +6507,7 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     }
     pdf_table2( 4, (int) (options->heated_chains), header, NULL, elements, NULL, 2, 10.0);
     pdf_advance(&page_height);
-    if (options->adaptiveheat == STANDARD)
+    if (options->adaptiveheat != NOTADAPTIVE)
       {
 	pdf_advance(&page_height);
 	pdf_printf_next(55., &page_height,"Adaptive heating often fails, if the average temperatures are very close together\n");

@@ -41,6 +41,7 @@ void print_mlalpha_record(float *temp, long *z, world_fmt *world);
 void  print_mlalpha_record(char *temp, long *c, world_fmt * world);
 #endif
 boolean init_mlalphapop(worldoption_fmt * wopt, option_fmt *options, long numpop);
+void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 
 void print_parm_mlalphapops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void set_mlalpha(char **value, char **tmp, option_fmt *options);
@@ -257,6 +258,37 @@ void construct_locusmlalpha_histogram(world_fmt *world, long locus, MYREAL *mini
     }
 }
 
+void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data)
+{
+  print_parm_comment(bufsize, buffer, allocbufsize, "Use an alternative to exponential distribution [mittag-leffler]");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-alpha=<NO|YES|YES:ESTIMATE|YES:<{number,..}|number>");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  where numbers can have the range of 0.01 to 1.0, (NO=1.0=default=Kingman)");
+  switch(options->tri_mlalpha)
+    {
+    case FIXED:
+      print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:");
+      print_parm_mutable(bufsize, buffer, allocbufsize, "{%.2f",
+			 options->mlalpha[0]);
+      for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
+	print_parm_mutable(bufsize, buffer, allocbufsize, "%.2f",
+			   options->mlalpha[i]);
+      if (options->mlalpha_numalloc>1)
+	print_parm_mutable(bufsize, buffer, allocbufsize, "%.2f}",
+			   options->mlalpha[options->mlalpha_numalloc-1]);
+      else
+	print_parm_mutable(bufsize, buffer, allocbufsize, "}");
+      break;
+    case NO:	
+      print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=NO");
+      break;
+    case ESTIMATE:	
+      print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:ESTIMATE");
+      break;
+    }
+  print_parm_br(bufsize, buffer, allocbufsize);
+  print_parm_smalldelimiter(bufsize, buffer, allocbufsize);	
+  print_parm_br(bufsize, buffer, allocbufsize);
+}
   
 ///
 /// print the parmfile entry for the population mlalpha parameter setting and labeling

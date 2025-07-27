@@ -281,7 +281,7 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 	  fprintf(world->outfile,"\n\n\nAverage temperatures during the run using %s\n",
 		  (options->adaptiveheat==STANDARD) ? "standard adaptive heating scheme" : "bounded adaptive heating scheme" );
 	  fprintf(world->outfile,"===========================================================================\n\n");
-	  fprintf(world->outfile,"Chain Temperature\n");
+	  fprintf(world->outfile,"Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)\n");
 	  for(t = 0; t < options->heated_chains; t++)
 	    {
 	      double nloc=0.0;
