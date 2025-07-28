@@ -1942,6 +1942,7 @@ void set_theta_nrandomstart(world_fmt *world, option_fmt *options)
 void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors)
 {
   long ii;
+  long  iii;
   if (shortcut(i,world, &ii))
     return;
   
@@ -1949,25 +1950,25 @@ void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * w
     {
     case PRIOR:
       // if (world->bayes->map[i][1] != INVALID)
-      world->param0[i] = (double) priors[i].cdf((float) (options->startguess[guess][1]/100.),priors[i].v);
+      world->param0[ii] = (double) priors[ii].cdf((float) (options->startguess[guess][1]/100.),priors[ii].v);
       break;
     case RANDOMPRIOR:
-      world->param0[i] = (double) priors[i].random(priors[i].v);
+      world->param0[ii] = (double) priors[ii].random(priors[ii].v);
       break;
     case OWN:
       if (i < numx - 1)
-	ii = i;
+	iii = ii;
       else
-	ii = numx - 1;
-      world->param0[i] = (double) ppp[ii];
+	iii = numx - 1;
+      world->param0[ii] = (double) ppp[iii];
       if(i < world->numpop)
 	{
-	  if (world->param0[i] < SMALLEST_THETA)
-	    world->param0[i] = SMALLEST_THETA;
+	  if (world->param0[ii] < SMALLEST_THETA)
+	    world->param0[ii] = SMALLEST_THETA;
 	}
       break;
     default:
-      world->param0[i] = (double) priors[i].cdf(0.5,priors[i].v);
+      world->param0[ii] = (double) priors[ii].cdf(0.5,priors[ii].v);
     }
 }
 

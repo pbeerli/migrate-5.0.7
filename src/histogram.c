@@ -285,7 +285,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 {
   //  const long nn = world->numpop2 + world->bayes->mu * world->loci + 1;// One is for Log(Prob(Data|Model)
   long *n = NULL;
-  long j0, j, z0, z;
+  long j0, j, jj, z0, z;
   long step=0;
   long locus=0;
   //  long frompop;
@@ -295,9 +295,9 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
   long bin;
   //const long numpop = world->numpop;
   const long numpop2 = world->numpop2;
-  const long nps = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+  const long nps = world->numparamcumvec[SPLITSTDPRIOR];
   const long npg = world->numparamcumvec[GROWTHPRIOR];//np + world->grownum;
-  const long npa = world->numparam; //npg + world->mlalphanum;
+  const long npa = world->numparam; 
   const long hc = world->options->heated_chains; 
   long numbins = 0;
   long numbinsall = 0;
@@ -315,6 +315,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
   MYREAL *ess;
   boolean *done;
   MYREAL *oldmeans;
+  boolean *visited;
   //MYREAL theta;
   //boolean notusem = !world->options->usem;
 #ifndef ZNZ
@@ -324,13 +325,14 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 #endif
   long f;
   done = (boolean *) mycalloc(world->loci, sizeof(boolean));
+  visited = (boolean*) mycalloc(2+npa,sizeof(boolean));
   params = (MYREAL *) mycalloc((2 + npa), sizeof(MYREAL));
   oldmeans = (MYREAL *) mycalloc((2+ npa), sizeof(MYREAL));
   autocorrelation = (MYREAL *) mycalloc((2 * (npa+1)), sizeof(MYREAL));
   ess = autocorrelation + (npa+1);
   lowerbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
   upperbound = (MYREAL *) mycalloc(npa, sizeof(MYREAL));
-  n = (long *) mycalloc((npa + 1), sizeof(long));
+  n = (long *) mycalloc(world->loci, sizeof(long));
   input = (char *) mycalloc(SUPERLINESIZE, sizeof(char));
 #ifdef DEBUG  
   printf("Begin reading the bayesallfile back into the system\n");
@@ -433,146 +435,41 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 	      hist = &bayes->histogram[locus];
 	      numbinsall = 0;
 	      n[locus] += 1; // we use the same n for all variables
-	      for(j0=0;j0 < numpop2; j0++)
+	      memset(visited, 0, sizeof(boolean)*(2+npa));
+	      for (j0=0; j0 < npa; j0++)
 		{
-		  if(shortcut(j0,world,&j))
+		  if(shortcut(j0, world, &j))
+		    continue;
+		  else
 		    {
-		      continue;
+		      jj = j;
+		      j = j + 2;
+		      if(visited[j]==TRUE)
+			continue;
+		      else
+			visited[j]=TRUE;
 		    }
 		  if (inptr!=NULL)
-		    params[j+2] =  atof(strsep(&inptr,"\t"));
+		    params[j] =  atof(strsep(&inptr,"\t"));
 		  else
 		    continue;
 		  // n[j] += 1;
-		  oldmeans[j] = hist->means[j];
-		  hist->means[j] += (params[j+2] - hist->means[j]) / n[locus];
-		  numbinsall += hist->bins[j];
-		  numbins = numbinsall - hist->bins[j];
+		  oldmeans[jj] = hist->means[jj];
+		  hist->means[jj] += (params[j] - hist->means[jj]) / n[locus];
+		  numbinsall += hist->bins[jj];
+		  numbins = numbinsall - hist->bins[jj];
 		  
-		  if ((upperbound[j] - params[j+2]) < -EPSILON)
+		  if (upperbound[jj] < params[j])
 		    {
-		      warning("above upper bound: %f\n",params[j+2]);
+		      warning("above upper bound: %f\n",params[j]);
 		      continue;
 		    }
-		  bin = (long) ((params[j+2]-lowerbound[j]) / delta[j]);
-		  hist->minima[j0] = lowerbound[j];
-		  hist->maxima[j0] = upperbound[j];
+		  bin = (long) ((params[j]-lowerbound[jj]) / delta[jj]);
+		  hist->minima[j0] = lowerbound[jj];
+		  hist->maxima[j0] = upperbound[jj];
 		  hist->results[numbins + bin] += 1.;
-		  bayes->histtotal[locus * npa + j] += 1;
-		}
-	      if(bayes->mu && j0==numpop2)
-		{
-		  numbins = numbinsall;
-		  if (inptr!=NULL)
-		    params[j0+2] = atof(strsep(&inptr,"\t"));
-		  else
-		    continue;
-		  //n[j0+locus] += 1;
-		  hist->means[j0] += (params[j0+2] - hist->means[j0]) / n[locus];//n[j0+locus];
-		  bin = (long) ((params[j0+2]-lowerbound[j0]) / delta[j0]); 
-		  hist->minima[j0] = lowerbound[j0];
-		  hist->maxima[j0] = upperbound[j0];
-		  hist->results[numbins + bin] += 1.;
-		  bayes->histtotal[locus * npa + j0] += 1;
-		}
-	      if(world->has_speciation)
-		{
-		  for(j0=numpop2+bayes->mu;j0 < numpop2+bayes->mu+world->species_model_size*2; j0++)
-		    {
-		      if(shortcut(j0,world,&j))
-			{
-			  continue;
-			}
-		      if(inptr!=NULL)
-			params[j+2] =  atof(strsep(&inptr,"\t"));
-		      else
-			continue;
-		      //n[j] += 1;
-		      oldmeans[j] = hist->means[j];
-		      hist->means[j] += (params[j+2] - hist->means[j]) / n[locus];//n[j];
-		      numbinsall += hist->bins[j];
-		      numbins = numbinsall - hist->bins[j];
-		      
-		      if (params[j+2]>upperbound[j])
-			{
-			  warning("above upper bound: %f\n",params[j+2]);
-			  continue;
-			}
-		      bin = (long) ((params[j+2]-lowerbound[j]) / delta[j]);
-		      hist->minima[j0] = lowerbound[j];
-		      hist->maxima[j0] = upperbound[j];
-		      hist->results[numbins + bin] += 1.;
-		      bayes->histtotal[locus * npa + j] += 1;
-		    }
-		}
-	      if (world->has_growth)
-		{
-		  long grownum = world->options->growpops_numalloc;
-		    for(j0=nps; j0 < nps+grownum; j0++)
-		      {
-			if (shortcut(j0,world,&j))
-			    continue;
-			    //long pick = world->options->growpops[j0];
-			    //if (pick == 0)
-			    //continue;
-			    //else
-			    //j = pick + nps - 1;
-			if(inptr!=NULL)
-			  params[j+2] =  atof(strsep(&inptr,"\t"));
-			else
-			  continue;
-			//n[j] += 1;
-			oldmeans[j] = hist->means[j];
-			hist->means[j] += (params[j+2] - hist->means[j]) / n[locus];//n[j];
-			numbinsall += hist->bins[j];
-			numbins = numbinsall - hist->bins[j];
-			
-			if (params[j+2]>upperbound[j])
-			  {
-			    warning("above upper bound: %f\n",params[j+2]);
-			    continue;
-			  }
-		      bin = (long) ((params[j+2]-lowerbound[j]) / delta[j]);
-		      hist->minima[j] = lowerbound[j];
-		      hist->maxima[j] = upperbound[j];
-		      hist->results[numbins + bin] += 1.;
-		      bayes->histtotal[locus * npa + j] += 1;
-		    }
-		}
-	      if (world->has_mlalpha && world->tri_mlalpha != FIXED)
-		{
-		  long mlalphanum = world->options->mlalphapops_numalloc;
-		    for(j0=npg; j0 < npg+mlalphanum; j0++)
-		      {
-			if (shortcut(j0, world, &j))
-			  continue;
-			//long pick = world->options->mlalphapops[j0];
-			//if (pick == 0)
-			//  continue;
-			//else
-			//  j = pick + npg - 1;
-			if(inptr!=NULL)
-			  params[j+2] =  atof(strsep(&inptr,"\t"));
-			else
-			  continue;
-			//n[j] += 1;
-			oldmeans[j] = hist->means[j];
-			hist->means[j] += (params[j+2] - hist->means[j]) / n[locus];//n[j];
-			numbinsall += hist->bins[j];
-			numbins = numbinsall - hist->bins[j];
-			
-			if (params[j+2]>upperbound[j])
-			  {
-			    warning("above upper bound: %f\n",params[j+2]);
-			    continue;
-			  }
-		      bin = (long) ((params[j+2]-lowerbound[j]) / delta[j]);
-		      hist->minima[j] = lowerbound[j];
-		      hist->maxima[j] = upperbound[j];
-		      hist->results[numbins + bin] += 1.;
-		      bayes->histtotal[locus * npa + j] += 1;
-		    }
-		}     
+		  bayes->histtotal[locus * npa + jj] += 1;
+		}	     
 	      
 	      hist->n = n[locus]; //assumes that all are the same (should be!)
 	      for(j0=0;j0 < numpop2; j0++)

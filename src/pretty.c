@@ -44,7 +44,7 @@
 #include "beagle.h"
 #endif
 #include <stdarg.h>
-
+#include <assert.h>
 #define LINESTRETCH 15
 //#define NOT_PERCENTILES FALSE
 //#define PERCENTILES TRUE
@@ -1853,7 +1853,14 @@ pdf_bayes_print_accept(world_fmt *world)
     char *stempo;       // string variable holding print-string
     char *stemp;        // pointer to string, seems to be need to don't get MYREAL free warnings
     long trials   =0;   //
-    long tc = world->numparam;//position of genealogy accept rates
+    long accept   =0;
+    long numpop = world->numparamcumvec[THETAPRIOR];
+    long numpop2 = world->numparamcumvec[MIGPRIOR];
+    long npr = world->numparamcumvec[RATEPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
+    long npa = world->numparam;
+
     bayes_fmt *bayes = world->bayes;
     species_fmt *  s;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
@@ -1892,121 +1899,83 @@ pdf_bayes_print_accept(world_fmt *world)
     pdf_draw_line(50, page_height, page_width-50, page_height);
     pdf_advance(&page_height);
 
-    // population sizes
-    for(j0=0; j0 < world->numpop; j0++)
-    {
-        if(!strchr("c", bayes->custm2[j0]))
-        {
-            j = world->bayes->map[j0][1];
-            if (j>=0)
-            {
-                if((trials=world->trials_archive[j])>0)
-                {
-                    symbol_Theta(left_margin, page_height, 12, j0+1);
-                    pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j],trials);
-                    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j]/trials);
-                    pdf_advance(&page_height);
-                }
-            }
-        }
-    }
-    // migration rates
-    for(j0=world->numpop; j0 < world->numpop2; j0++)
-    {
-        if(!strchr("0c", bayes->custm2[j0]))
-        {
-            j = world->bayes->map[j0][1];
-            if (j>=0)
-            {
-                if((trials=world->trials_archive[j])>0)
-                {
-                    m2mm (j0, world->numpop, &frompop, &topop);
-                    symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
-                    pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j],trials);
-                    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j]/trials);
-                    pdf_advance(&page_height);
-                    memset(stemp,0,sizeof(char)*(LINESIZE-1));
-                }
-            }
-        }
-    }
-    // accepted rate of mutation rate changes
-    if(bayes->mu)
-    {
-        if((trials=world->trials_archive[j0])>0)
-        {
-	  j=world->numpop2;
-	  symbol_R(left_margin, page_height, 12, -1);
-	  pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j],trials);
-	  pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j]/trials);
-	  pdf_advance(&page_height);
-        }
-    }
-    // accepted speciation times and variances
-    if(world->has_speciation)
-    {
-      for(j=0; j < world->species_model_size;j++)
-        {
-            s = &world->species_model[j];
-            j0 = world->numpop2 + bayes->mu + 2 * s->id;
-	    trials=world->trials_archive[j0];
-            if(trials>0)
-            {
-                symbol_D(left_margin, page_height, 12, s->from+1,s->to+1);
-                pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j0],trials);
-                pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j0]/trials);
-                pdf_advance(&page_height);
-            }
-	    trials=world->trials_archive[j0+1];
-            if(trials>0)
-            {
-                symbol_S(left_margin, page_height, 12, s->from+1,s->to+1);
-                pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j0+1],trials);
-                pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j0+1]/trials);
-                pdf_advance(&page_height);
-            }
-        }
-    }
-    if(world->has_growth)
+
+    for(j0=0; j0 < npa; j0++)
       {
-	for (j=0;j<world->grownum;j++)
+	if(shortcut(j0,world,&j))
 	  {
-	    j0 = world->numpop2 + bayes->mu + 2 * world->species_model_size + j;
-	    trials=world->trials_archive[j0];
-	    long d=j;
-	    while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
-	      d++;
-	    symbol_Growth(left_margin, page_height, 12, d+1);
-	    pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j0],trials);
-	    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j0]/trials);
-	    pdf_advance(&page_height);
-	    
+	    continue;
 	  }
-      }
-    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
-      {
-	for (j=0;j<world->mlalphanum;j++)
+	else
 	  {
-	    j0 = world->numparamcumvec[GROWTHPRIOR] + j;
-	    trials=world->trials_archive[j0];
-	    long d=j;
-	    while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
-	      d++;
-	    symbol_mlf(left_margin, page_height, 12, d+1);
-	    pdf_printf(250, page_height, 'L', "%8li/%-8li",world->accept_archive[j0],trials);
-	    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[j0]/trials);
-	    pdf_advance(&page_height);
-	    
+	    accept = world->accept_archive[j];
+	    trials = world->trials_archive[j];
+	    assert(trials>0);
+	    if(j<numpop) //theta
+	      {
+		symbol_Theta(left_margin, page_height, 12, j0+1);
+		pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
+		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pdf_advance(&page_height);
+	      }
+	    else if (j < numpop2)
+	      {
+		m2mm (j0, world->numpop, &frompop, &topop);
+		symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
+		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pdf_advance(&page_height);
+		memset(stemp,0,sizeof(char)*(LINESIZE-1));
+	      }
+	    else if(bayes->mu && j == numpop2)
+	      {
+		symbol_R(left_margin, page_height, 12, -1);
+		pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
+		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pdf_advance(&page_height);
+	      }
+	    else  if(world->has_speciation && j < nps)
+	      {
+		s = &world->species_model[j];
+                symbol_D(left_margin, page_height, 12, s->from+1,s->to+1);
+                pdf_printf(250, page_height, 'L', "%8li/%-8li", accept, trials);
+                pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+                pdf_advance(&page_height);
+		if (world->numparamvec[SPLITSTDPRIOR]>0)
+		  {
+		    symbol_S(left_margin, page_height, 12, s->from+1,s->to+1);
+		    pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
+		    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);		 
+		    pdf_advance(&page_height);
+		  }
+	      }
+	    else if(world->has_growth && j<npg)
+	      {
+		long d=j;
+		while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		  d++;
+		symbol_Growth(left_margin, page_height, 12, d+1);
+		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pdf_advance(&page_height);		    
+	      }	    
+	    else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j<npa)
+	      {
+		long d=j;
+		while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		  d++;
+		symbol_mlf(left_margin, page_height, 12, d+1);
+		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pdf_advance(&page_height);		    
+	      }	      
 	  }
       }
     // accepted trees
-    if((trials=world->trials_archive[tc])>0)
-    {
-        pdf_printf(left_margin, page_height,'L', "Genealogies");
-        pdf_printf(250, page_height, 'L', "%8li/%-8li", world->accept_archive[tc], trials);
-        pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[tc]/ trials);
-        pdf_advance(&page_height);
-    }
+    pdf_printf(left_margin, page_height,'L', "Genealogies");
+    pdf_printf(250, page_height, 'L', "%8li/%-8li", world->accept_archive[npa], trials);
+    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[npa]/ trials);
+    pdf_advance(&page_height);
     myfree(stempo);
 }
 ///
@@ -2820,9 +2789,9 @@ double pdf_locus_histogram(world_fmt *world, long locus)
     bayes_fmt * bayes  = world->bayes;
     const long numpop  = world->numpop;
     const long numpop2 = world->numpop2;
-    const long np2x    = numpop2 + (world->bayes->mu);
-    const long /*np2xx*/ nps   = np2x + 2 * world->species_model_size;
-    const long /*np2xxx*/ npg  = nps + world->grownum;
+    const long np2x    = world->numparamcumvec[RATEPRIOR];
+    const long /*np2xx*/ nps   = world->numparamcumvec[SPLITSTDPRIOR];
+    const long /*np2xxx*/ npg  = world->numparamcumvec[GROWTHPRIOR];
     const long numparam= world->numparam;
     long z             = 0;
     long numbins       = 0;
@@ -2984,7 +2953,7 @@ double pdf_locus_histogram(world_fmt *world, long locus)
 	  themin = growthmin;
 	  themax = growthmax;
 	}
-      else if (world->has_mlalpha && rpa < numparam && world->tri_mlalpha != FIXED)
+      else if (world->has_mlalpha && rpa < numparam && world->tri_mlalpha != FIXED) 
 	{
 	  long d=rpa-npg;
 	  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)

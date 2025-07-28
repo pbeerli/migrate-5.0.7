@@ -1770,6 +1770,9 @@ openfile (FILE ** fp, char *filename, char *mode, char *perm)
 
                 printf ("Cannot read from file \"%s\"\n", file);
                 file[0] = '\0';
+#ifdef MPI
+		error("Abort because data file was not found");
+#endif
                 while (file[0] == '\0' && trials++ < 10)
                 {
 #ifdef MPI

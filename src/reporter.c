@@ -389,11 +389,15 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   long topop    =0;  
   long frompop  =0;  
   char *stemp;       
-  long trials   =0;    
+  long trials   =0;
+  long numpop = world->numparamcumvec[THETAPRIOR];
+  long numpop2 = world->numparamcumvec[MIGPRIOR];
+  long npr = world->numparamcumvec[RATEPRIOR];
   long nps = world->numparamcumvec[SPLITSTDPRIOR];
   long npg = world->numparamcumvec[GROWTHPRIOR];
   long npa = world->numparam;
   bayes_fmt *bayes = world->bayes;
+  stemp = (char *) mycalloc(LINESIZE,sizeof(char));
   
   //species_fmt *s = NULL;
   long z=0;
@@ -401,7 +405,7 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   FPRINTF(file,"-------------------------------------------------------------------\n\n");
   FPRINTF(file,"Parameter           Autocorrelation           Effective Sample size\n");
     // population sizes
-    for(j0=0; j0 < world->numpop; j0++)
+    for(j0=0; j0 < npa; j0++)
     {
       //        if(!strchr("0c", bayes->custm2[j]))
       if(shortcut(j0,world,&j))
@@ -410,55 +414,36 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	}
       else
 	{
-	  FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f\n", j+1, autocorr[j], effsample[j]);
-	  if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	    record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);	  
-        }
-    }
-    // migration rates
-    stemp = (char *) mycalloc(LINESIZE,sizeof(char));
-    for(j0=world->numpop; j0 < world->numpop2; j0++)
-    {
-      if(shortcut(j0,world,&j))
-        {
-	  continue;
-	}
-      else
-	{
-	  m2mm (j, world->numpop, &frompop, &topop);
-	  if(world->options->usem)
+	  if (j<numpop) //theta
 	    {
-	      mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+	      FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f\n", j+1, autocorr[j], effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);	  
 	    }
-	  else
-	    {
-	      mysnprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+	  else if (j < numpop2) // migration rates
+	    {	      
+	      m2mm (j, world->numpop, &frompop, &topop);
+	      if(world->options->usem)
+		{
+		  mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+		}
+	      else
+		{
+		  mysnprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+		}
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);		
 	    }
-	  FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	  if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	    record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);		
-        }
-    }
-    // accepted rate of mutation rate changes for each locus mutation rate
-    if(bayes->mu)
-    {
-      j=world->numpop2;
-      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f\n", j+1,autocorr[j],effsample[j]);
-      if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
-    }
-    // accepted species events
-    if (world->has_speciation)
-    {
-        z=0;
-        for(j0=world->numpop2+bayes->mu;j0 < nps;j0++)
-        {
-	  if(shortcut(j0,world,&j))
-	    {
-	      continue;
+	  else if(bayes->mu && j==world->numpop2)
+	    {	      
+	      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f\n", j+1,autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
-	  else
+	  else if (world->has_speciation && j < nps)
 	    {
+	      z=0;
 	      species_fmt * s = get_which_species_model(j, world->species_model, world->species_model_size);
 	      long from = s->from;
 	      long to = s->to;
@@ -475,32 +460,30 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
+	  else if(world->has_growth && j < npg)
+	    {
+	      trials=world->trials_archive[j];
+	      long d = j - nps;
+	      if (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;
+	      mysnprintf(stemp,LINESIZE,"Growth_%li",d+1);
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
+	    }
+	  else if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+	    {
+	      trials=world->trials_archive[j];
+	      long d = j - npg;
+	      if (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;
+	      mysnprintf(stemp,LINESIZE,"ML-alpha_%li",d+1);
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: ML-alpha: Effective sample size of run seems too short! ",j+1);
+	    }
 	}
     }
-    if(world->has_growth)
-      {
-	for(j0=0;j0<world->grownum;j0++)
-	  {
-	    j = j0 + nps;
-	    trials=world->trials_archive[j];
-	    mysnprintf(stemp,LINESIZE,"_%li",j0+1);
-	    FPRINTF(file, "g%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	      record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
-	  }
-      }
-    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
-      {
-	for(j0=0;j0<world->mlalphanum;j0++)
-	  {
-	    j = j0 + npg;
-	    trials=world->trials_archive[j];
-	    mysnprintf(stemp,LINESIZE,"_%li",j0+1);
-	    FPRINTF(file, "ML-alpha%-12.12s   %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	      record_warnings(world,"Param %li: ML-alpha: Effective sample size of run seems too short! ",j+1);
-	  }
-      }
     // accepted trees
     FPRINTF(file, "Genealogies            %8.3f         %17.3f\n", autocorr[npa],effsample[npa]);
     if(effsample[npa]<ESSMINIMUM && file==world->outfile)

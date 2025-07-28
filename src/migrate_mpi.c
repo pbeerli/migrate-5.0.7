@@ -4870,7 +4870,7 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
     {
       //fprintf(stderr,"%i> REPLICANT: packed result locus=%li replicate %li\n",myID,locus, replicate);
       if (world->options->adaptiveheat)
-	bufsize = pack_heat(buffer, bufsize, locus,world);
+	bufsize = pack_heat(&buffer, bufsize, locus,world);
       bufsize = pack_BF_buffer(&buffer, 0, locus, world);
     }
   bufsize = pack_ess_buffer(&buffer, bufsize, world);
