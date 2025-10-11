@@ -3718,7 +3718,7 @@ void print_parm_hyperprior(long *bufsize, char **buffer, long *allocbufsize, opt
   print_parm_comment(bufsize, buffer, allocbufsize, " Hyper-prior for all parameters");
   print_parm_comment(bufsize, buffer, allocbufsize, " The parameter of the prior is drawn from a Gamma distribution with mean and alpha");
   print_parm_comment(bufsize, buffer, allocbufsize, " for example:");
-  print_parm_comment(bufsize, buffer, allocbufsize, "   bayes-hyperprior=YES:10000:1.0:5.0");
+  print_parm_comment(bufsize, buffer, allocbufsize, "   bayes-hyperpriors=YES:10000:1.0:5.0");
   print_parm_comment(bufsize, buffer, allocbufsize, " uses a hyper prior with the mean of the specified prior");
   print_parm_comment(bufsize, buffer, allocbufsize, " and and alpha so that this specifies ~Normal");
   print_parm_br(bufsize, buffer, allocbufsize);
@@ -6467,9 +6467,9 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    }
 	}
       break;
-    case 68: /*mittag-leffler-alpha=value*/
+      //case 68: /*mittag-leffler-alpha=value*/
       //mittag-leffler
-      error("do not go here");
+      // error("do not go here");
       /*if (value!=NULL)
 	{
 #ifdef NEWVERSION

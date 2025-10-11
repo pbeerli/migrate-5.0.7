@@ -13,7 +13,7 @@
  
   
 Copyright 1997-2017 Peter Beerli and Joseph Felsenstein, Michal Palczewski
-
+Copyright 2018-2025 Peter Beerli
 Permission is hereby granted, free of charge, to any person obtaining a copy 
 of this software and associated documentation files (the "Software"), to deal 
 in the Software without restriction, including without limitation the rights 
@@ -35,10 +35,10 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *----------------------------------------------------------------
 */
 #ifndef MIGRATEVERSION
-#define MIGRATEVERSION "5.0.7"
+#define MIGRATEVERSION "6.0.0 [Mittag]"
 #endif
 #ifndef MIGRATESUBVERSION
-#define MIGRATESUBVERSION "May-01-2025"
+#define MIGRATESUBVERSION "August-01-2025"
 #endif
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"

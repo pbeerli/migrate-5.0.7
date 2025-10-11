@@ -3277,12 +3277,17 @@ void
 bayes_print_hyperprior(FILE * file,  world_fmt *world)
 {
   //WARNING not adapted to growth yet
-    long j;             //used to loop over all parameters
+  long j, j0;             //used to loop over all parameters
     long topop    =0;   // indicator into the parameter vector, specifying originating population
     long frompop  =0;   // receiving population
     char *stemp;       // string variable holding print-string
     long trials   =0;   //
-    long tc = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+    long numparam = world->numparam;
+    long numpop = world->numpop;
+    long numpop2 = world->numpop2;
+    long npr = world->numparamcumvec[RATEPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
     bayes_fmt *bayes = world->bayes;
     hyper_fmt *hyperp = bayes->hyperp;
     //long estimated_trials=0;
@@ -3306,70 +3311,100 @@ bayes_print_hyperprior(FILE * file,  world_fmt *world)
     FPRINTF(file,"---------------------------------------------------------------------\n\n");
     
     FPRINTF(file,"Parameter        Priormean/std     PriorAlpha/std       N\n");
-    for(j=0; j < world->numpop; j++)
-    {
-        trials=hyperp[j].meann;
-        if(trials>1)
-        {
-            FPRINTF(file,"Theta_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // migration rates
     stemp = (char *) mycalloc(LINESIZE,sizeof(char));
-    for(j=world->numpop; j < world->numpop2; j++)
+    for(j0=0; j0 < numparam; j0++)
     {
-        trials=hyperp[j].meann;
-        if(trials>1)
-        {
-            m2mm (j, world->numpop, &frompop, &topop);
-            if(world->options->usem)
-            {
-	      mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
-            }
-            else
-            {
-	      mysnprintf(stemp, LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
-            }
-            FPRINTF(file,"%s          %8.5f/%-8.5f %8.5f/%-8.5f     %li\n", stemp, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // accepted rate of mutation rate changes for each locus mutation rate
-    if(bayes->mu)
-    {
-        trials=hyperp[world->numpop2].meann;
-        //      for (j=world->numpop2;j<world->numpop2 + bayes->mu*world->loci;j++)
-        for (j=world->numpop2;j<world->numpop2 + bayes->mu;j++)
-        {
-            FPRINTF(file,"Rate of mutation rate (%li)  %8.5f/%-8.5f         %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // accepted species events
-    if (world->has_speciation)
-    {
-        z=0;
-        //	for(j=world->numpop2+world->loci * bayes->mu;j <= tc;j+=2)
-        for(j=world->numpop2+bayes->mu;j < tc;j+=2)
-        {
-            trials=hyperp[j].meann;
-            long from = world->species_model[z].from;
-            long to = world->species_model[z].to;
-            z++;
-            if(trials>1)
-            {
-	      mysnprintf(stemp,LINESIZE, "_%li->%li",1+from,1+to);
-                FPRINTF(file,"D%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
-                        stemp, hyperp[j].mean, hyperp[j].meanstd,
-                        hyperp[j].alpha, hyperp[j].alphastd, trials);
-                
-            }
-            trials=hyperp[j+1].meann;
-            if(trials>1)
-            {
-                FPRINTF(file,"S%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
-                        stemp, hyperp[j].mean,hyperp[j].meanstd,
-                        hyperp[j].alpha,hyperp[j].alphastd,trials);
-            }
-        }
+      if (shortcut(j0,world,&j))
+	{
+	  continue;
+	}
+      else
+	{
+	  if (j<numpop)
+	    {
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"Theta_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}
+	    }
+	  else if (j<numpop2)
+	    {
+	      // migration rates
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  m2mm (j, numpop, &frompop, &topop);
+		  if(world->options->usem)
+		    {
+		      mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
+		    }
+		  else
+		    {
+		      mysnprintf(stemp, LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+		    }
+		  FPRINTF(file,"%s          %8.5f/%-8.5f %8.5f/%-8.5f     %li\n", stemp, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}
+	    }    // accepted rate of mutation rate changes for each locus mutation rate
+	  else if(bayes->mu && j == numpop2)
+	    {
+	      trials=hyperp[numpop2].meann;
+	      //      for (j=world->numpop2;j<world->numpop2 + bayes->mu*world->loci;j++)
+	      FPRINTF(file,"Rate of mutation rate (%li)  %8.5f/%-8.5f         %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+	    }
+	  else if (world->has_speciation && j < nps) // speciation
+	    {
+	      z=0;
+	      //	for(j=world->numpop2+world->loci * bayes->mu;j <= tc;j+=2)
+	      for(j=npr;j < nps;j+=2)
+		{
+		  trials=hyperp[j].meann;
+		  long from = world->species_model[z].from;
+		  long to = world->species_model[z].to;
+		  z++;
+		  if(trials>1)
+		    {
+		      mysnprintf(stemp,LINESIZE, "_%li->%li",1+from,1+to);
+		      FPRINTF(file,"D%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
+			      stemp, hyperp[j].mean, hyperp[j].meanstd,
+			      hyperp[j].alpha, hyperp[j].alphastd, trials);
+		      
+		    }
+		  if (world->species_model_dist != EXP_DIST)
+		    {
+		      trials=hyperp[j+1].meann;
+		      if(trials>1)
+			{
+			  FPRINTF(file,"S%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
+				  stemp, hyperp[j].mean,hyperp[j].meanstd,
+				  hyperp[j].alpha,hyperp[j].alphastd,trials);
+			}
+		    }
+		}
+	    }
+	  else if (world->has_growth && j < npg)
+	    {
+	      long d = j;
+	      while ( d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;			
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"Growth_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", d+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}		  
+	    }
+	  else if (world->has_mlalpha && world->tri_mlalpha != FIXED && j < numparam)
+	    {
+	      long d = j;
+	      while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;			
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"ML-alpha_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", d+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}		  
+	    }
+	}
     }
     myfree(stemp);
 }

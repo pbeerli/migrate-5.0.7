@@ -2492,7 +2492,7 @@ also very common that some migration routes are estimated poorly \
 because the data contains little or no information for that route. \
 Increasing the prior range will not help in such situations, but \
 reducing the number of parameters may help.";
-    section = (char *) mycalloc(LINESIZE,sizeof(char));
+    section = (char *) mycalloc(LONGLINESIZE,sizeof(char));
     mysnprintf(title,LINESIZE,"Potential Problems");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
@@ -2536,7 +2536,7 @@ reducing the number of parameters may help.";
     if(world->warningsize > 0)
     {
         buffer = (char *) mycalloc(strlen(world->warning)+1,sizeof(char));
-        mysnprintf(buffer,LINESIZE,"%s",world->warning);
+        mysnprintf(buffer,LONGLINESIZE,"%s",world->warning);
         b = buffer;
         tmp = strsep(&buffer,"\n");
         while(tmp!=NULL)

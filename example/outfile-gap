@@ -10,8 +10,8 @@
   One master and 5 compute nodes are available.
   PDF output enabled [Letter-size]
   Version 5.0.7   [May-01-2025]
-  Program started at   Mon Jul  7 19:33:58 2025
-         finished at Mon Jul  7 19:34:19 2025
+  Program started at   Mon Jul 28 10:59:37 2025
+         finished at Mon Jul 28 10:59:57 2025
                           
 
 
@@ -38,7 +38,7 @@ Inheritance multipliers in use for Thetas (specified # 1)
 All inheritance multipliers are the same [1.000000]
 
 Pseudo-random number generator: Mersenne-Twister                                
-Random number seed (with internal timer)             24447913
+Random number seed (with internal timer)           2754027118
 
 Start parameters:
    First genealogy was started using a random tree
@@ -85,12 +85,12 @@ Bayesian estimates
 
 Locus Parameter        2.5%      25.0%    mode     75.0%   97.5%     median   mean
 -----------------------------------------------------------------------------------
-    1  Theta_1         0.02227  0.03000  0.04443  0.07127  0.08887  0.05163  0.05368
-    2  Theta_1         0.01180  0.03627  0.05043  0.05900  0.07500  0.04990  0.05088
-    3  Theta_1         0.04073  0.05113  0.06323  0.07700  0.09993  0.06463  0.06346
-    4  Theta_1         0.04740  0.09200  0.09663  0.09907  0.09993  0.07890  0.07675
-    5  Theta_1         0.01547  0.03720  0.03997  0.04200  0.07447  0.04257  0.04446
-  All  Theta_1         0.03020  0.04487  0.04890  0.05980  0.09387  0.05297  0.05569
+    1  Theta_1         0.01933  0.01933  0.02617  0.03167  0.03167  0.02357  0.02304
+    2  Theta_1         0.03807  0.05193  0.06270  0.06600  0.07493  0.05930  0.05904
+    3  Theta_1         0.04327  0.05447  0.06443  0.06960  0.08820  0.06530  0.06623
+    4  Theta_1         0.02493  0.03573  0.03837  0.04000  0.05240  0.03843  0.03896
+    5  Theta_1         0.02940  0.03427  0.04270  0.04753  0.08467  0.05383  0.05604
+  All  Theta_1         0.02180  0.05153  0.05937  0.06473  0.08033  0.05037  0.04903
 -----------------------------------------------------------------------------------
 
 
@@ -105,14 +105,14 @@ shows the support for thisModel]
 
 Locus          TI(1a)       BTI(1b)         HS(2)
 -------------------------------------------------
-      1          0.00          0.00          0.00
-      2          0.00          0.00          0.00
-      3          0.00          0.00          0.00
-      4          0.00          0.00          0.00
-      5          0.00          0.00          0.00
+      1       -589.49       -561.66       -477.65
+      2      -2283.26      -2155.33      -2086.56
+      3      -1470.03      -1349.88      -1277.71
+      4      -1147.64      -1092.90      -1047.19
+      5      -3772.15      -3340.50      -2980.54
 ---------------------------------------------------------------
-  All           -7.08         -7.08         -7.08
-[Scaling factor = -7.084281]
+  All        -9269.66      -8507.35      -9485.98
+[Scaling factor = -7.079039]
 
 
 (1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures
@@ -131,8 +131,8 @@ Acceptance ratios for all parameters and the genealogies
 ---------------------------------------------------------------------
 
 Parameter           Accepted changes               Ratio
-Theta_1                  24909/24909             1.00000
-Genealogies              25091/25091              1.00000
+Theta_1                  25086/25086             1.00000
+Genealogies               5465/24914             0.21935
 
 
 
@@ -140,8 +140,8 @@ Autocorrelation for all parameters and the genealogies
 -------------------------------------------------------------------
 
 Parameter           Autocorrelation           Effective Sample size
-Theta_1                   0.809                   537.918
-Genealogies               1.000                     0.000
+Theta_1                   0.462                  1922.731
+Genealogies               0.988                    31.223
 (*) averaged over loci.
 
 
@@ -150,26 +150,7 @@ Temperatures during the run using the standard heating scheme
 ===========================================================================
 
 Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)
-    1    1.00000             0.00000   218.09445
-    2    1.00000             0.00000   145.30200
-    3    1.00000             0.00000    77.44449
-    4    1.00000             0.00000    11.00368
-
-POTENTIAL PROBLEMS
-------------------------------------------------------------------------------------------
-This section reports potential problems with your run, but such reporting is often not 
-very accurate. Whith many parameters in a multilocus analysis, it is very common that 
-some parameters for some loci will not be very informative, triggering suggestions (for 
-example to increase the prior range) that are not sensible. This suggestion tool will 
-improve with time, therefore do not blindly follow its suggestions. If some parameters 
-are flagged, inspect the tables carefully and judge wether an action is required. For 
-example, if you run a Bayesian inference with sequence data, for macroscopic species 
-there is rarely the need to increase the prior for Theta beyond 0.1; but if you use 
-microsatellites it is rather common that your prior distribution for Theta should have a 
-range from 0.0 to 100 or more. With many populations (>3) it is also very common that 
-some migration routes are estimated poorly because the data contains little or no 
-information for that route. Increasing the range will not help in such situations, 
-reducing number of parameters may help in such situations.
-------------------------------------------------------------------------------------------
-Genealogies 2: Effective sample size of run seems too short! 
-------------------------------------------------------------------------------------------
+    1    1.00000          -1573.92902  -1270.39876
+    2    1.00000          -1641.84506  -913.48450
+    3    1.00000          -1748.81626  -473.01872
+    4    1.00000          -2759.97692    10.98131
