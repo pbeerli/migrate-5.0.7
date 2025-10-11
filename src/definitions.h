@@ -35,10 +35,10 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *----------------------------------------------------------------
 */
 #ifndef MIGRATEVERSION
-#define MIGRATEVERSION "5.0.7"
+#define MIGRATEVERSION "5.0.8"
 #endif
 #ifndef MIGRATESUBVERSION
-#define MIGRATESUBVERSION "May-01-2025"
+#define MIGRATESUBVERSION "October-11-2025"
 #endif
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
