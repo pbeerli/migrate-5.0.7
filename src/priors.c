@@ -1465,8 +1465,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
 	{
 	  if(from == p[i].from)
 	    {
+	      printf("find_prior: %li ",from);
 	      if (to == p[i].to)
 		{
+		  printf("%li\n",to);
 		  r = &p[i];
 		  copy_prior(result,r);
 		  return;
@@ -1476,8 +1478,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
 	    {
 	      if(-1 == p[i].from)
 		{
+		  printf("find_prior: %li ",-1);
 		  if(-1 == p[i].to)
 		    {
+		      printf("%li\n",-1);
 		      r = &p[i];
 		      copy_prior(result,r);
 		      return;
@@ -1492,6 +1496,7 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
   //
   result->from = from;
   result->to = to;
+  printf("find_prior: default %li %li\n", from, to);
   switch(priortype)
     {
     case THETAPRIOR:
@@ -1544,12 +1549,10 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
       find_prior(i, i, THETAPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
       plist[w++].bins = options->bayes_posterior_bins[THETAPRIOR];
     }
-  for (z=0; z<numpop;z++)
-    for (i=z+1; i<numpop;i++)
+  for (z=numpop; z<numpop2;z++)
     {
-      find_prior(i, z, MIGPRIOR, options, &plist[w]);
-      plist[w++].bins = options->bayes_posterior_bins[MIGPRIOR];
-      find_prior(z, i, MIGPRIOR, options, &plist[w]);
+      m2mm(z,numpop,&from,&to);
+      find_prior(from, to, MIGPRIOR, options, &plist[w]);
       plist[w++].bins = options->bayes_posterior_bins[MIGPRIOR];
     }
   if(has_mu)
