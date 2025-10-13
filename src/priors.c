@@ -1465,10 +1465,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
 	{
 	  if(from == p[i].from)
 	    {
-	      printf("find_prior: %li ",from);
+	      //printf("find_prior: %li ",from);
 	      if (to == p[i].to)
 		{
-		  printf("%li\n",to);
+		  //printf("%li\n",to);
 		  r = &p[i];
 		  copy_prior(result,r);
 		  return;
@@ -1478,10 +1478,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
 	    {
 	      if(-1 == p[i].from)
 		{
-		  printf("find_prior: %li ",-1);
+		  //printf("find_prior: %li ",-1);
 		  if(-1 == p[i].to)
 		    {
-		      printf("%li\n",-1);
+		      //printf("%li\n",-1);
 		      r = &p[i];
 		      copy_prior(result,r);
 		      return;
