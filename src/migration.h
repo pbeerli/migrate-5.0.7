@@ -369,6 +369,7 @@ typedef struct _mutationmodel {
   double *aliasweight;                      //
   long *location;                         //
   double *savealiasweight;
+    long * baseref;
   contribarr *contribution;
   long *category;
   valrec ***tbl;

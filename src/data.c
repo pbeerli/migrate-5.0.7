@@ -1783,6 +1783,9 @@ void read_comments(option_fmt *options, data_fmt *data, world_fmt *world)
 	case '$': // mutation model
 	  read_mutationmodel_comments(input+2,data, world);
 	  break;
+	case '*': //base counts for each locus: Loc=x ACGT=x All=x A=x C=x G=x T=x ?=x
+	  read_basefrequency_reference(input+2, data, world);
+	  break;
 	default:      // this is a plain comment
 	  break;
 	}

@@ -792,6 +792,46 @@ void set_mutationmodel_eigenmaterial(long z, world_fmt *world) //eigenvectormatr
 
 }
 
+void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
+{
+  // #$freq: 8 chr7 ACGT=10 All=10 A=3 C:2 G:4 T:1 ?:0
+  long readpos;
+  long readpos2;
+  char * locusname = (char *) mycalloc(LINESIZE,sizeof(char));
+  char * word = (char *) mycalloc(LINESIZE,sizeof(char));
+  readpos = read_word_delim(input+6, word, " ", TRUE); // sublocus
+  long sublocus = atoi(word)-1;
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // locus name
+  size_t count = sizeof(word) - 1;
+  if (count - LINESIZE < 0)
+    strncpy(locusname, word, count);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // ACGT
+  long acgt = atol(&word[5]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // All
+  long all = atol(&word[4]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // A
+  long A = atol(&word[2]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // C
+  long C = atol(&word[2]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // G
+  long G = atol(&word[2]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // T
+  long T = atol(&word[2]);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // N?
+  long N = atol(&word[2]);
+  printf("%li %li %li %li %li -- %li %li\n",A,C,G,T,N,acgt,all);
+  world->mutationmodels[sublocus].baseref[0]=acgt;
+  world->mutationmodels[sublocus].baseref[1]=all;
+  world->mutationmodels[sublocus].baseref[2]=A;
+  world->mutationmodels[sublocus].baseref[3]=C;
+  world->mutationmodels[sublocus].baseref[4]=G;
+  world->mutationmodels[sublocus].baseref[5]=T;
+  world->mutationmodels[sublocus].baseref[6]=N;
+  myfree(word);
+  myfree(locusname);
+}
+
+
 ///long read_word_delim(char *input, char *word, char * delim)
 ///
 /// check whether there are #$ comments that contain  mutation model specification
@@ -1017,6 +1057,8 @@ void init_mutationmodel_readsites(mutationmodel_fmt *mumod, char datatype, char 
   mumod->contribution = NULL;
   mumod->basefreqs = NULL;
   mumod->ttratio = 2.0;
+  // number of ACGT from referencence sequences
+  mumod->baseref = (long *) mycalloc (BASEREF, sizeof (long));
 }
 
 void init_mutationmodel_readsites2(mutationmodel_fmt *mumod, char datatype, long numsites) //long sites)
@@ -1051,6 +1093,7 @@ void init_mutationmodel_readsites2(mutationmodel_fmt *mumod, char datatype, long
   mumod->contribution = NULL;
   mumod->basefreqs = NULL;
   mumod->ttratio = 2.0;
+  
 }
 
 // used for data on demand
@@ -1234,6 +1277,7 @@ void destroy_mutationmodel(world_fmt* world)
 		  myfree(s->savealiasweight);
 		  myfree(s->category);
 		  myfree(s->contribution);
+		  myfree(s->baseref);
 		  if(s->tbl!=NULL)
 		    {
 		      for(i = 0; i < s->numsiterates; i++)

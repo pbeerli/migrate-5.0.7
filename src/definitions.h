@@ -724,7 +724,7 @@ long chains is used */
 #define IAM  10
 
 #define NUMMUTATIONPARAMETERS 12
-
+#define BASEREF 7
 #define SUCCESS 999
 #define FAILURE -888
 
