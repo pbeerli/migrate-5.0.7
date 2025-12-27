@@ -62,7 +62,7 @@ $Id: tools.c 2158 2013-04-29 01:56:20Z beerli $
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
 #endif
-
+#include <assert.h>
 /* external globals*/
 extern int myID;
 #ifdef CAUTIOUS
@@ -163,6 +163,7 @@ void get_runtime (char *runtime, time_t start, time_t end);
 void print_llike (MYREAL llike, char *strllike);
 int sprint_tabdigits(double x, char * temp);
 /* searching and finding*/
+boolean is_notin(long x, long *order, long orderlen);
 boolean find (long i, long *list, long listlen);
 
 /* conversion between the parameter schemes*/
@@ -1769,6 +1770,9 @@ openfile (FILE ** fp, char *filename, char *mode, char *perm)
 
                 printf ("Cannot read from file \"%s\"\n", file);
                 file[0] = '\0';
+#ifdef MPI
+		error("Abort because data file was not found");
+#endif
                 while (file[0] == '\0' && trials++ < 10)
                 {
 #ifdef MPI
@@ -3479,6 +3483,16 @@ calc_sum (MYREAL *vector, long n)
 
 //==========================================
 // searching and finding
+boolean is_notin(long x, long *order, long orderlen)
+{
+  long i;
+  for (i=0;i<orderlen;i++)
+    {
+      if(x==order[i])
+	return FALSE;
+    }
+  return TRUE;
+}
 
 boolean
 find (long i, long *list, long listlen)
@@ -4105,18 +4119,61 @@ void print_stored_warnings(world_fmt *world)
     }
 }
 
+// for growth and ml-alpha used in shortcut()
+boolean pick_parameter(long j0, long *j, world_fmt * world, long start)
+{
+  long ii;
+  long numalloc;
+  long *pops;
+  *j = j0;
+  if (start == SPLITSTDPRIOR)
+    {
+      numalloc = world->options->growpops_numalloc;
+      pops = world->options->growpops;
+    }
+  else
+    {
+      assert(start == GROWTHPRIOR);
+      numalloc = world->options->mlalphapops_numalloc;
+      pops = world->options->mlalphapops;	    
+    }
+  long np = world->numparamcumvec[start];
+  //world->numpop2 + bayes->mu + 2 * world->species_model_size;
+  if ((j0-np<0) || (j0-np >= numalloc  ))
+    return TRUE;
+  long pick = pops[j0-np]; 
+  if (pick == 0)
+    return TRUE;
+  // has growth or ml-alpha and pick is not 0
+  for (ii=0;ii<numalloc;ii++)
+    {
+      if (pick == pops[ii])
+	break;
+    }
+  *j = np + ii;
+  return FALSE;
+}
+
 
 // true should continue/shortcut loop
 // false should do the rest of the loop, and reset j0 to j
-// selects variable to work on, used on Bayesian context
-// if j0 is bigger than the map return j0 and False
-// except when there is growth then one gets j for growth, and after that
-// return j0 and FALSE
+// selects variable to work on
+// theta and M  depends on x,0,and mean m
+// rate is x, 0
+// growth adjusts to the parameter numparam[SPLITSTDPRIOR] + pick
+// for the right param, e.g. grwopops=(1 0 2 0 1 2) should have two growth parameter
+// one for population 0 and 4 and one for population 1 and 5.
+// should return in a 5-pop data with no rate, parameter index: (5+20) + 0 [for 1],
+// (5+20) + 1 [for 2]; same for ml-alpha
 boolean shortcut(long j0, world_fmt *world, long *j)
 {
+  //long ii = -1;
+  long npps = world->numparamcumvec[SPLITSTDPRIOR];
+  long nppg = world->numparamcumvec[GROWTHPRIOR];
+  long npp  = world->numparam;
   bayes_fmt *bayes = world->bayes;
   *j = -1;
-  if(j0<bayes->mapsize)
+  if(j0<npps)
     {
       if(bayes->map[j0][1] == INVALID)
 	return TRUE;
@@ -4135,29 +4192,20 @@ boolean shortcut(long j0, world_fmt *world, long *j)
     }
   else
     {
-      if (world->has_growth)
+      if (world->has_growth && j0 < nppg)
 	{
-	  *j = j0;
-	  long np = world->numpop2 + bayes->mu + 2 * world->species_model_size;
-	  if ((j0-np<0) || (j0-np >= world->options->growpops_numalloc  ))
-	    return TRUE;
-	  long pick = world->options->growpops[j0-np];
-	  if (pick == 0)
-	    return TRUE;
-      else
-	{
-	  *j = pick + np - 1;
-	  return FALSE;
+	  return pick_parameter(j0, j, world, SPLITSTDPRIOR);
 	}
+      if (world->has_mlalpha && world->tri_mlalpha != FIXED && j0 < npp)
+	{
+	  return pick_parameter(j0, j, world, GROWTHPRIOR);
+	}
+      return TRUE;
     }
-  else
-    {
-      *j = j0;
-      return FALSE;
-    }
+  return TRUE;
 }
-}
-#endif
+
+#endif /*not priortest*/
 
 // find the number of digits of a number, needs to be transformed to long before use
 // only works for numbers smaller than 10^6 returns 8 otherwise

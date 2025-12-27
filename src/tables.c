@@ -270,7 +270,7 @@ void print_burnin_autostop(world_fmt * world)
 void print_heatingreport(world_fmt **universe, option_fmt * options)
 {
   long locus;
-  // if adaptive heating print a table with the average temperatures
+  // if (adaptive) heating print a table with the average temperatures
   if(options->heating)
     {
       long t;
@@ -281,10 +281,26 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 	  fprintf(world->outfile,"\n\n\nAverage temperatures during the run using %s\n",
 		  (options->adaptiveheat==STANDARD) ? "standard adaptive heating scheme" : "bounded adaptive heating scheme" );
 	  fprintf(world->outfile,"===========================================================================\n\n");
-	  fprintf(world->outfile,"Chain Temperature\n");
+	  fprintf(world->outfile,"Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)\n");
 	  for(t = 0; t < options->heated_chains; t++)
 	    {
-	      fprintf(world->outfile,"%5li %10.5f\n",t+1,universe[t]->averageheat);
+	      double nloc=0.0;
+	      double bfsum = 0.0;
+	      double ssum = 0.0;
+	      for(locus = 0; locus < world->loci; locus++)
+		{
+		  if(world->data->skiploci[locus])
+		    {
+		      continue;
+		    }
+		  else
+		    {
+		      nloc += world->data->locusweight[locus];
+		    }
+		  bfsum += world->data->locusweight[locus] * world->bf[locus * hc + t];
+		  ssum += log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t];
+		}
+	      fprintf(world->outfile,"%5li %10.5f          %10.5f  %10.5f\n",t+1,universe[t]->averageheat, bfsum/nloc, ssum/nloc);
 	    }
 	  fprintf(world->outfile,"Adaptive heating often fails, if the average temperatures are very close together\n");
 	  fprintf(world->outfile,"try to rerun using static heating! If you want to compare models using marginal\n");

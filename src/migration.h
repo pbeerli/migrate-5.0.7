@@ -701,6 +701,10 @@ typedef struct startparam_fmt
   float *splitstd;
   long numrate;
   float *rate; 
+  long numgrowth;
+  float *growth; 
+  long nummlalpha;
+  float *mlalpha; 
 } startparam_fmt;
 
 /// data storage for all options
@@ -908,6 +912,12 @@ typedef struct _option
   long *growpops;
   long growpops_numalloc;
   long growpops_numpop;
+  long *mlalphapops;
+  long mlalphapops_numalloc;
+  long mlalphapops_numpop;
+  double * mlalpha;
+  long mlalpha_numalloc;
+  long mlalpha_num;
   //  boolean poprelabeled;
   boolean has_inheritance;
   MYREAL *inheritance_scalars;
@@ -997,7 +1007,7 @@ typedef struct _option
   boolean recorddivtime;
   long species_model_dist;
   int tri_mlalpha;
-  double mlalpha;
+  //double mlalpha;
   double mlinheritance;
   int smoothing[2];
   long smoothing_window[2];
@@ -1313,7 +1323,7 @@ typedef struct _worldoption
   boolean slice_sampling[PRIOR_SIZE];
   MYREAL *slice_sticksizes;
   //@@@@@@@  MYREAL updateratio;
-  double choices[6];
+  double choices[6]; //updating choices: tree, param, ...
   boolean has_bayesfile;
   boolean has_bayesmdimfile;
   long bayesmdiminterval;
@@ -1330,9 +1340,12 @@ typedef struct _worldoption
   MYREAL locusweight;    // use a weight to calculate the invariant locus
   boolean has_variableandone; // use only one invariant locus and reweight
   long firstinvariant; // locus number of first invariant locus to reweight using locusweight
-  long *growpops; // copy of options->growthpop to specify whether populations have different growth rate [growth is directly under world]
+  long *growpops; // copy of options->growthpops to specify whether populations have different growth rate [growth is directly under world]
   long growpops_numalloc;
   long growpops_numpop;
+  long *mlalphapops; // copy of options->mlalphapops to specify whether populations have different mlalpha [mlalpha is directly under world]
+  long mlalphapops_numalloc;
+  long mlalphapops_numpop;
   int smoothing[2];
   long smoothing_window[2];
 }
@@ -1647,9 +1660,6 @@ typedef struct _world
   long divtime_alloc;
   long divtime_num;
   FILE *divtimefile;
-  int tri_mlalpha;
-  double mlalpha; //mittag-leffler
-  double mlinheritance;
   double *steppingstones;
   double *steppingstone_scalars;
   double *steppingstone_counters;
@@ -1657,6 +1667,15 @@ typedef struct _world
   double *growth; // contains growth values: growpops={1,1,1,1} => growth={x},growpop={1,2,1} => growth={x1,x2}
   double *savegrowth;
   long grownum;
+  int tri_mlalpha; //deals with fixed alpha or population alpha -- copy from options.
+  boolean has_mlalpha;
+  double * mlalpha; //mittag-leffler
+  double * savemlalpha;
+  double mlinheritance;  
+  long mlalphanum;
+  long numparam; //holds the result from get_numparam [this is used so many times
+  long numparamcumvec[PRIOR_SIZE]; //holds the cumulative numparam for each param group
+  long numparamvec[PRIOR_SIZE]; //holds the  numparam for each param group
 }
 world_fmt;
 

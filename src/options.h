@@ -201,4 +201,13 @@ extern long show_splitstdownparam(FILE *file, option_fmt *options, char **temp);
 extern void show_startparamtype(twin_fmt *guess, long index, char **temp);
 // show the parameter start values for each key
 extern void show_startparam(FILE *file, option_fmt *options, short key, boolean verbose);
+
+extern void print_parm_delimiter(long *bufsize, char **buffer, long *allocbufsize);
+extern void print_parm_smalldelimiter(long *bufsize, char **buffer, long *allocbufsize);
+extern void print_parm_br(long *bufsize, char **buffer, long *allocbufsize);
+extern void print_parm_comment(long *bufsize, char **buffer, long *allocbufsize, char message[]);
+extern void print_parm_mutable_comment(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);
+extern void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);
+extern void print_parm(long *bufsize, char **buffer, long *allocbufsize, char string[]);
+
 #endif /*OPTIONS_INCLUDE */

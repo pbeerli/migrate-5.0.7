@@ -13,7 +13,7 @@
  
   
 Copyright 1997-2017 Peter Beerli and Joseph Felsenstein, Michal Palczewski
-
+Copyright 2018-2025 Peter Beerli
 Permission is hereby granted, free of charge, to any person obtaining a copy 
 of this software and associated documentation files (the "Software"), to deal 
 in the Software without restriction, including without limitation the rights 
@@ -35,7 +35,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 *----------------------------------------------------------------
 */
 #ifndef MIGRATEVERSION
-#define MIGRATEVERSION "5.0.8"
+#define MIGRATEVERSION "6.0.1 [Mittag (merged with main Oct 11 2025)]"
 #endif
 #ifndef MIGRATESUBVERSION
 #define MIGRATESUBVERSION "October-11-2025"
@@ -277,8 +277,10 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #endif
 
 //#include "sighandler.h"
-#define FClose(file) if (file) fclose(file) ; file=NULL
-#define znzClose(file) if (file) znzclose(file) ; file=NULL
+#define FClose(file) do { if (file) { fclose(file); file = NULL; } } while(0)
+//#define FClose(file) if (file) fclose(file) ; file=NULL
+#define znzClose(file) do { if (file) { znzclose(file) ; file=NULL; } } while(0)
+//#define znzClose(file) if (file) znzclose(file) ; file=NULL
 #ifdef WIN32
 #ifndef WINDOWS
 #define WINDOWS
@@ -405,7 +407,7 @@ typedef int boolean;
 #define SMALLBUFSIZE    255L
 #define ONEMEGABYTE   1024000
 #define MAXBUFSIZE   10000000L
-#define LINESIZE        1024L /* setting this smaller can break */
+#define LINESIZE        2048L /* was 1024; setting this smaller can break */
 #define LONGLINESIZE  1000000L /* setting this smaller than 100000 can break */
 #define SUPERLINESIZE 1000000L /*used to read many many loci-sites and indiv numbers*/ 
 
@@ -499,7 +501,7 @@ long chains is used */
 /* mutation model setting */
 #define MSAT_OFFSET 10
 /* prior setting */
-#define STARTGUESSNUM 5  /* used for options->startguess*/
+#define STARTGUESSNUM 7  /* used for options->startguess*/
 #define PRIOR  10
 #define RANDOMPRIOR 100
 #define VERBOSE  (boolean) 1 
@@ -559,6 +561,8 @@ long chains is used */
 #define BIGGEST_SPLITSTD   1e9
 #define SMALLEST_RATE 1e-10
 #define BIGGEST_RATE  1e10 
+#define SMALLEST_MLALPHA 0.3
+#define BIGGEST_MLALPHA  1.0 
 #define SMALLEST_DNASPECIES 0.0000001
 #define BIGGEST_DNASPECIES 100.0
 #define SMALLEST_ALLELESPECIES 0.0001

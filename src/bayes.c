@@ -60,6 +60,7 @@
 #include "priors.h"
 #include "mittag_leffler.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "savitzky_golay.h"
 #include "kernel_smooth.h"
 #ifdef PRETTY
@@ -142,7 +143,7 @@ void adjust_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL
 void bayes_progress(world_fmt *world, long ten);
 void init_global_function_arrays( long numparam);
 void destroy_global_function_arrays(void);
-void which_prior (prior_fmt *bayes_priors,  long numparam);
+void which_prior (prior_fmt *bayes_priors,  world_fmt *world);
 void adjust_llocalparam(MYREAL *locallparam, world_fmt * world,  long locus,  long skyz);
 MYREAL probg_treetimesCOMPLEX(world_fmt *world);
 MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val);
@@ -158,7 +159,7 @@ void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long 
                           long *total, MYREAL *themean, MYREAL *thestd);
 void construct_locus_histogram(world_fmt *world, long locus, MYREAL *mini, MYREAL *maxi, double **results);
 void find_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL **adjmaxi);
-void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt *world, long numparam);
+void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt *world);
 void print_bayes_credibility(FILE *file, MYREAL *cred, long numpop);
 void     find_bayes_mode(world_fmt *world, long locus, long numparam);
 //##
@@ -214,13 +215,17 @@ void destroy_global_function_arrays()
 /// either the Exponential prior distribution or a Uniform prior distribution or .. other priors ..
 /// each prior distribution has its own specific hastings ratio that will be calculated in the
 /// function ptr hastings_ratio
-void which_prior (prior_fmt *bayes_priors,  long numparam)
+void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
 {
-    long kind;
-     long i;
-    init_global_function_arrays(numparam);
-    for (i=0; i<numparam; i++)
+  long kind;
+  long i;
+  long pa0;
+  init_global_function_arrays(world->numparam);
+  for (pa0=0; pa0<world->numparam; pa0++)
     {
+      if(shortcut(pa0,world,&i))
+            continue;
+      
         kind = bayes_priors[i].kind;
         switch (kind)
         {
@@ -289,7 +294,7 @@ void bayes_check_and_fix_param(world_fmt *world)
      long i;
     //    long frompop, topop;
     //MYREAL theta;
-    const  long npp = world->numpop2 + ( long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
+     const  long npp = world->numparam;//world->numpop2 + ( long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
     MYREAL *maxparam = world->bayes->maxparam;
     MYREAL *minparam = world->bayes->minparam;
     
@@ -368,13 +373,14 @@ MYREAL probg_treetimes(world_fmt* world)
     const MYREAL *geo = world->data->geo;
     //const MYREAL *lgeo = world->data->lgeo;
     const  long numpop = world->numpop;
-    const  long numpop2 = world->numpop2;
+    //const  long numpop2 = world->numpop2;
     //const long locus = world->locus;
-    const  long npp = numpop2 + ( long) world->bayes->mu;
-    const  long nppall = npp + 2 * world->species_model_size; //OK, do not add growth here!
+    const  long npp = world->numparamcumvec[RATEPRIOR];
+    const  long nppall = world->numparamcumvec[SPLITSTDPRIOR]; //OK, don't add growth here!
     species_fmt *s;
     long i;
-     long pop;
+    long pop;
+    long ypop;
     MYREAL t0;
     MYREAL t1;
     double tx;
@@ -403,10 +409,10 @@ MYREAL probg_treetimes(world_fmt* world)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
-    double mlalpha = world->mlalpha;
+    double mlalpha;// = world->mlalpha;
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
-    boolean has_mlalpha = mlalpha<1.0;
+    boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
     //boolean hasnot_mlalpha = !has_mlalpha;
     double x;
     double g;
@@ -415,6 +421,12 @@ MYREAL probg_treetimes(world_fmt* world)
     if (world->has_growth)
       {
 	growth = world->growth;
+      }
+    long * mlalphapops = world->options->mlalphapops;
+    double *mlalphas=NULL;
+    if (world->has_mlalpha)
+      {
+	mlalphas = world->mlalpha;
       }
 
     //double alphapart = exp(LGAMMA(1.0+mlalpha));
@@ -429,11 +441,16 @@ MYREAL probg_treetimes(world_fmt* world)
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
       type = tli->eventnode->type;
-
+      ypop = tli->eventnode->actualpop;
       deltatime = t0 - t1; // should be negative
       deltatime2 = t1 - t0; // should be positive
       if(has_mlalpha)
 	{
+	  long xx = mlalphapops[ypop];
+	  if (xx == 0)
+	    mlalpha = 1.0;
+	  else
+	    mlalpha = mlalphas[xx-1];
 	  deltatime = -pow(deltatime2,mlalpha);
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
@@ -517,6 +534,7 @@ MYREAL probg_treetimes(world_fmt* world)
 		}
 	    }
 	  long xpop = tli->eventnode->actualpop;
+	  assert(xpop == ypop);
 	  switch(type)
 	    {
 	    case 'i':
@@ -566,6 +584,11 @@ MYREAL probg_treetimes(world_fmt* world)
       //sumprob += deltatime * (waitprob + waitprob_spec) + eventprob;
       if(has_mlalpha)
 	{
+	  	  long xx = mlalphapops[ypop];
+	  if (xx == 0)
+	    mlalpha = 1.0;
+	  else
+	    mlalpha = mlalphas[xx-1];	 
 	   //mittag-leffler
 	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
 #ifdef WINDOWS
@@ -580,7 +603,7 @@ MYREAL probg_treetimes(world_fmt* world)
 	  assert(!isnan(sumprob));
 	  //fprintf(stderr,"%i> locus %li sumprob=%f\n",myID,locus,sumprob);
 	}
-	  else
+      else
 	{
 	  //#ifdef DEBUGWEIRD
 	  if (isinf(waitprobcoal) && isinf(eventprob))
@@ -597,6 +620,7 @@ MYREAL probg_treetimes(world_fmt* world)
     assert(!isnan(sumprob));
     return sumprob;
 }
+
 //newlocal
 // used for assignment calculation [see world.c: updating(), speciate.c newtree_update()]
 MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
@@ -611,6 +635,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     species_fmt *s;
     long i;
      long pop;
+     long ypop;
     MYREAL t0;
     MYREAL t1;
     double tx;
@@ -639,11 +664,13 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
-    double mlalpha = world->mlalpha;
+    double * mlalphas = world->mlalpha;
+    long * mlalphapops = world->options->mlalphapops;
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
-    boolean has_mlalpha = mlalpha<1.0;
+    boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
     //boolean hasnot_mlalpha = !has_mlalpha;
+    double mlalpha;
     double x;
     double g;
     long * growpops = world->options->growpops;
@@ -665,14 +692,25 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
       if (tli->eventnode == NULL)
-	type = tli->type;
+	{
+	  type = tli->type;
+	  ypop = tli->to;//<=====check
+	}
       else
-	type = tli->eventnode->type;
-
+	{
+	  type = tli->eventnode->type;
+	  ypop = tli->eventnode->actualpop;
+	}
       deltatime = t0 - t1; // should be negative
       deltatime2 = t1 - t0; // should be positive
       if(has_mlalpha)
 	{
+	  long xx = mlalphapops[ypop];
+	  if (xx == 0)
+	    mlalpha = 1.0;
+	  else
+	    mlalpha = mlalphas[xx-1];
+
 	  deltatime = -pow(deltatime2,mlalpha);
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
@@ -816,7 +854,12 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
       //sumprob += deltatime * (waitprob + waitprob_spec) + eventprob;
       if(has_mlalpha)
 	{
-	   //mittag-leffler
+	   //mittag-leffle
+	  long xx = mlalphapops[pop];
+	  if (xx == 0)
+	    mlalpha = 1.0;
+	  else
+	    mlalpha = mlalphas[xx-1];
 	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
 #ifdef WINDOWS
 	  _Dcomplex pwc = {pw,0.0};
@@ -1483,14 +1526,16 @@ MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val)
 
 MYREAL calculate_prior(world_fmt *world)
 {
-    const long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  const long np = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     long i;
+    long j;
     MYREAL retval=0.0;
     
     for (i=0;i<np;i++)
     {
-        if (world->bayes->map[i][1] != INVALID)
-            retval += (*log_prior_1[i])(world,i,world->param0[i]);
+      //if (world->bayes->map[i][1] != INVALID)
+      if(!shortcut(i,world,&j))
+	 retval += (*log_prior_1[j])(world,j,world->param0[j]);
     }
     return retval;
 }
@@ -1498,7 +1543,7 @@ MYREAL calculate_prior(world_fmt *world)
 void calculate_plotter_priors(world_fmt *world)
 {
     bayes_fmt *bayes = world->bayes;
-    long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    long np = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     MYREAL *priors;
     MYREAL *maxpriors;
     MYREAL *totalspriors;
@@ -1606,217 +1651,227 @@ void print_bayes_verbose(long which, world_fmt *world, MYREAL newparam, boolean 
 // standard metropolis proposal
 MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean *success)
 {
-#ifdef RANGEDEBUG
-    int rangedebug=0;
-#endif
-    //long        topop;
-    //long        frompop;
-    //static long counter = 0;
-    const long  numpop2 = world->numpop2;
-    const long  npx = numpop2 + world->species_model_size * 2;
-    //const long  npx2 = npx + world->grownum;
-    const MYREAL themin = world->bayes->minparam[which];
-    const MYREAL themax = world->bayes->maxparam[which];
-    //  MYREAL      mean;
-    MYREAL      delta;
-    MYREAL      newparam= -999;
-    MYREAL      oldval;
-    MYREAL      r;
-    MYREAL      newval;
-    MYREAL      hastingsratio;
-    //MYREAL      theta;
-    //MYREAL      nm;
-    long specid = -1;
-    //MYREAL oldsigoma = 0.0;
-    //MYREAL oldmu=0.0;
-    //MYREAL newmu=0.0;
-    //MYREAL newsigma=0.0;
-    const MYREAL      murate = world->options->mu_rates[world->locus];
-    MYREAL    * param0 = world->param0;
-    bayes_fmt * bayes = world->bayes;
-    boolean is_mu=FALSE;//this is the mean of the speciation time mu
-    const boolean verbose = (world->heat > (1.0  - SMALLEPSILON)) && myID==MASTER && world->options->verbose;
-    
-    //boolean growthprop = FALSE;
-    // calculate the probability for the old parameter set
-    // this is done from scratch because the tree might have changed in the last step
-    delta  = bayes->delta[which];
-    oldval = probg_treetimes(world);
-    r = UNIF_RANDUM();
-    // draw a new parameter from the prior distribution
-    // for migration parameters we need to distinguish whether the
-    // prior is in terms of M or xNm
-    if(which < world->numpop)
+  const long  numpop2 = world->numpop2;
+  const long  npx = world->numparamcumvec[SPLITSTDPRIOR];//numpop2 + world->species_model_size * 2;
+  const long  npg = world->numparamcumvec[GROWTHPRIOR];
+  const long  npx2 = world->numparam;
+  const MYREAL themin = world->bayes->minparam[which];
+  const MYREAL themax = world->bayes->maxparam[which];
+  //  MYREAL      mean;
+  MYREAL      delta;
+  MYREAL      newparam= -999;
+  MYREAL      oldval;
+  MYREAL      r;
+  MYREAL      newval = -HUGE;
+  MYREAL      hastingsratio;
+  long specid = -1;
+  const MYREAL      murate = world->options->mu_rates[world->locus];
+  MYREAL    * param0 = world->param0;
+  bayes_fmt * bayes = world->bayes;
+  boolean is_mu=FALSE;//this is the mean of the speciation time mu
+  const boolean verbose = (world->heat > (1.0  - SMALLEPSILON)) && myID==MASTER && world->options->verbose;
+  
+  // calculate the probability for the old parameter set
+  // this is done from scratch because the tree might have changed in the last step
+  delta  = bayes->delta[which];
+  oldval = probg_treetimes(world);
+  r = UNIF_RANDUM();
+  // draw a new parameter from the prior distribution
+  // for migration parameters we need to distinguish whether the
+  // prior is in terms of M or xNm
+  if(which < world->numpop) //Theta
     {
-        newparam = (*propose_new[which]) (param0[which],which, world, &r);
-        check_min_max_param(&newparam,themin,themax);
-        hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
-        // add the prior ratio to the log of the hastings ratios
-        hastingsratio += (*log_prior_ratio[which])(newparam,oldparam[which], bayes, which);
-        bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
-        reprecalc_world(world, which);
-        // calculate prob(G|params)prob(D|G)
-        newval = probg_treetimes(world);
+      newparam = (*propose_new[which]) (param0[which],which, world, &r);
+      check_min_max_param(&newparam,themin,themax);
+      hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
+      // add the prior ratio to the log of the hastings ratios
+      hastingsratio += (*log_prior_ratio[which])(newparam,oldparam[which], bayes, which);
+      bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+      reprecalc_world(world, which);
+      // calculate prob(G|params)prob(D|G)
+      newval = probg_treetimes(world);
     }
-    else if(which < numpop2)
-        {
-            newparam = (*propose_new[which]) (param0[which], which, world, &r);
-            check_min_max_param(&newparam,themin,themax);
-            hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
-            // add the prior ratio to the log of the hastings ratios
-            hastingsratio += (*log_prior_ratio[which])(newparam,oldparam[which], bayes, which);
-            bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
-            reprecalc_world(world, which);
-            // calculate prob(G|params)
-            newval = probg_treetimes(world);
-        }
-    else if(bayes->mu && which == numpop2)
-            {
-                newparam = -1000.0;
-                newparam = (*propose_new[which]) (murate, which, world, &r);
-                check_min_max_param(&newparam,themin,themax);
-                hastingsratio = (*hastings_ratio[which])(newparam, murate, delta, r, bayes, which);
-                // add the prior ratio to the log of the hastings ratios
-                hastingsratio += (*log_prior_ratio[which])(newparam, murate, bayes, which);
-                world->options->mu_rates[world->locus] = newparam;
-                world->options->lmu_rates[world->locus] = log(newparam);
-                // change the tree length because of the rate
-                reprecalc_world(world, which);
-                recalc_timelist(world, world->options->mu_rates[world->locus] , oldparam[which]);
-                // calculate prob(G|params)
-                newval = probg_treetimes(world);
-            }
-    else if (which < npx)
-            {
-	//warning("GROWTH has issues with speciation");
-                specid = propose_new_spec_mu(world, which, &is_mu, &newparam);
-                hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
-                hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
-                bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
-                reprecalc_world(world, which);
-                // calculate prob(G|params)
-                newval = probg_treetimes(world);
-            }
-    else
-      {
-	long gw = which-npx;//world->options->growpops[which-npx]-1;
-	if (gw<0)
-	  {
-	    error("proposal for new growth value tried to use a no-growth population\n");
-	  }
-	else
-	  {
-	    //growthprop = TRUE;
-	    world->savegrowth[gw] = world->growth[gw];
-	    world->growth[gw] = (*propose_new[which]) (world->growth[gw],which, world, &r);
-	    newparam = world->growth[gw];
-	    //fprintf(stdout,"%i> new growth[%li]=%f trial\n",myID, gw,newparam);
-	    check_min_max_param(&world->growth[gw],themin,themax);
-	    hastingsratio = (*hastings_ratio[which])(world->growth[gw], world->savegrowth[gw], delta, r, bayes, which);
-	    // add the prior ratio to the log of the hastings ratios
-	    hastingsratio += (*log_prior_ratio[which])(world->growth[gw], world->savegrowth[gw], bayes, which);
-	    bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
-	    //reprecalc_world(world, which);
-	  }
-	// calculate prob(G|params)
-	newval = probg_treetimes(world);
-	//printf("%c Growth which=%li newval=%f oldval=%f diff=%f\n", newval-oldval>0 ? '+' : '-', which,newval,oldval,newval-oldval);
+  else if(which < numpop2) //migration
+    {
+      newparam = (*propose_new[which]) (param0[which], which, world, &r);
+      check_min_max_param(&newparam,themin,themax);
+      hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
+      // add the prior ratio to the log of the hastings ratios
+      hastingsratio += (*log_prior_ratio[which])(newparam,oldparam[which], bayes, which);
+      bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+      reprecalc_world(world, which);
+      // calculate prob(G|params)
+      newval = probg_treetimes(world);
+    }
+  else if(bayes->mu && which == numpop2) //rate
+    {
+      newparam = -1000.0;
+      newparam = (*propose_new[which]) (murate, which, world, &r);
+      check_min_max_param(&newparam,themin,themax);
+      hastingsratio = (*hastings_ratio[which])(newparam, murate, delta, r, bayes, which);
+      // add the prior ratio to the log of the hastings ratios
+      hastingsratio += (*log_prior_ratio[which])(newparam, murate, bayes, which);
+      world->options->mu_rates[world->locus] = newparam;
+      world->options->lmu_rates[world->locus] = log(newparam);
+      // change the tree length because of the rate
+      reprecalc_world(world, which);
+      recalc_timelist(world, world->options->mu_rates[world->locus] , oldparam[which]);
+      // calculate prob(G|params)
+      newval = probg_treetimes(world);
+    }
+  else if (which < npx)// speciation
+    {
+      //warning("GROWTH has issues with speciation");
+      specid = propose_new_spec_mu(world, which, &is_mu, &newparam);
+      hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
+      hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
+      bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+      reprecalc_world(world, which);
+      // calculate prob(G|params)
+      newval = probg_treetimes(world);
+    }
+  else if (world->has_growth && which < npg) //Growth
+    {
+      long gw = world->options->growpops[which-npx]-1;// was which-npx
+      if (gw<0)
+	{
+	  return oldval; // this should not be a choice for 'which' because it should be mapped out.
+	  //error("proposal for new growth value tried to use a no-growth population\n");
+	}
+      else
+	{
+	  //growthprop = TRUE;
+	  world->savegrowth[gw] = world->growth[gw];
+	  world->growth[gw] = (*propose_new[which]) (world->growth[gw],which, world, &r);
+	  //fprintf(stdout,"%i> new growth[%li]=%f trial\n",myID, gw,newparam);
+	  check_min_max_param(&world->growth[gw],themin,themax);
+	  newparam = world->growth[gw];
+	  hastingsratio = (*hastings_ratio[which])(world->growth[gw], world->savegrowth[gw], delta, r, bayes, which);
+	  // add the prior ratio to the log of the hastings ratios
+	  hastingsratio += (*log_prior_ratio[which])(world->growth[gw], world->savegrowth[gw], bayes, which);
+	  bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+	  //reprecalc_world(world, which);
+	}
+      // calculate prob(G|params)
+      newval = probg_treetimes(world);
+      //printf("%c Growth which=%li newval=%f oldval=%f diff=%f\n", newval-oldval>0 ? '+' : '-', which,newval,oldval,newval-oldval);
+    }
+  else if (which < npx2 && world->has_mlalpha && world->tri_mlalpha != FIXED)
+    {
+      long gw = world->options->mlalphapops[which-npg]-1;// was which-npx
+      if (gw<0)
+	{
+	  return oldval; // this should not be a choice for 'which' because it should be mapped out.	 
+	}
+      else
+	{
+	  world->savemlalpha[gw] = world->mlalpha[gw];
+	  world->mlalpha[gw] = (*propose_new[which]) (world->mlalpha[gw],which, world, &r);
+	  //fprintf(stdout,"%i> new growth[%li]=%f trial\n",myID, gw,newparam);
+	  check_min_max_param(&world->mlalpha[gw],themin,themax);
+	  newparam = world->mlalpha[gw];
+	  hastingsratio = (*hastings_ratio[which])(world->mlalpha[gw], world->savemlalpha[gw], delta, r, bayes, which);
+	  // add the prior ratio to the log of the hastings ratios
+	  hastingsratio += (*log_prior_ratio[which])(world->mlalpha[gw], world->savemlalpha[gw], bayes, which);
+	  bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+	  //reprecalc_world(world, which);
+	}
+      // calculate prob(G|params)
+      newval = probg_treetimes(world);
+      //printf("%c ML-alpha which=%li newval=%f oldval=%f diff=%f\n", newval-oldval>0 ? '+' : '-', which,newval,oldval,newval-oldval);      
+    }
+  else
+    {
+      hastingsratio = -HUGE;
+      newval = -HUGE;
     }
     //Acceptance or rejection of the new value
-    *success = bayes_accept(newval, oldval,world->heat, hastingsratio);
-    if(*success)
-      {
-	//if (world->has_growth && which >= npx)
-	  //  printf("+");fflush(stdout);
-	  //{
-	    //if(world->heat==1.0)
-	    //  printf("+ %i> growth=%f theta0=%f\n", myID, world->growth[0], world->param0[0]);
-	  //}
-	//if(world->heat==1.0 && which >= world->numpop2)
-	//  {
-	//    printf("%i> + %li %f %f (%f,%f,%f)\n",myID,which,newval, oldval,world->param0[which],newparam,oldparam[which]);
-	//  }
-	if(verbose)
-	  print_bayes_verbose(which,world, newparam, *success);
-	return newval;
-      }
-    else
-      {
-        if(world->options->prioralone)
-	  {
-            *success = TRUE;
+  *success = bayes_accept(newval, oldval,world->heat, hastingsratio);
+  if(*success)
+    {
+      if(verbose)
+	print_bayes_verbose(which,world, newparam, *success);
+      return newval;
+    }
+  else //undo all the changes because change was not accepted
+    {
+      if(world->options->prioralone)
+	{
+	  *success = TRUE;
 #ifdef DEBUG
-            if(verbose)
-	      print_bayes_verbose(which,world, newparam, *success);
+	  if(verbose)
+	    print_bayes_verbose(which,world, newparam, *success);
 #endif
-            return newval;
-	  }
+	  return newval;
+	}
 #ifdef DEBUG
-        if(verbose)
-	  print_bayes_verbose(which,world, newparam, *success);
+      if(verbose)
+	print_bayes_verbose(which,world, newparam, *success);
 #endif
-        if(which<numpop2)
-	  {
+      if(which<numpop2)
+	{
 	  bayes_set_param(world->param0,oldparam[which],which,world->options->custm2, world->numpop);
-	    reprecalc_world(world, which);
-	  }
-        // mutation rate undo
-        else if(bayes->mu && which==numpop2)
-	  {
-            recalc_timelist(world, oldparam[which], world->options->mu_rates[world->locus]);
-            world->options->mu_rates[world->locus] = oldparam[which];
-            world->options->lmu_rates[world->locus] = log(oldparam[which]);
-            world->param0[which] = oldparam[which];
-            reprecalc_world(world, which);
-	  }
-        // speciation stuff undo
-        else if(which < npx)
-	  {
-            world->param0[which] = oldparam[which];
-            if(is_mu)
-	      world->species_model[specid].mu = (double) oldparam[which];
-            else
-	      world->species_model[specid].sigma = (double) oldparam[which];
-	    if(world->species_model[specid].type == 't')
-	      {
-		long t;
-		for (t=0;t<world->species_model_size;t++)
-		  {
-		    species_fmt *s     = &world->species_model[specid];
-		    species_fmt *other = &world->species_model[t];
-		    if(s->from == other->from && other->type == 't')
-		      {
-			other->mu = s->mu;
-			other->sigma = s->sigma;
-			long y = t*2 + world->bayes->mu + world->numpop2;
-			world->param0[y] = (MYREAL) s->mu;
-			world->param0[y+1] = (MYREAL) s->sigma;
-		      }
-		  }
-	      }
-		/*if(world->heat==1.0 && which >= world->numpop2)
-	      {
-	    	printf("%i>  -%li %f %f (%f,%f,%f)\n",myID,which,newval, oldval,world->param0[which],newparam,oldparam[which]);
-		}	  */ 
-	  }
-	else
-	  {
-	    //  if (world->has_growth && which >= npx)
-	    //{
-	    //	if(world->heat==1.0)
-	    //	  printf("- %i> growth=%f theta0=%f\n", myID, world->growth[0], world->param0[0]);
-	    //  }
-	    if (world->options->growpops[which-npx]!=0)
-	      {
-		long gw = world->options->growpops[which-npx] - 1;
-		world->growth[gw] = world->savegrowth[gw];
-		//printf(".");fflush(stdout);
-	      }
-	  }
-        //printf("  %li %f %f\n",which,newval, oldval);
-        //printf(".");fflush(stdout);
-        return oldval;
-      }
+	  reprecalc_world(world, which);
+	}
+      // mutation rate undo
+      else if(bayes->mu && which==numpop2)
+	{
+	  recalc_timelist(world, oldparam[which], world->options->mu_rates[world->locus]);
+	  world->options->mu_rates[world->locus] = oldparam[which];
+	  world->options->lmu_rates[world->locus] = log(oldparam[which]);
+	  world->param0[which] = oldparam[which];
+	  reprecalc_world(world, which);
+	}
+      // speciation stuff undo
+      else if(which < npx)
+	{
+	  world->param0[which] = oldparam[which];
+	  if(is_mu)
+	    world->species_model[specid].mu = (double) oldparam[which];
+	  else
+	    world->species_model[specid].sigma = (double) oldparam[which];
+	  if(world->species_model[specid].type == 't')
+	    {
+	      long t;
+	      for (t=0;t<world->species_model_size;t++)
+		{
+		  species_fmt *s     = &world->species_model[specid];
+		  species_fmt *other = &world->species_model[t];
+		  if(s->from == other->from && other->type == 't')
+		    {
+		      other->mu = s->mu;
+		      other->sigma = s->sigma;
+		      long y = t*2 + world->bayes->mu + world->numpop2;
+		      world->param0[y] = (MYREAL) s->mu;
+		      world->param0[y+1] = (MYREAL) s->sigma;
+		    }
+		}
+	    }
+	}
+      else if  (world->has_growth && which < npg) //Growth
+	{
+	  if (world->options->growpops[which-npx]!=0)
+	    {
+	      long gw = world->options->growpops[which-npx] - 1;
+	      world->growth[gw] = world->savegrowth[gw];
+	      world->param0[which] = world->growth[gw];
+	      //printf(".");fflush(stdout);
+	    }
+	}
+      else if (which < npx2 && world->has_mlalpha && world->tri_mlalpha != FIXED)
+	{
+	  if (world->options->mlalphapops[which-npg]!=0)
+	    {
+	      long gw = world->options->mlalphapops[which-npg] - 1;
+	      world->mlalpha[gw] = world->savemlalpha[gw];
+	      world->param0[which] = world->mlalpha[gw];
+	      //printf(".");fflush(stdout);
+	    }
+	}
+      //printf("  %li %f %f\n",which,newval, oldval);
+      //printf(".");fflush(stdout);
+      return oldval;
+    }
 }
 
 void traverse_adjust(node *theNode, MYREAL new_old_ratio)
@@ -1931,8 +1986,9 @@ bayes_update (world_fmt * world)
     const long        numpop = world->numpop;
     const long        numpop2 = world->numpop2;
     //const long        numpop2rate = world->numpop2 + mu;
-    const long        npx2 = get_numparam(world);
-    const long        npx = npx2 - world->grownum;
+    const long        npx2 = world->numparam;
+    const long        npx = world->numparamcumvec[SPLITSTDPRIOR];
+    const long        npg = world->numparamcumvec[GROWTHPRIOR];
     const MYREAL      murate = world->options->mu_rates[world->locus];
     const boolean     writelog = (myID==MASTER &&
                                   world->options->progress &&
@@ -1996,9 +2052,11 @@ bayes_update (world_fmt * world)
                 paramval = world->options->mu_rates[world->locus];
             }
     else if (which<npx)
-                type = SPECIESTIMEPRIOR;
-    else
+      type = SPECIESTIMEPRIOR;
+    else if (which<npg)
       type = GROWTHPRIOR;
+    else //if (which<npx2)
+      type = MLFPRIOR;
     
     if(world->options->slice_sampling[type])
     {
@@ -2088,9 +2146,10 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     long i;//,i0;
     //long frompop      = 0;
     //long topop        = 0;
-    
-    long n0           = world->numpop2 + (world->bayes->mu) + world->species_model_size * 2;
-    long n            = n0 + world->grownum;
+    //ADAPT to mlalpha!!
+    long ns           = world->numparamcumvec[SPLITSTDPRIOR];
+    long ng           = world->numparamcumvec[GROWTHPRIOR];
+    long n            = world->numparam;
     long nn           = 2 + n;
     long numpop       = world->numpop;
     long numpop2      = world->numpop2;
@@ -2105,7 +2164,9 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     //MYREAL nm;
     (bayes->params+(nnpnum))[0] = bayes->oldval;
     (bayes->params+(nnpnum))[1] = world->likelihood[world->G];
-    
+
+    //assums that all parameter vallues are consistentin the param0 vector
+    //growth and mlalpha may be problematic with this
     memcpy(bayes->params+(nnpnum+2), param0,sizeof(MYREAL) * (size_t) n);
     if(inheritance_scalar != 1.0)
     {
@@ -2122,7 +2183,12 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     if(world->has_growth)
       {
 	// check whether this is needed
-	memcpy(bayes->params+(nnpnum+2+n0), world->growth, sizeof(double)* (size_t) world->grownum);
+	memcpy(bayes->params+(nnpnum+2+ns), world->growth, sizeof(double)* (size_t) world->grownum);
+      }
+    if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	// check whether this is needed
+	memcpy(bayes->params+(nnpnum+2+ng), world->mlalpha, sizeof(double)* (size_t) world->mlalphanum);
       }
     if(wopt->has_bayesmdimfile)
     {
@@ -2149,11 +2215,11 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
     //long grownum      = world->options->growpops_numalloc;
     long interval = mdiminterval > 0 ? mdiminterval : 1;
     boolean *visited;
-    long nn = world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;
-    // the recorder is dealing with the addition of species parameters and growth
+    long nn = world->numparam;//world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+    // the recorder is dealing with the addition of species parameters and growth and mlalpha
     //#ifdef MPI
 #if defined(MPI) && !defined(PARALIO)
-    long addition = world->species_model_size*2 + world->grownum;
+    long addition = world->species_model_size*2 + world->grownum + world->mlalphanum;
     float *temp;
     long z=0;
 #else
@@ -2172,8 +2238,8 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
         visited = (boolean*) mycalloc(nn+2,sizeof(boolean));
         //#ifdef MPI
 #if defined(MPI) && !defined(PARALIO)
-        temp = (float*) mycalloc((size_t)(nn+9+3*world->options->heated_chains+2+(world->timeelements +  world->timeelements * (world->numpop2 + addition))), sizeof(float));
-        temp[0] = (float) step;
+        temp = (float*) mycalloc((size_t)(nn+9+3*world->options->heated_chains+2+ world->timeelements + world->timeelements * world->numparam), sizeof(float));
+	temp[0] = (float) step;
         temp[1] = (float) locus;
         temp[2] = (float) replicate;
         temp[3] = (float) params[0];
@@ -2185,7 +2251,10 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
         z=9;
 #else
         temp = (char*) mycalloc(bayes->linesize, sizeof(char));
-        c = mysnprintf(temp, LINESIZE, "%li\t%li\t%li\t%f\t%f\t%f\t%f\t%li\t%f",step, locus+1, replicate+1, params[0], params[1],params[0] - params[1], world->logprior, world->treetimes->T-1, world->treelen);
+        c = mysnprintf(temp, LINESIZE, "%li\t%li\t%li\t%f\t%f\t%f\t%f\t%li\t%f",
+		       step, locus+1, replicate+1, params[0], params[1],
+		       params[0] - params[1],
+		       world->logprior, world->treetimes->T-1, world->treelen);
 #endif
         for (j0=0; j0 < nn; j0++)// the first value is the posterior Log(P(D|G)P(G|p)
             // second is log(P(D|G)
@@ -2217,59 +2286,59 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
 		  value = params[j];
 		}
 	      else
-            {
+		{
 		  value = -params[j];
 		}
 	      digits = (long) (floor(log10(value)));
-                switch(digits)
+	      switch(digits)
                 {
-                    case -8:
-                    case -6:
-                    case -5:
-                        fmt = 10;
-                        break;
-                    case -4:
-                    case -3:
-                        fmt = 8;
-                        break;
-                    case -2:
-                    case -1:
-                        fmt= 5;
-                        break;
-                    case 0:
-                    case 1:
-                        fmt = 4;
-                        break;
-                    case 2:
-                        fmt = 2;
-                        break;
-                    case 3:
-                        fmt = 1;
-                        break;
-                    case 4:
-                    case 5:
-                    case 6:
-                    case 7:
-                    case 8:
-                        fmt = 0;
-                        break;
-                    default:
-                        if(digits<-8)
-                            fmt=20;
-                        else
-                            fmt = 5;
-                        break;
+		case -8:
+		case -6:
+		case -5:
+		  fmt = 10;
+		  break;
+		case -4:
+		case -3:
+		  fmt = 8;
+		  break;
+		case -2:
+		case -1:
+		  fmt= 5;
+		  break;
+		case 0:
+		case 1:
+		  fmt = 4;
+		  break;
+		case 2:
+		  fmt = 2;
+		  break;
+		case 3:
+		  fmt = 1;
+		  break;
+		case 4:
+		case 5:
+		case 6:
+		case 7:
+		case 8:
+		  fmt = 0;
+		  break;
+		default:
+		  if(digits<-8)
+		    fmt=20;
+		  else
+		    fmt = 5;
+		  break;
                 }
-                c += mysnprintf(temp+c,LINESIZE, "\t%.*f",fmt, params[j]);
+	      c += mysnprintf(temp+c,LINESIZE, "\t%.*f",fmt, params[j]);
             }
 #endif
         }
 #if defined(MPI) && !defined(PARALIO)
-        //print_growth_record(temp, &z, world);
-        print_marginal_like(temp, &z, world);
+	//print_growth_record(temp, &z, world);
+	print_marginal_like(temp, &z, world);
 #else
         //print_growth_record(temp, &c, world);
-        print_marginal_like(temp, &c, world);
+	print_marginal_like(temp, &c, world);
 #endif
 #if defined(MPI) && !defined(PARALIO)
         //#ifdef MPI
@@ -2315,25 +2384,25 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
 // Save the Bayesian results for printout into bayesfile
 void bayes_save(world_fmt *world, long step)
 {
-  long np           = 2 + world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;// + growth
-    long pnum         = world->bayes->numparams;
-    long allocparams  = world->bayes->allocparams;
+  long np           = 2 + world->numparam; //world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;// + growth
+  long pnum         = world->bayes->numparams;
+  long allocparams  = world->bayes->allocparams;
     
-    if(world->options->has_bayesmdimfile)
+  if(world->options->has_bayesmdimfile)
     {
-        bayes_save_parameter(world, 0L, step);
+      bayes_save_parameter(world, 0L, step);
     }
-    else
+  else
     {
-        bayes_save_parameter(world, pnum, step);
-        pnum++;
-        if(pnum >= allocparams)
+      bayes_save_parameter(world, pnum, step);
+      pnum++;
+      if(pnum >= allocparams)
         {
-            allocparams += 1000;
-            world->bayes->params = (MYREAL *) myrealloc(world->bayes->params,sizeof(MYREAL)* (size_t) allocparams* (size_t) np);
+	  allocparams += 1000;
+	  world->bayes->params = (MYREAL *) myrealloc(world->bayes->params,sizeof(MYREAL)* (size_t) allocparams* (size_t) np);
         }
-        world->bayes->numparams = pnum;
-        world->bayes->allocparams = allocparams;
+      world->bayes->numparams = pnum;
+      world->bayes->allocparams = allocparams;
     }
 }
 
@@ -2392,21 +2461,21 @@ void  set_map_groups(long numpop, long t, long size, longpair *map, long lastold
 long setup_bayes_map(longpair *map, world_fmt *world, long size)
 {
   long specdistrib = world->species_model_dist;
-    char *custm2 = world->options->custm2;
-    const long numpop = world->numpop;
-    const long numpop2 = world->numpop2;
-    long invalid_count = 0;
-    long j1, j2;
-    long n = (long) strlen(custm2);
-    long s = MIN(n,numpop2);
-    long t = MIN(s,size);
-    long i;
-    long frompop;
-    long topop;
-    //long first = 0;
-    boolean mu = world->bayes->mu;
-    long species_start = mu + numpop2;
-    long old = -2;
+  char *custm2 = world->options->custm2;
+  const long numpop = world->numpop;
+  const long numpop2 = world->numpop2;
+  long invalid_count = 0;
+  long j1, j2;
+  long n = (long) strlen(custm2);
+  long s = MIN(n,numpop2);
+  long t = MIN(s,size);
+  long i;
+  long frompop;
+  long topop;
+  //long first = 0;
+  boolean mu = world->bayes->mu;
+  long species_start = mu + numpop2;
+  long old = -2;
 #ifdef DEBUG
     fprintf(stdout,"%i> @@@@@@@ heatid=%li custm=%s custm2=%s  (species: %li)\n",
 	    myID, world->heatid, world->options->custm, world->options->custm2, specdistrib);
@@ -2499,14 +2568,32 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 	  break;
         }
     }
-    if (size>t)
+    if (size>t) // includes growth and mlalpha cases
       {
 	// growth
-	long npx2 = numpop2 + mu + 2 * world->species_model_size;
-	for (i=npx2;i<world->grownum+npx2;i++)
+	long npx2 = world->numparamcumvec[SPLITSTDPRIOR];
+	  // numpop2 + mu + 2 * world->species_model_size;
+	for (i=npx2;i<npx2+world->options->growpops_numalloc;i++)
 	  {
 	    map[i][0] = i;
-	    map[i][1] = i;
+	    if (world->options->growpops[i-npx2] == 0)
+	      {
+		map[i][1] = INVALID;
+		invalid_count++;
+	      }
+	    else
+	      map[i][1] = i;
+	  }
+	// mlalpha
+	long npx3 = world->numparamcumvec[GROWTHPRIOR];
+	  // numpop2 + mu + 2 * world->species_model_size;
+	for (i=npx3;i<world->options->mlalphapops_numalloc+npx3;i++)
+	  {	    
+	    map[i][0] = i;
+	    if (world->tri_mlalpha == FIXED || world->options->mlalphapops[i-npx3] == 0)
+	      map[i][1] = INVALID;
+	    else
+	      map[i][1] = i;
 	  }
       }
   set_map_groups(numpop, t, size, map, old);
@@ -2530,14 +2617,14 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 // Initialize the Bayesian framwork
 void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options)
 {
-  long sizeg = get_numparam(world);
-  long size =  sizeg - world->grownum;
+  long sizeg = world->numparam;
+  long size =  world->numparamcumvec[SPLITSTDPRIOR];
     long invalids;
     bayes->numpop2 = world->numpop2;
     bayes->mu = options->bayesmurates;
     bayes->linesize = MAXBUFSIZE;
     bayes->has_linesize=FALSE;
-    bayes->progresslinesize = world->numpop2 * HUNDRED + 5 * HUNDRED;
+    bayes->progresslinesize = sizeg * HUNDRED + 5 * HUNDRED;
     bayes->map = (longpair *) mycalloc(sizeg, sizeof(longpair));
     bayes->mapsize = sizeg;
     //printf("BAYES map size=%li\n",size);
@@ -2600,8 +2687,8 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
     bayes_fmt *bayes = world->bayes;
     long loc;
     //long i;
-    long np = get_numparam(world) - world->grownum;
-    long npp = get_numparam(world); 
+    long np = world->numparamcumvec[RATEPRIOR];
+    long npp = world->numparam; 
     //long npp = np + (bayes->mu) + 2 * world->species_model_size;
     //long nppt = np + (bayes->mu)  + 2 * world->species_model_size;
     long pa;
@@ -2623,7 +2710,7 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
         hist->results = NULL; //calloc(hist->binsum, sizeof(MYREAL));   // contains histogram, size is bins*numparam
         // on a per parameter basis
         // structure has a data storage vectors and the following are all pointers into it
-        hist->numparam = npp;    // number of parameters: thetas + migrates + murate + growth + speciesnum
+        hist->numparam = npp;    // number of parameters: thetas + migrates + murate + growth + speciesnum + mlalpha
         hist->datastore = (MYREAL *) mycalloc((11*npp), sizeof(MYREAL)); // data storage, size is numparam*11
         // pointers into data storage
         hist->minima = hist->datastore;    // contains minimal values for each parameter
@@ -2644,61 +2731,15 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
 	      continue;
 	    else
 	      {
-		if (pa>=np)
+		if (pa>=npp)
 		  bins = options->bayes_priors[0].bins;
 		else
-                bins = options->bayes_priors[pa].bins;
+		  bins = options->bayes_priors[pa].bins;
                 hist->bins[pa] = bins;
                 hist->binsum += bins;
                 hist->minima[pa] = (double) HUGE;
 	      }
 	  }
-	/*
-	// replace this with the above
-        for(pa=0; pa < world->numpop; pa++)
-        {
-            if(!strchr("c", world->options->custm2[pa]))
-            {
-                bins = options->bayes_priors[pa].bins;
-                hist->bins[pa] = bins;
-                hist->binsum += bins;
-                hist->minima[pa] = (double) HUGE;
-            }
-        }
-        //pa2=0;
-        for(pa=world->numpop; pa < world->numpop2; pa++)
-        {
-            if(!strchr("0cdt", world->options->custm2[pa]))
-            {
-                bins = options->bayes_priors[pa].bins;
-                hist->bins[pa] = bins;
-                hist->binsum += bins;
-                hist->minima[pa] = (double) HUGE;
-            }
-            else
-            {
-                hist->bins[pa] = 0;
-                hist->minima[pa] = (double) HUGE;
-            }
-        }
-        if(world->bayes->mu)
-        {
-            bins = options->bayes_priors[pa].bins;
-            hist->bins[pa] = bins;
-            hist->binsum += bins;
-            hist->minima[pa] = (double) HUGE;
-        }
-        if(world->has_speciation)
-        {
-            pa = world->bayes->mu + world->numpop2;
-            for (i=0; i < 2 * world->species_model_size; i++)
-            {
-                bins = options->bayes_priors[pa+i].bins;
-                hist->bins[pa+i] = bins;
-                hist->binsum += bins;
-                hist->minima[pa+i] = (double) HUGE;
-            }
-	    }*/
     }
 }
 
@@ -2763,9 +2804,9 @@ void bayes_fill(world_fmt *world, option_fmt *options)
     long locus;
     bayes_fmt * bayes = world->bayes;
     long numpop2 = world->numpop2;
-    long np = numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    long np = world->numparam;//numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     if (world->cold)
-    which_prior(options->bayes_priors,np);
+    which_prior(options->bayes_priors,world);
     
     for(i=0; i< np;i++)
     {
@@ -2858,8 +2899,10 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     long topop=0;
     long j=0, j0, j1;
     long numpop2 = world->numpop2;
-    long numparam1 = numpop2 + bayes->mu+ world->species_model_size * 2;
-    long numparam = numparam1 + world->grownum;
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    //numpop2 + bayes->mu+ world->species_model_size * 2;
+    long npg = world->numparamcumvec[GROWTHPRIOR];
+    long numparam = world->numparam; //nps + world->grownum;
     //long np = numparam - world->grownum;
     int fmt;
 #ifdef DEBUG
@@ -2912,17 +2955,17 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     if(world->options->has_bayesfile)
     {
         print_locus_histogram_header(world->bayesfile, bayes->deltahist, bayes->custm2, world->numpop,
-                                     numparam, world->options->usem, bayes->mu, world);
+                                     world->numparam, world->options->usem, bayes->mu, world);
         for(locus=0; locus < world->loci; locus++)
         {
             if(world->data->skiploci[locus])
                 continue;
             
-            print_locus_histogram(world->bayesfile, world, locus, numparam);
+            print_locus_histogram(world->bayesfile, world, locus, world->numparam);
         }
         if(world->loci>1)
         {
-            print_loci_histogram(world->bayesfile, world, world->loci, numparam);
+            print_loci_histogram(world->bayesfile, world, world->loci, world->numparam);
         }
     }
 #ifdef PRETTY
@@ -2957,138 +3000,145 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	    {
                 continue;
 	    }
-            
-            if(j < world->numpop)
+          else if(j < world->numpop)
             {
-                FPRINTF(world->outfile,"%5s ", st);
-                FPRINTF(world->outfile,"Theta_%-3li      ",j0+1);
-                FPRINTF(world->outfile, "%8.5f %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f\n",
-                        hist->cred95l[j], hist->cred50l[j], hist->modes[j],
-                        hist->cred50u[j], hist->cred95u[j],hist->medians[j], hist->means[j]);
+	      //FPRINTF(world->outfile,"%5s ", st);
+	      mysnprintf(stemp,LINESIZE,"Theta_%-3li      ",j0+1);
+	      //FPRINTF(world->outfile,"Theta_%-3li      ",j0+1);
+	      //FPRINTF(world->outfile, "%8.5f %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f\n",
+	      //	      hist->cred95l[j], hist->cred50l[j], hist->modes[j],
+	      //      hist->cred50u[j], hist->cred95u[j],hist->medians[j], hist->means[j]);
             }
-            else
-            {
-                if (j < numpop2)
-                {
-                    //1229if(world->options->custm2[j]!='d')
-                    //1229  {
-                    m2mm(j0,world->numpop,&frompop, &topop);
-                    if(world->options->usem)
-		      mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
-                    else
-		      mysnprintf(stemp,LINESIZE,"Theta_%li*M_%li->%li", topop+1, frompop+1, topop+1);
-                    //1229 }
-                }
-                else
-                {
-                    if(j0==numpop2 && bayes->mu)
-                        continue;
-		    if(world->has_speciation && j0 < numparam1)
-		      {
-                    j1 = (j0 - world->numpop2 - bayes->mu);
-                    z = j1 % 2;
-                    j1 = j1/2;
-                    species_fmt *s = &world->species_model[j1];
-                    if (z==0)
-                    {
-		      mysnprintf(stemp,LINESIZE, "D_%li->%li", s->from+1, s->to+1);
-                    }
-                    else
-                    {
-		      mysnprintf(stemp,LINESIZE, "S_%li->%li", s->from+1, s->to+1);
-                        //j1 = j1 + 1;
-                    }
-                }
-		    if(world->has_growth && j0 >= numparam1)
-		      {
-			long d=j0-numparam1;
-			while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
-			  d++;
-			
-			mysnprintf(stemp,LINESIZE, "Growth_%-3li",d+1);
-		      }
+	  else if (j < numpop2)
+	    {
+	      //1229if(world->options->custm2[j]!='d')
+	      //1229  {
+	      m2mm(j0,world->numpop,&frompop, &topop);
+	      if(world->options->usem)
+		mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+	      else
+		mysnprintf(stemp,LINESIZE,"Theta_%li*M_%li->%li", topop+1, frompop+1, topop+1);
+	      //1229 }
+	    }
+	  else if(j0==numpop2 && bayes->mu)
+	    {
+	      continue;
+	    }
+	  else if(world->has_speciation && j0 < nps)
+	    {
+	      j1 = (j0 - world->numpop2 - bayes->mu);
+	      z = j1 % 2;
+	      j1 = j1/2;
+	      species_fmt *s = &world->species_model[j1];
+	      if (z==0)
+		{
+		  mysnprintf(stemp,LINESIZE, "D_%li->%li", s->from+1, s->to+1);
 		}
-                //fmt = 2;
-                int dig = finddigits((long) hist->modes[j0]);
-                switch (dig)
-                {
-                    case 1:
-                    case 2:
-                        fmt= 5;
-                        break;
-                    case 3:
-                        fmt = 4;
-                        break;
-                    default:
-                        fmt = 2;
-                        break;
-                }
-                FPRINTF(world->outfile,"%5s ", st);
-                FPRINTF(world->outfile, "%-15.15s",stemp);
-                FPRINTF(world->outfile,"%8.*f %8.*f %8.*f %8.*f %8.*f %8.*f %8.*f\n",
-                        fmt, hist->cred95l[j], fmt, hist->cred50l[j], fmt, hist->modes[j],
-                        fmt, hist->cred50u[j], fmt, hist->cred95u[j], fmt, hist->medians[j], fmt,
-                        hist->means[j]);
-                // warning block: issuing a warning when the 75% and the95% percentiles are within 10% of the
-                // upper prior boundary
-                threshold =  0.9 * bayes->maxparam[j];
-                if(hist->cred95u[j] > threshold && hist->cred50u[j] > threshold)
-                {
-                    if(locus == lozi && locus>0)
-                        record_warnings(world,"Param %li (all loci): Upper prior boundary seems too low! ",j+1);
-                    else
-                        record_warnings(world,"Param %li (Locus %i): Upper prior boundary seems too low! ", j+1,locus+1);
-                }
-            }
-        }
-        if(bayes->mu)
-        {
-            FPRINTF(world->outfile,"%5.5s ", st);
-            j0=world->numpop2;
-            if(locus==lozi && lozi>1)
-            {
+	      else
+		{
+		  mysnprintf(stemp,LINESIZE, "S_%li->%li", s->from+1, s->to+1);
+		  //j1 = j1 + 1;
+		}
+	    }
+	  else if(world->has_growth && j0 < npg)
+	    {
+	      long d=j0-nps;
+	      while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;
+	      
+	      mysnprintf(stemp,LINESIZE, "Growth_%-3li",d+1);
+	    }
+	  else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j0 < numparam)
+	    {
+	      long d=j0-npg;
+	      while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;
+	      
+	      mysnprintf(stemp,LINESIZE, "ML-alpha_%-3li",d+1);
+	    }
+	  //fmt = 2;
+	  int dig = finddigits((long) hist->modes[j0]);
+	  switch (dig)
+	    {
+	    case 1:
+	    case 2:
+	      fmt= 5;
+	      break;
+	    case 3:
+	      fmt = 4;
+	      break;
+	    default:
+	      fmt = 2;
+	      break;
+	    }
+	  FPRINTF(world->outfile,"%5s ", st);
+	  FPRINTF(world->outfile, "%-15.15s",stemp);
+	  FPRINTF(world->outfile,"%8.*f %8.*f %8.*f %8.*f %8.*f %8.*f %8.*f\n",
+		  fmt, hist->cred95l[j], fmt, hist->cred50l[j], fmt, hist->modes[j],
+		  fmt, hist->cred50u[j], fmt, hist->cred95u[j], fmt, hist->medians[j], fmt,
+		  hist->means[j]);
+	  // warning block: issuing a warning when the 75% and the95% percentiles are within 10% of the
+	  // upper prior boundary
+	  if (j0 < npg) //do not warn for close ml-alpha=1 values
+	    {
+	      threshold =  0.9 * bayes->maxparam[j];
+	      if(hist->cred95u[j] > threshold && hist->cred50u[j] > threshold)
+		{
+		  if(locus == lozi && locus>0)
+		    record_warnings(world,"Param %li (all loci): Upper prior boundary seems too low! ",j+1);
+		  else
+		    record_warnings(world,"Param %li (Locus %i): Upper prior boundary seems too low! ", j+1,locus+1);
+		}
+	    }
+	}
+	if(bayes->mu)
+	  {
+	    FPRINTF(world->outfile,"%5.5s ", st);
+	    j0=world->numpop2;
+	    if(locus==lozi && lozi>1)
+	      {
                 meanmu = 0.;
                 for(l=0;l<world->loci;l++)
-                {
+		  {
                     meanmu += world->options->meanmu[l];
-                }
+		  }
                 meanmu /= world->loci;
                 if (meanmu < SMALL_VALUE)
-                    meanmu = 10e-8;
+		  meanmu = 10e-8;
                 lmu = (long) (floor( log10(hist->modes[j0] * meanmu)));
                 mu = meanmu * pow(10. , -lmu);
-            }
+	      }
             else
-            {
-	      lmu = (long) (floor( log10(hist->modes[j0] * world->options->meanmu[locus])));
+	      {
+		lmu = (long) (floor( log10(hist->modes[j0] * world->options->meanmu[locus])));
                 mu = world->options->meanmu[locus] * pow(10., -lmu);
-            }
+	      }
             FPRINTF(world->outfile," mu [10^%li]     ",lmu);
             FPRINTF(world->outfile, "%8.5f %8.5f %8.5f %8.5f %8.5f %8.5f %8.5f\n",
                     mu*hist->cred95l[j0], mu*hist->cred50l[j0] , mu*hist->modes[j0],
                     mu*hist->cred50u[j0], mu*hist->cred95u[j0] , mu*hist->medians[j0],
                     mu*hist->means[j0]);
-        }
+	  }
     } // over all +1 loci
     FPRINTF(world->outfile,"-----------------------------------------------------------------------------------\n");
     if(bayes->mu)
-    {
+      {
         mutot = 0;
         n = 1;
         for(locus=0; locus < world->loci; locus++)
-        {
+	  {
             if(world->data->skiploci[locus])
-                continue; //invariantloci: not resolved yet
+	      continue; //invariantloci: not resolved yet
             mu = (double) world->options->meanmu[locus];
             mutot += (mu - mutot) / n;
             n++;
             FPRINTF(world->outfile,"(*) Mutation rate for locus %li was set to %8.5e", locus, mu);
-        }
+	  }
         if(world->loci>1)
-        {
+	  {
             FPRINTF(world->outfile,"(*) Average mutation rate for all loci is  %8.5e", mutot);
-        }
-    }
+	  }
+      }
     //if (world->bayes->histogram[0].covariance != NULL)
     //{
     //    cov = (MYREAL ***) mycalloc(world->loci+1,sizeof(MYREAL **));
@@ -3109,10 +3159,10 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     // print out the acceptance ratios for every parameter and the tree
     //}
     if(world->options->progress)
-    {
+      {
         // final acceptance ratios for the Bayesian run
         bayes_print_accept(stdout,world);
-    }
+      }
     myfree(stemp);
 }
 
@@ -3128,9 +3178,14 @@ bayes_print_accept(FILE * file,  world_fmt *world)
     char *stemp;       
     long trials   = 0;
     long accept   = 0;
-    long tc = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
-    long tcg = tc+world->grownum;
+    long numpop = world->numparamcumvec[THETAPRIOR];
+    long numpop2 = world->numparamcumvec[MIGPRIOR];
+    long npr = world->numparamcumvec[RATEPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
+    long npa = world->numparam;
     bayes_fmt *bayes = world->bayes;
+    stemp = (char *) mycalloc(LINESIZE,sizeof(char));
     //long estimated_trials=0;
     //species_fmt *s = NULL;
     //long z=0;
@@ -3144,7 +3199,7 @@ bayes_print_accept(FILE * file,  world_fmt *world)
     
     FPRINTF(file,"Parameter           Accepted changes               Ratio\n");
     // population sizes
-    for(j0=0; j0 < world->numpop; j0++)
+    for(j0=0; j0 < npa; j0++)
     {
       //        if(!strchr("0c", bayes->custm2[j]))
       if(shortcut(j0,world,&j))
@@ -3155,109 +3210,63 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 	{
 	  accept = world->accept_archive[j];
 	  trials = world->trials_archive[j];
-	  if(trials > 0)
-            {
+	  assert(trials>0);
+	  if(j<numpop) //theta
+	    {
 	      FPRINTF(file,"Theta_%-3li             %8li/%-8li         %8.5f\n", j+1,
 		      accept, trials, (MYREAL) accept/trials);
-	      //estimated_trials += trials;
             }
-        }
-    }
-    // migration rates
-    stemp = (char *) mycalloc(LINESIZE,sizeof(char));
-    for(j0=world->numpop; j0 < world->numpop2; j0++)
-    {
-      //if(!strchr("0cd", bayes->custm2[j]))
-      if(shortcut(j0,world,&j))
-        {
-	  continue;
-	}
-      else
-	{
-	  accept = world->accept_archive[j];
-            trials=world->trials_archive[j];
-            if(trials>0)
-            {
-                m2mm (j, world->numpop, &frompop, &topop);
-                if(world->options->usem)
+	  else if (j < numpop2) // migration rates
+	    {
+	      m2mm (j, world->numpop, &frompop, &topop);
+	      if(world->options->usem)
                 {
 		  mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
                 }
-                else
+	      else
                 {
 		  mysnprintf(stemp, LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
                 }
-                FPRINTF(file, "%-12.12s          %8li/%-8li         %8.5f\n", stemp,
-			accept, trials, (MYREAL) accept/trials);
-                //estimated_trials += trials;
+	      FPRINTF(file, "%-12.12s          %8li/%-8li         %8.5f\n", stemp,
+		      accept, trials, (MYREAL) accept/trials);
             }
-        }
-    }
-    // accepted rate of mutation rate changes for each locus mutation rate
-    if(bayes->mu)
-    {
-        //      for (j=world->numpop2;j<world->numpop2 + bayes->mu*world->loci;j++)
-        for (j=world->numpop2;j<world->numpop2 + bayes->mu;j++)
-        {
-            FPRINTF(file, "Rate of mutation rate (%li) %8li/%-8li         %8.5f\n", j+1,
-                    world->accept_archive[j],
-                    world->trials_archive[j],
-		    (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
-            //estimated_trials += world->trials_archive[j];
-        }
-    }
-    // accepted species events
-    if (world->has_speciation)
-    {
-      //z=0;
-        //	for(j=world->numpop2+world->loci * bayes->mu;j <= tc;j+=2)
-        for(j0=world->numpop2+bayes->mu;j0 < tc;j0++)
-        {
-	  if(shortcut(j0,world,&j))
+	  else if(bayes->mu)
 	    {
-	      continue;
+	      FPRINTF(file, "Rate of mutation rate (%li) %8li/%-8li         %8.5f\n",
+		      j+1, accept, trials, (double) accept/trials);
 	    }
-	  else
+	  else if (world->has_speciation && j < nps)
 	    {
 	      species_fmt * s = get_which_species_model(j, world->species_model, world->species_model_size);
 	      long from = s->from;
 	      long to = s->to;
-	      accept = world->accept_archive[j];
-	      trials=world->trials_archive[j];
 	      mysnprintf(stemp, LINESIZE, "%c_%li->%li",j==s->paramindex_mu ? 'D' : 'S',1+from,1+to);
 	      FPRINTF(file, "D%-12.12s          %8li/%-8li         %8.5f\n", stemp, accept,
 		      trials, (MYREAL) accept/trials);
-	      //estimated_trials += trials;
+	    }
+	  else if(world->has_growth && j < npg)
+	    {
+	      long d=j-nps;
+	      if (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;
+	      FPRINTF(file, "Growth_%li                %8li/%-8li         %8.5f\n", d+1,
+		      accept, trials, (double) accept/trials);
+	    }
+	  else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j < npa)
+	    {
+	      long d=j-npg;
+	      while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;
+	      FPRINTF(file, "ML-alpha_%li            %8li/%-8li         %8.5f\n", d+1,
+		      accept, trials, (double) accept/trials);
 	    }
 	}
     }
-    // accepted growth
-    if(world->has_growth)
-    {
-
-        for (j=tc; j<tcg; j++)
-        {
-	  long d=j-tc;
-	  while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
-	    d++;
-	  FPRINTF(file, "Growth_%li:               %8li/%-8li         %8.5f\n", d+1,
-		  world->accept_archive[j],
-		  world->trials_archive[j],
-		  (MYREAL) world->accept_archive[j]/world->trials_archive[j]);
-	  //estimated_trials += world->trials_archive[j];
-        }
-    }
-
     // accepted trees
-    trials=world->trials_archive[tcg];
-    if(trials>0)
-    {
-        FPRINTF(file, "Genealogies           %8li/%-8li          %8.5f\n", world->accept_archive[tcg], (long)
-                trials, (MYREAL) world->accept_archive[tcg]/trials);
-        //estimated_trials += trials;
-    }
-    //    FPRINTF(file, "Sum of all acceptances    %8li/%-8li\n", estimated_trials, world->options->lsteps*world->maxreplicate*world->loci*world->options->lincr);
-    
+    trials=world->trials_archive[npa];
+    accept=world->accept_archive[npa];
+    FPRINTF(file, "Genealogies           %8li/%-8li         %8.5f\n",
+	    accept, trials, (double) accept/trials);
     myfree(stemp);
 }
 
@@ -3268,12 +3277,17 @@ void
 bayes_print_hyperprior(FILE * file,  world_fmt *world)
 {
   //WARNING not adapted to growth yet
-    long j;             //used to loop over all parameters
+  long j, j0;             //used to loop over all parameters
     long topop    =0;   // indicator into the parameter vector, specifying originating population
     long frompop  =0;   // receiving population
     char *stemp;       // string variable holding print-string
     long trials   =0;   //
-    long tc = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+    long numparam = world->numparam;
+    long numpop = world->numpop;
+    long numpop2 = world->numpop2;
+    long npr = world->numparamcumvec[RATEPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
     bayes_fmt *bayes = world->bayes;
     hyper_fmt *hyperp = bayes->hyperp;
     //long estimated_trials=0;
@@ -3297,70 +3311,100 @@ bayes_print_hyperprior(FILE * file,  world_fmt *world)
     FPRINTF(file,"---------------------------------------------------------------------\n\n");
     
     FPRINTF(file,"Parameter        Priormean/std     PriorAlpha/std       N\n");
-    for(j=0; j < world->numpop; j++)
-    {
-        trials=hyperp[j].meann;
-        if(trials>1)
-        {
-            FPRINTF(file,"Theta_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // migration rates
     stemp = (char *) mycalloc(LINESIZE,sizeof(char));
-    for(j=world->numpop; j < world->numpop2; j++)
+    for(j0=0; j0 < numparam; j0++)
     {
-        trials=hyperp[j].meann;
-        if(trials>1)
-        {
-            m2mm (j, world->numpop, &frompop, &topop);
-            if(world->options->usem)
-            {
-	      mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
-            }
-            else
-            {
-	      mysnprintf(stemp, LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
-            }
-            FPRINTF(file,"%s          %8.5f/%-8.5f %8.5f/%-8.5f     %li\n", stemp, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // accepted rate of mutation rate changes for each locus mutation rate
-    if(bayes->mu)
-    {
-        trials=hyperp[world->numpop2].meann;
-        //      for (j=world->numpop2;j<world->numpop2 + bayes->mu*world->loci;j++)
-        for (j=world->numpop2;j<world->numpop2 + bayes->mu;j++)
-        {
-            FPRINTF(file,"Rate of mutation rate (%li)  %8.5f/%-8.5f         %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
-        }
-    }
-    // accepted species events
-    if (world->has_speciation)
-    {
-        z=0;
-        //	for(j=world->numpop2+world->loci * bayes->mu;j <= tc;j+=2)
-        for(j=world->numpop2+bayes->mu;j < tc;j+=2)
-        {
-            trials=hyperp[j].meann;
-            long from = world->species_model[z].from;
-            long to = world->species_model[z].to;
-            z++;
-            if(trials>1)
-            {
-	      mysnprintf(stemp,LINESIZE, "_%li->%li",1+from,1+to);
-                FPRINTF(file,"D%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
-                        stemp, hyperp[j].mean, hyperp[j].meanstd,
-                        hyperp[j].alpha, hyperp[j].alphastd, trials);
-                
-            }
-            trials=hyperp[j+1].meann;
-            if(trials>1)
-            {
-                FPRINTF(file,"S%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
-                        stemp, hyperp[j].mean,hyperp[j].meanstd,
-                        hyperp[j].alpha,hyperp[j].alphastd,trials);
-            }
-        }
+      if (shortcut(j0,world,&j))
+	{
+	  continue;
+	}
+      else
+	{
+	  if (j<numpop)
+	    {
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"Theta_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}
+	    }
+	  else if (j<numpop2)
+	    {
+	      // migration rates
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  m2mm (j, numpop, &frompop, &topop);
+		  if(world->options->usem)
+		    {
+		      mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
+		    }
+		  else
+		    {
+		      mysnprintf(stemp, LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+		    }
+		  FPRINTF(file,"%s          %8.5f/%-8.5f %8.5f/%-8.5f     %li\n", stemp, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}
+	    }    // accepted rate of mutation rate changes for each locus mutation rate
+	  else if(bayes->mu && j == numpop2)
+	    {
+	      trials=hyperp[numpop2].meann;
+	      //      for (j=world->numpop2;j<world->numpop2 + bayes->mu*world->loci;j++)
+	      FPRINTF(file,"Rate of mutation rate (%li)  %8.5f/%-8.5f         %8.5f/%-8.5f     %li\n", j+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+	    }
+	  else if (world->has_speciation && j < nps) // speciation
+	    {
+	      z=0;
+	      //	for(j=world->numpop2+world->loci * bayes->mu;j <= tc;j+=2)
+	      for(j=npr;j < nps;j+=2)
+		{
+		  trials=hyperp[j].meann;
+		  long from = world->species_model[z].from;
+		  long to = world->species_model[z].to;
+		  z++;
+		  if(trials>1)
+		    {
+		      mysnprintf(stemp,LINESIZE, "_%li->%li",1+from,1+to);
+		      FPRINTF(file,"D%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
+			      stemp, hyperp[j].mean, hyperp[j].meanstd,
+			      hyperp[j].alpha, hyperp[j].alphastd, trials);
+		      
+		    }
+		  if (world->species_model_dist != EXP_DIST)
+		    {
+		      trials=hyperp[j+1].meann;
+		      if(trials>1)
+			{
+			  FPRINTF(file,"S%s          %8.5f/%8.5f %8.5f/%8.5f     %li\n",
+				  stemp, hyperp[j].mean,hyperp[j].meanstd,
+				  hyperp[j].alpha,hyperp[j].alphastd,trials);
+			}
+		    }
+		}
+	    }
+	  else if (world->has_growth && j < npg)
+	    {
+	      long d = j;
+	      while ( d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;			
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"Growth_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", d+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}		  
+	    }
+	  else if (world->has_mlalpha && world->tri_mlalpha != FIXED && j < numparam)
+	    {
+	      long d = j;
+	      while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;			
+	      trials=hyperp[j].meann;
+	      if(trials>1)
+		{
+		  FPRINTF(file,"ML-alpha_%-3li       %8.5f/%-8.5f    %8.5f/%-8.5f     %li\n", d+1, hyperp[j].mean,hyperp[j].meanstd,hyperp[j].alpha,hyperp[j].alphastd,trials);
+		}		  
+	    }
+	}
     }
     myfree(stemp);
 }
@@ -3374,7 +3418,8 @@ bayes_progress(world_fmt *world, long ten)
   (void) ten;
   const boolean writelog = world->options->writelog; 
     const boolean progress = world->options->progress;
-    long np = world->numpop2 + world->bayes->mu + 2 * world->species_model_size;// growth is dealt independently
+    long np = world->numparamcumvec[SPLITSTDPRIOR];//world->numpop2 + world->bayes->mu + 2 * world->species_model_size;// growth is dealt independently
+    long npg = world->numparamcumvec[GROWTHPRIOR];//world->numpop2 + world->bayes->mu + 2 * world->species_model_size;// growth is dealt independently
     char *buffer;
     long bufsize=0;
     char spacer[]="";
@@ -3457,10 +3502,10 @@ bayes_progress(world_fmt *world, long ten)
 	  {
 	    double propwindow = bayes->delta[np+g];
 	    long d=g;
-	    while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
+	    while ( d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 	      d++;			
 	    mysnprintf(paramstr,LINESIZE,"Growth_%li",d+1);
-	    j = np + g;
+	    j = np + d;
 	    if(bayes->trials[j]>0)
 	      accrat = (MYREAL) bayes->accept[j]/bayes->trials[j];
             else
@@ -3477,6 +3522,34 @@ bayes_progress(world_fmt *world, long ten)
 	      }
 	  }
 	j0 = np+world->grownum; //the genealogy is the last element in autocorr and effsample
+      }
+    if (world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	long g;
+	for(g=0;g<world->mlalphanum;g++)
+	  {
+	    double propwindow = bayes->delta[npg+g];
+	    long d=g;
+	    while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+	      d++;			
+	    mysnprintf(paramstr,LINESIZE,"ML-alpha_%li  ",d+1);
+	    j = npg + d;
+	    if(bayes->trials[j]>0)
+	      accrat = (MYREAL) bayes->accept[j]/bayes->trials[j];
+            else
+	      accrat = 0.0;
+	    if(world->options->has_autotune)
+	      {
+		bufsize += mysnprintf(buffer+bufsize,LINESIZE, "           %-12.12s     % 5.3f    % 10.5f  %9.3f % 8.3f % 8.2f\n",
+				   paramstr, accrat, world->mlalpha[g], propwindow, autocorr[np+g],effsample[np+g]);
+	      }
+	    else
+	      {
+		bufsize += mysnprintf(buffer+bufsize,LINESIZE, "           %-12.12s     % 3.2f % 10.5f % 8.3f % 8.2f\n",
+				      paramstr, accrat, world->mlalpha[g], autocorr[np+g], effsample[np+g]);
+	      }
+	  }
+	j0 = np+world->mlalphanum; //the genealogy is the last element in autocorr and effsample
       }
     if(world->options->has_autotune)
     {
@@ -3511,6 +3584,9 @@ void adjust_bayes_bins(world_fmt * world, long locus)
     bayeshistogram_fmt *hist = &(world->bayes->histogram[locus]);
     if(world->bayes->histogram[locus].results == NULL)
     {
+#ifdef DEBUG
+      printf("DEBUG: %i> locus=%li hist->binsum=%li\n",myID,locus,hist->binsum);
+#endif
         world->bayes->histogram[locus].results = (double *) mycalloc(hist->binsum, sizeof(double));
         world->bayes->histogram[locus].set95 = (char *) mycalloc(hist->binsum * 2, sizeof(char));
         world->bayes->histogram[locus].set50 = world->bayes->histogram[locus].set95 + hist->binsum;
@@ -3553,7 +3629,7 @@ void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long 
       value = (MYREAL) p[i]; //params[floorindex+pa];
       *themean += value;
       *thestd += value * value;
-      if(value > maxi[pa])
+      if(value >= maxi[pa])
         {
             bin = bayes->histogram[locus].bins[pa] - 1;
         }
@@ -3614,7 +3690,7 @@ void construct_locus_histogram(world_fmt *world, long locus, MYREAL *mini, MYREA
     bayes_fmt *bayes = world->bayes;
     long npa = world->numpop2 + bayes->mu;
     long np = npa + 2 * world->species_model_size;
-    long npg = np + world->grownum;
+    long npg = world->numparam; //np + world->grownum;
     MYREAL themean=0.0;
     MYREAL thestd=0.0;
     visited = (boolean *) mycalloc(npg, sizeof(boolean));
@@ -3632,6 +3708,9 @@ void construct_locus_histogram(world_fmt *world, long locus, MYREAL *mini, MYREA
             themean = 0.0;
             thestd = 0.0;
             total = 0;
+#ifdef DEBUG
+	    printf("DEBUG %i> construct_locus_histogram() locus=%li, pa=%li, hist->binsum=%li\n",myID,locus,rpa,world->bayes->histogram[locus].binsum);
+#endif
             construct_param_hist(world,locus,npg, rpa,numbin, mini, maxi, results, &total,&themean,&thestd);
             world->bayes->histogram[locus].means[pa] = themean/total;
             world->bayes->histogram[locus].stds[pa]  = thestd / total;
@@ -3659,7 +3738,7 @@ void adjust_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL
     //MYREAL delta;
     long pa0, pa;
     const long numpop2 = world->numpop2;
-    const long np = numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
+    const long np = world->numparam;//numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
     
     for(pa0=0; pa0 < np; pa0++)
     {
@@ -3687,7 +3766,7 @@ void find_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL *
 {
   (void) adjmaxi;
     long pa0, pa;
-    long np = world->numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
+    long np = world->numparam; //world->numpop2 + (world->bayes->mu) + 2 * world->species_model_size + world->grownum;
     
     for(pa0=0; pa0 < np; pa0++)
     {
@@ -3702,14 +3781,18 @@ void find_bayes_min_max(world_fmt* world, MYREAL **mini, MYREAL **maxi, MYREAL *
 
 //
 // prints order of parameters for header files in bayesfile and bayesallfile
-void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt *world, long numparam)
+void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt *world)
 {
   long i;
     long pa;
     long mypa;
     long pa0;
+    long numparam = world->numparam;
     long numpop = world->numpop;
     long numpop2 = world->numpop2;
+    long npr = world->numparamcumvec[RATEPRIOR];
+    long nps = world->numparamcumvec[SPLITSTDPRIOR];
+    long npg = world->numparamcumvec[GROWTHPRIOR];
     long frompop, topop;
     long frompop2, topop2;
     char *custm2 = world->options->custm2;
@@ -3718,90 +3801,84 @@ void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt 
     *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"# Order of the parameters:\n");
     *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"# Parameter-number Parameter\n");
     for(pa0=0;pa0<numparam;pa0++)
-    {
+      {
         if(*bufsize > (*allocbufsize - 150))
-        {
+	  {
             *allocbufsize += LINESIZE;
             *buf = (char *) realloc(*buf, sizeof(char) * (size_t) (*allocbufsize));
-        }
-        if(shortcut(pa0,world,&pa))
-        {
-            continue;
-        }
-        if(pa0 < numpop)
-        {
-            if((pa0 == pa) && (custm2[pa0] == '*'))
-                *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_%li\n", pa0+1, "Theta",pa0+1);
-            else
-                *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_%li = %s_%li   [%c]\n",
-                                    pa0+1, "Theta",pa0+1, "Theta",pa+1, custm2[pa0]);
-        }
-        else
-        {
-            // do we estimate mutation rate changes?
-            if(bayes->mu && pa0 == numpop2)
-            {
-                *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s\n", pa0+1, "Rate");
-            }
-            else
-            {
-	      	  if(pa0<numpop2)
-		    {
-		      m2mm(pa0,numpop,&frompop,&topop);
-		      if((pa0==pa) && (custm2[pa0]=='*'))
-			{
-			  if(usem)
-			    *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "M", frompop+1, topop+1);
-			  else
-			    *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li\n", pa+1, "xNm", frompop+1, topop+1, "M", frompop+1, topop+1, "Theta", topop+1);
-			}
-		      else
-			{
-			  m2mm(pa,numpop,&frompop2,&topop2);
-			  if(usem)
-			    *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) =  %s_(%li,%li) [%c]\n", pa+1, "M", frompop+1, topop+1, "M", frompop2+1, topop2+1, custm2[pa0]);
-			  else
-			    *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li  = %s_(%li,%li) = %s_(%li,%li)*%s_%li [%c]\n",
-						pa+1, "xNm", frompop+1, topop+1, "M", frompop+1, topop+1, "Theta", topop+1,
-						"xNm", frompop2+1, topop2+1, "M", frompop2+1, topop2+1, "Theta", topop2+1,
-						custm2[pa0]);
-			}
-		    }
-	    }
-	}
-    }
-    if (world->has_speciation)
-    {
-      mypa = world->numpop2 + world->bayes->mu;
-      for(pa0=mypa;pa0<mypa + 2 * world->species_model_size;pa0++)
-        {
-	  if(shortcut(pa0,world,&pa))
-	    {
-	      continue;
-	    }
-	  else
-	    {
-	      species_fmt * s = get_which_species_model(pa,world->species_model,world->species_model_size);
-	      frompop = s->from;
-	      topop = s->to;
-	      if(pa == s->paramindex_mu)
-		*bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "D", frompop+1, topop+1);
-	      else
-		*bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "S", frompop+1, topop+1);
-	    }
-	}
-    }
-    if (world->has_growth)
-      {
-	*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ Growpopulations:%li: ",world->options->growpops_numalloc);
-	for(i=0;i<world->options->growpops_numalloc;i++)
-	  {
-	    *bufsize += mysnprintf(*buf+ *bufsize,LINESIZE," %li", world->options->growpops[i]);
 	  }
-	*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"\n");
-	for(i=0;i<world->grownum;i++)
+        if(shortcut(pa0,world,&pa))
 	  {
-	    *bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ %s_%li\n","Growth", i);
+            continue;
+	  }
+        if(pa0 < numpop) //theta
+	  {
+            if((pa0 == pa) && (custm2[pa0] == '*'))
+	      *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_%li\n", pa0+1, "Theta",pa0+1);
+            else
+	      *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_%li = %s_%li   [%c]\n",
+				     pa0+1, "Theta",pa0+1, "Theta",pa+1, custm2[pa0]);
+	  }
+        else if(bayes->mu && pa0 == numpop2) //rate
+	  {
+	    *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s\n", pa0+1, "Rate");
+	  }
+	else if(pa0<numpop2) //migration
+	  {
+	    m2mm(pa0,numpop,&frompop,&topop);
+	    if((pa0==pa) && (custm2[pa0]=='*'))
+	      {
+		if(usem)
+		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "M", frompop+1, topop+1);
+		else
+		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li\n", pa+1, "xNm", frompop+1, topop+1, "M", frompop+1, topop+1, "Theta", topop+1);
+	      }
+	    else
+	      {
+		m2mm(pa,numpop,&frompop2,&topop2);
+		if(usem)
+		  *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) =  %s_(%li,%li) [%c]\n", pa+1, "M", frompop+1, topop+1, "M", frompop2+1, topop2+1, custm2[pa0]);
+		else
+		  *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li  = %s_(%li,%li) = %s_(%li,%li)*%s_%li [%c]\n",
+					 pa+1, "xNm", frompop+1, topop+1, "M", frompop+1, topop+1, "Theta", topop+1,
+					 "xNm", frompop2+1, topop2+1, "M", frompop2+1, topop2+1, "Theta", topop2+1,
+					 custm2[pa0]);
+	      }
+	  }
+	else if (world->has_speciation && pa0 < npr)
+	  {
+	    for(pa0=npr;pa0<nps;pa0++)
+	      {
+		species_fmt * s = get_which_species_model(pa,world->species_model,world->species_model_size);
+		frompop = s->from;
+		topop = s->to;
+		if(pa == s->paramindex_mu)
+		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "D", frompop+1, topop+1);
+		else
+		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "S", frompop+1, topop+1);
+	      }
+	  }
+	else if (world->has_growth && pa0 < npg)
+	  {
+	    //*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ Growpopulations:%li: ",world->options->growpops_numalloc);
+	    for(i=0;i<world->grownum;i++)
+	      {
+		long d = i;
+		while ( d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		  d++;			
+		*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ %6li    %s_%li\n",i+nps,"Growth", d+1);
+	      }
+	  }
+	else if (world->has_mlalpha && world->tri_mlalpha != FIXED && pa0 < numparam)
+	  {
+	    //*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ ML-alphapopulations:%li: ",world->options->mlalphapops_numalloc);
+	    for(i=0;i<world->mlalphanum;i++)
+	      {
+		long d = i;
+		while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		  d++;			
+		*bufsize += mysnprintf(*buf+ *bufsize,LINESIZE,"#@ %6li    %s_%li\n",i+npg,"ML-alpha", d+1);
+	      }
 	  }
       }
 }
@@ -3829,19 +3906,20 @@ void print_locus_histogram_header(FILE *bayesfile, MYREAL *deltas, char *custm2,
     char *buf = (char *) mycalloc(allocbufsize, sizeof(char));
     fprintf(bayesfile, "# Raw data for the histogram of the posterior probabilities for all parameters and loci\n");
     fprintf(bayesfile, "# produced by the program migrate-n %s (http://popgen.sc.fsu.edu/migrate.hml)\n",MIGRATEVERSION);
-    fprintf(bayesfile, "# written by Peter Beerli 2004-2013, Tallahassee, if you have problems email to beerli@fsu.edu\n");
+    fprintf(bayesfile, "# written by Peter Beerli 2004-2025, Tallahassee, if you have problems email to beerli@fsu.edu\n");
     fprintf(bayesfile, "#\n");
     fprintf(bayesfile, "# The HPC values are indicators whether the parametervalue is in the highest-posterior credibility set,\n");
     fprintf(bayesfile, "# a 0 means it is outside and a 1 means the value is inside the credibility set.\n");
     fprintf(bayesfile, "#\n");
-    print_param_order(&buf, &bufsize,&allocbufsize, world,numparam);
+    print_param_order(&buf, &bufsize,&allocbufsize, world);
     fprintf(bayesfile, "#%s\n",buf);
     fprintf(bayesfile, "# Delta for Theta and M ");
-    for(pa=0;pa<numparam-1; pa++)
+    //    for(pa=0;pa<numparam-1; pa++)
+    for(pa=0;pa<world->numpop2; pa++)
     {
-        fprintf(bayesfile,"%f ", custm2[pa]!='0' ? deltas[pa] : -99);
+      fprintf(bayesfile,"%f ", custm2[pa]!='0' ? deltas[pa] : -99);
     }
-    if(!mu)
+    if(mu)
         fprintf(bayesfile,"%f ", custm2[pa]!='0' ? deltas[pa] : -99);
     
     fprintf(bayesfile, "\n# -----------------------------------------------------------------------------------------\n");
@@ -4054,16 +4132,16 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     long numpop = world->numpop;
     long numpop2 = world->numpop2;
     long specstart = numpop2 + world->bayes->mu;
-    long numparam = specstart + 2 * world->species_model_size;
+    long numparam = world->numparam; //specstart + 2 * world->species_model_size;
     boolean *visited;
     bayes_fmt *bayes = world->bayes;
     long bufsize = 0;
     long allocbufsize = LONGLINESIZE;
     char *buf = (char *) mycalloc(allocbufsize,sizeof(char)); //this should be plenty for the header (currently 10^4 characters)
-    bufsize = mysnprintf(buf,LINESIZE,"# Migrate %s (Peter Beerli, (c) 2014)\n", MIGRATEVERSION);
+    bufsize = mysnprintf(buf,LINESIZE,"# Migrate %s (Peter Beerli, (c) 2025)\n", MIGRATEVERSION);
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# Raw results from Bayesian inference: these values can be used to generate\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# joint posterior distribution of any parameter combination\n");
-    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# Writing information on parameters (Thetas, M or xNm)\n");
+    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# Writing information on parameters (Thetas, M or xNm, growth, ml-alpha)\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# every %li parameter-steps\n", interval+1);
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# \n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "Steps");
@@ -4075,7 +4153,7 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "log(prob(Model))");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "Sum of time intervals on G");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "Total tree length of G");
-    print_param_order(&buf, &bufsize, &allocbufsize, world, world->numpop2);
+    print_param_order(&buf, &bufsize, &allocbufsize, world);
     
     //if(world->bayes->mu)
     //    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# %li  %s\n",  world->numpop2+1, "Rate");
@@ -4101,7 +4179,7 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# this file. But be aware that the Tracer program (October 2006)\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# only works with single-locus, single-replicate files\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# The migrate contribution folder contains a command line utility written\n");
-    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# in PERL to split the file for Tracer, it's name is mba\n");
+    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# in PERL to split the file for Tracer, its name is mba\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# @@@@@@@@\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"Steps\tLocus\tReplicate\tlnPost\tlnDataL\tlnPrbGParam\tlnPrior\ttreeintervals\ttreelength");
     
@@ -4134,7 +4212,7 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     {
         bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s", "murate");
     }
-    for(pa0=specstart; pa0 < numparam; pa0++)
+    for(pa0=specstart; pa0 < world->numparamcumvec[SPLITSTDPRIOR]; pa0++)
     {
         if(shortcut(pa0,world,&pa))
         {
@@ -4152,7 +4230,20 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
       {
 	for(i=0;i<world->grownum;i++)
 	  {
-	    bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s_%li","Growth", i);
+	    long d = i;
+	    while ( d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+	      d++;			
+	    bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s_%li","Growth", d+1);
+	  }
+    }
+    if (world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	for(i=0;i<world->mlalphanum;i++)
+	  {
+	    long d = i;
+	    while ( d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+	      d++;			
+	    bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s_%li","ML-alpha", i+1);
 	  }
     }
     for(i=0;i<world->options->heated_chains;i++)
@@ -4596,7 +4687,7 @@ void bayes_combine_loci(world_fmt * world)
   const long loci    = world->loci;
   const long numpop2 = world->numpop2;
   //const long np      = numpop2 + world->bayes->mu + 2 * world->species_model_size;
-  const long np2     = numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
+  const long np2     = world->numparam;
   long    targetstartbin;
   long    locus;
   long    pa0;
@@ -4881,7 +4972,7 @@ void calculate_credibility_interval(world_fmt * world, long locus)
     MYREAL *maxi;
     MYREAL *adjmaxi;
     //    long i;
-    long np = world->numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
+    long np = world->numparam; //world->numpop2 + world->bayes->mu + 2 * world->species_model_size + world->grownum;
     
     mini =  world->bayes->histogram[locus].minima;
     maxi =  world->bayes->histogram[locus].maxima;

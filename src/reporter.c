@@ -124,10 +124,7 @@ void convergence_check (world_fmt * world, boolean progress)
             done = TRUE;
             // len defines the length of arrays that
             // have to hold all km, kt, p, and mindex means (ml) or parametes (bayes)
-	    if(world->options->bayes_infer)
-	      len = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
-	    else
-	      len = world->numpop2 + world->numpop * 3;
+	    len = world->numparam;
 
             lastchainmeans = (MYREAL *) mycalloc (len, sizeof (MYREAL));
             thischainmeans = (MYREAL *) mycalloc (len, sizeof (MYREAL));
@@ -162,18 +159,6 @@ void convergence_check (world_fmt * world, boolean progress)
     }
 }
 
-/*
-static void report_values(MYREAL *vec, long len, char text[])
-{
-  long i;
-  fprintf(stdout,"%s ",text);
-  for(i=0;i<len;i++)
-    {
-      fprintf(stdout,"%f ",vec[i]);
-    }
-  fprintf(stdout,"\n");
-}
-*/
 ///
 /// convergence indicator for Bayesian runs
 void convergence_check_bayes (world_fmt *world,  long maxreplicate)
@@ -198,7 +183,7 @@ void convergence_check_bayes (world_fmt *world,  long maxreplicate)
     if (world->chains == 1 && maxreplicate <= 1)
         return;
     // len defines the length of arrays that
-    len = world->numpop2 + 1;
+    len = world->numparam + 1;
     nmeans  = (long *) mycalloc (maxreplicate, sizeof (long));
     gelmanw = (MYREAL *) mycalloc (len, sizeof (MYREAL));
     gelmanb = (MYREAL *) mycalloc (len, sizeof (MYREAL));
@@ -352,38 +337,46 @@ calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, 
 /// collect the autocorrelation values and the ESS values
 void collect_acceptance(world_fmt *world)
 {
-  const long nnn = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
-  // the archives have length of #theta + #mig + #loci_murates + #spec + #grow + + genealogy
+  const long npp = world->numparam;
   long i;
-  for(i=0;i<nnn; i++)
+  // parameter
+  for(i=0;i<npp; i++)
     {
-      world->accept_archive[i] += world->bayes->accept[i];
-      world->trials_archive[i] += world->bayes->trials[i];
+       if(world->bayes->map[i][1] != INVALID)
+	 {
+	   world->accept_archive[i] += world->bayes->accept[i];
+	   world->trials_archive[i] += world->bayes->trials[i];
+	 }
     }
-  world->accept_archive[nnn] += world->bayes->accept[nnn];
-  world->trials_archive[nnn] += world->bayes->trials[nnn];
+  // genealogy
+  world->accept_archive[npp] += world->bayes->accept[npp];
+  world->trials_archive[npp] += world->bayes->trials[npp];
 }
 
 ///
 /// collect the autocorrelation values and the ESS values
 void collect_ess_values(world_fmt *world)
 {
-  //static long n=1;
-  const long nnn = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + 1 + world->grownum;// One is for Log(Prob(Data|Model)
+  const long nnn = world->numparam;
   long i;
-  // long maxrep = (world->options->replicate == TRUE) ? ((world->options->replicatenum > 0) ? 
-  //		      world->options->replicatenum  : world->options->lchains ) : 1;
-
+  //parameter
   for(i=0;i<nnn; i++)
     {
-      // onepass mean of autocorrelation
-      world->auto_archive[i] += (world->autocorrelation[i] - world->auto_archive[i])/world->archive_n;
-      // summing ess values
-      world->ess_archive[i] += world->effective_sample[i];
+      if(world->bayes->map[i][1] != INVALID)
+	{
+	  // onepass mean of autocorrelation
+	  world->auto_archive[i] += (world->autocorrelation[i] - world->auto_archive[i])/world->archive_n;
+	  // summing ess values
+	  world->ess_archive[i] += world->effective_sample[i];
+	}
     }
+  //genealogy
+  // onepass mean of autocorrelation for genealogy
+  world->auto_archive[nnn] += (world->autocorrelation[nnn] - world->auto_archive[nnn])/world->archive_n;
+  // summing ess values for genealogy
+  world->ess_archive[nnn] += world->effective_sample[nnn];  
   //n++;
   world->archive_n += 1;
-  //printf("%i> %li autoarchive %f autocorr %f n=%li\n", myID, world->rep,  world->auto_archive[0], world->autocorrelation[0], nn);
 }
 
 
@@ -396,10 +389,15 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   long topop    =0;  
   long frompop  =0;  
   char *stemp;       
-  long trials   =0;    
-  long tc1 = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
-  long tc = tc1 + world->grownum;
+  long trials   =0;
+  long numpop = world->numparamcumvec[THETAPRIOR];
+  long numpop2 = world->numparamcumvec[MIGPRIOR];
+  long npr = world->numparamcumvec[RATEPRIOR];
+  long nps = world->numparamcumvec[SPLITSTDPRIOR];
+  long npg = world->numparamcumvec[GROWTHPRIOR];
+  long npa = world->numparam;
   bayes_fmt *bayes = world->bayes;
+  stemp = (char *) mycalloc(LINESIZE,sizeof(char));
   
   //species_fmt *s = NULL;
   long z=0;
@@ -407,7 +405,7 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   FPRINTF(file,"-------------------------------------------------------------------\n\n");
   FPRINTF(file,"Parameter           Autocorrelation           Effective Sample size\n");
     // population sizes
-    for(j0=0; j0 < world->numpop; j0++)
+    for(j0=0; j0 < npa; j0++)
     {
       //        if(!strchr("0c", bayes->custm2[j]))
       if(shortcut(j0,world,&j))
@@ -416,55 +414,36 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	}
       else
 	{
-	  FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f\n", j+1, autocorr[j], effsample[j]);
-	  if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	    record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);	  
-        }
-    }
-    // migration rates
-    stemp = (char *) mycalloc(LINESIZE,sizeof(char));
-    for(j0=world->numpop; j0 < world->numpop2; j0++)
-    {
-      if(shortcut(j0,world,&j))
-        {
-	  continue;
-	}
-      else
-	{
-	  m2mm (j, world->numpop, &frompop, &topop);
-	  if(world->options->usem)
+	  if (j<numpop) //theta
 	    {
-	      mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+	      FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f\n", j+1, autocorr[j], effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);	  
 	    }
-	  else
-	    {
-	      mysnprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+	  else if (j < numpop2) // migration rates
+	    {	      
+	      m2mm (j, world->numpop, &frompop, &topop);
+	      if(world->options->usem)
+		{
+		  mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
+		}
+	      else
+		{
+		  mysnprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
+		}
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);		
 	    }
-	  FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	  if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	    record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);		
-        }
-    }
-    // accepted rate of mutation rate changes for each locus mutation rate
-    if(bayes->mu)
-    {
-      j=world->numpop2;
-      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f\n", j+1,autocorr[j],effsample[j]);
-      if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
-    }
-    // accepted species events
-    if (world->has_speciation)
-    {
-        z=0;
-        for(j0=world->numpop2+bayes->mu;j0 < tc1;j0++)
-        {
-	  if(shortcut(j0,world,&j))
-	    {
-	      continue;
+	  else if(bayes->mu && j==world->numpop2)
+	    {	      
+	      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f\n", j+1,autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
-	  else
+	  else if (world->has_speciation && j < nps)
 	    {
+	      z=0;
 	      species_fmt * s = get_which_species_model(j, world->species_model, world->species_model_size);
 	      long from = s->from;
 	      long to = s->to;
@@ -481,24 +460,34 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
+	  else if(world->has_growth && j < npg)
+	    {
+	      trials=world->trials_archive[j];
+	      long d = j - nps;
+	      if (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
+		d++;
+	      mysnprintf(stemp,LINESIZE,"Growth_%li",d+1);
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
+	    }
+	  else if(world->has_mlalpha && world->tri_mlalpha != FIXED)
+	    {
+	      trials=world->trials_archive[j];
+	      long d = j - npg;
+	      if (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
+		d++;
+	      mysnprintf(stemp,LINESIZE,"ML-alpha_%li",d+1);
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+		record_warnings(world,"Param %li: ML-alpha: Effective sample size of run seems too short! ",j+1);
+	    }
 	}
     }
-    if(world->has_growth)
-      {
-	for(j0=0;j0<world->grownum;j0++)
-	  {
-	    j = j0 + tc1;
-	    trials=world->trials_archive[j];
-	    mysnprintf(stemp,LINESIZE,"_%li",j0+1);
-	    FPRINTF(file, "g%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	    if(effsample[j]<ESSMINIMUM && file==world->outfile)
-	      record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
-	  }
-      }
     // accepted trees
-    FPRINTF(file, "Genealogies            %8.3f         %17.3f\n", autocorr[tc],effsample[tc]);
-    if(effsample[tc]<ESSMINIMUM && file==world->outfile)
-      record_warnings(world,"Genealogies %li: Effective sample size of run seems too short! ",tc+1);		      
+    FPRINTF(file, "Genealogies            %8.3f         %17.3f\n", autocorr[npa],effsample[npa]);
+    if(effsample[npa]<ESSMINIMUM && file==world->outfile)
+      record_warnings(world,"Genealogies %li: Effective sample size of run seems too short! ",npa);		      
     if(world->loci>1 && file!=stdout)
       {
 	FPRINTF(file,"(*) averaged over loci.\n");
@@ -547,7 +536,9 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
   static boolean done=FALSE;
   static long n = 0;
   static long nn = 0;
-  static long nn1 = 0;
+  long nn1 = 0;
+  static long nps = 0;
+  static long npg = 0;
   long i;
   long j;
   long start;
@@ -562,13 +553,15 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
   double temp;
   if(!done)
     {
-      nn = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + 1 + world->grownum;
-      nn1 = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
-      mean = (double *) mycalloc(nn,sizeof(double));
-      S    = (double *) mycalloc(nn,sizeof(double));
-      r    = (double *) mycalloc(nn,sizeof(double));
-      xold = (double *) mycalloc(nn,sizeof(double));
-      xstart = (double *) mycalloc(nn,sizeof(double));
+      nn = world->numparam;
+      nn1 = nn + 1;
+      nps = world->numparamcumvec[SPLITSTDPRIOR];
+      npg = world->numparamcumvec[GROWTHPRIOR];
+      mean = (double *) mycalloc(nn1,sizeof(double));
+      S    = (double *) mycalloc(nn1,sizeof(double));
+      r    = (double *) mycalloc(nn1,sizeof(double));
+      xold = (double *) mycalloc(nn1,sizeof(double));
+      xstart = (double *) mycalloc(nn1,sizeof(double));
       done=TRUE;
     }
   // reset static variable for each chain
@@ -586,42 +579,32 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
   if(T==0)
     return 0;
 
-  delta = (double *) mycalloc(nn,sizeof(double));
+  delta = (double *) mycalloc(nn+1,sizeof(double));
   //handles BAYES or ML
- start = (world->options->bayes_infer ? 0 : nn-1);
+  start = 0; //(world->options->bayes_infer ? 0 : nn-1);
   if(n==0) //initialization of mean calculator
     {
       n += 1;
       for(i=start; i < nn; i++)
 	{
-	  if(i<nn-1)
-	    {
-	      if(shortcut(i,world,&j))
-		continue;
-	      else
-		{
-		  if (i<nn1)
-		    {
-		      j  = world->bayes->map[i][1];
-		      x         = world->param0[j];
-		    }
-		  else
-		    {
-		      j = i;
-		      x = world->growth[j-nn1];
-		    }
-		}
-	    }
+	  if(shortcut(i,world,&j))
+	    continue;
 	  else
 	    {
-	      j = i;
-	      if(j+1 == nn)
+	      if (i<nps)
 		{
-		  x = world->likelihood[world->numlike-1];
-		} 
-	      else
+		  j  = world->bayes->map[i][1];
+		  x         = world->param0[j];
+		}
+	      else if (i < npg)
 		{
-		  x = world->options->mu_rates[world->locus];
+		  j = i;
+		  x = world->growth[world->options->growpops[j-nps]-1];
+		}
+	      else if (i < nn)
+		{
+		  j = i;
+		  x = world->mlalpha[world->options->mlalphapops[j-npg]-1];
 		}
 	    }
 	  mean[j]   = x;
@@ -630,6 +613,13 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
 	  xstart[j] = x;
 	  xold[j] = x;
 	}
+      //genealogy
+      x = world->likelihood[world->G];
+      mean[nn]   = x;
+      S[nn]      = 0.0;
+      r[nn]      = 0.0;
+      xstart[nn] = x;
+      xold[nn] = x;
       v = 0.0;
       myfree(delta);
     }
@@ -639,27 +629,12 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
       n += 1;
       for(i=start; i < nn; i++)
 	{
-	  if(i<nn-1-world->grownum)
-	    {
-	      if(world->bayes->map[i][1] == INVALID)
-		continue;
-	      else
-		{
-		  j  = world->bayes->map[i][1];
-		  x  = (double) world->param0[j];
-		}
-	    }
+	  if(world->bayes->map[i][1] == INVALID)
+	    continue;
 	  else
 	    {
-	      j = i;
-	      if(j+1 == nn)
-		{
-		  x = (double) world->likelihood[world->numlike-1];
-		} 
-	      else
-		{
-		  x = (double) world->options->mu_rates[world->locus];
-		}
+	      j  = world->bayes->map[i][1];
+	      x  = (double) world->param0[j];
 	    }
 	  xo        = xold[j];
 	  x1        = xstart[j];
@@ -676,6 +651,22 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
 	  //printf("[%li] n=%li effsample=%g atoc=%g r=%g (%f) s=%g mean=%g\n", j, n,effsample[j],autoc[j],r[j], temp, S[j],mean[j]);
 	  xold[j] = x;
 	}
+      x = world->likelihood[world->G];
+      xo        = xold[nn];
+      x1        = xstart[nn];
+      delta[nn]  = x - mean[nn];
+      mo        = mean[nn];
+      mean[nn]  += delta[nn]/n;
+      m         = mean[nn];
+      S[nn]     += delta[nn] * (x - m);
+      temp = xo * x + mo * (n * mo - x1 - xo) - m * ((n+1) * m - x1 - x);
+      r[nn]     += temp;
+      autoc[nn]  = S[nn] > 0.0 ? (MYREAL) (r[nn]/S[nn]): (MYREAL) 1.0;
+      effsample[nn] = (MYREAL) (n * (1. - autoc[nn])/(1. + autoc[nn]));
+      v        += S[nn];
+      //printf("%i> [%li] n=%li effsample=%g atoc=%g r=%g (%f) s=%g mean=%g\n", myID, nn, n,effsample[nn],autoc[nn],r[nn], temp, S[nn],mean[nn]);
+      xold[nn] = x;
+      
       myfree(delta);
     }
   //  printf("@single_chain_var() [%li]",(long) world->cold);
@@ -702,7 +693,8 @@ void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locu
   static boolean done=FALSE;
   static long *n;
   static long nn = 0;
-  static long nnbase = 0;
+  long nnbase = 0;
+  long nnbase1 = 0 ;
   long i;
   long j;
   long z;
@@ -716,10 +708,12 @@ void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locu
   //static double *v;
   double *delta;
   double temp;
+  long nn1=0;
   if(!done)
     {
-      nnbase = (world->numpop2 + world->bayes->mu + world->species_model_size * 2 + 1 + world->grownum);
-      nn = world->loci * nnbase;
+      nnbase = world->numparam;
+      nnbase1 = nnbase + 1;
+      nn = world->loci * (nnbase+1);
       n = (long *) mycalloc(world->loci,sizeof(long));
       mean = (double *) mycalloc(nn,sizeof(double));
       S    = (double *) mycalloc(nn,sizeof(double));
@@ -734,35 +728,27 @@ void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locu
 
   delta = (double *) mycalloc(nn,sizeof(double));
   //handles BAYES or ML
-  start = (world->options->bayes_infer ? 0 : nnbase - 1 );
+  start = 0;//(world->options->bayes_infer ? 0 : nnbase - 1 );
   if(n[locus]==0) //initialization of mean calculator
     {
       n[locus] += 1;
-      for(i=start; i < nnbase; i++)
+      for(i=start; i < nnbase1; i++)
 	{
-	  if(i<nnbase - 1)
+	  if(i<nnbase)
 	    {
 	      if(world->bayes->map[i][1] == INVALID)
 		continue;
 	      else
 		{
 		  j  = world->bayes->map[i][1];
-		  z  = locus * nnbase + j;
+		  z  = locus * nnbase1 + j;
 		  x  = params[j+2];
 		}
 	    }
 	  else
 	    {
-	      j = i;
-	      z  = locus * nnbase + j;
-	      if(j+1 == nnbase)
-		{
-		  x = params[1];
-		} 
-	      else
-		{
-		  x = world->options->mu_rates[locus];
-		}
+	      z = locus * nnbase1 + nnbase;
+	      x = params[1];
 	    }
 	  mean[z]   = x;
 	  S[z]      = 0.0;
@@ -775,9 +761,9 @@ void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locu
     {
       // n is at least 1
       n[locus] += 1;
-      for(i=start; i < nnbase; i++)
+      for(i=start; i < nnbase1; i++)
 	{
-	  if(i<nnbase - 1)
+	  if(i<nnbase)
 	    {
 	      if(world->bayes->map[i][1] == INVALID)
 		continue;
@@ -790,17 +776,9 @@ void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locu
 	    }
 	  else
 	    {
-	      j = i;
-	      z  = locus * nnbase + j;
-	      if(j+1 == nnbase)
-		{
-		  x = params[1];
-		} 
-	      else
-		{
-		  x = (double) world->options->mu_rates[locus];
-		}
-	    }
+	      z = locus * nnbase1 + nnbase;
+	      x = params[1];
+	    }	  
 	  xo        = xold[z];
 	  x1        = xstart[z];
 	  delta[z]  = x - mean[z];
@@ -1109,7 +1087,7 @@ MYREAL
 calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
 {
   //long T            = world->convergence->chain_counts[world->rep];
-  long nn           = 2+world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+  long nn           = 2+world->numparam;
   long pnum         = world->bayes->numparams;
   
   MYREAL  * params     = world->bayes->params;
@@ -1184,7 +1162,7 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
   long              i;
   long              j;
   MYREAL           *params  = world->bayes->params;
-  long              nn      = 2+world->numpop2 + (world->bayes->mu);
+  long              nn      = 2+world->numparam;
 
   for (j = 0; j < T; j++)
     {
@@ -1205,21 +1183,9 @@ void
 chain_means (MYREAL *thischainmeans, world_fmt * world)
 {
   double temp;
-
-  if(world->options->bayes_infer)
-    {
-      temp =  (world->convergence->chain_counts[world->rep]!=0) ? world->convergence->chain_counts[world->rep] : 1;  
-      world->convergence->chain_counts[world->rep] = (long) temp;
-      chain_means_bayes (thischainmeans, world);
-    }
-  else
-    {
-#ifdef DEBUG
-      printf("%i> world->rep=%li\n",myID, world->rep);
-#endif
-      world->convergence->chain_counts[world->rep] = world->atl[world->rep][world->locus].T;
-      chain_means_ml (thischainmeans, world);
-    }
+  temp =  (world->convergence->chain_counts[world->rep]!=0) ? world->convergence->chain_counts[world->rep] : 1;  
+  world->convergence->chain_counts[world->rep] = (long) temp;
+  chain_means_bayes (thischainmeans, world);
 }
 
 ///
@@ -1230,25 +1196,12 @@ void  calc_chain_s(MYREAL *cs, MYREAL *cm, world_fmt *world, long replicate)
   long start;
   long stop;
   long i;
-  if(world->options->bayes_infer)
+  len = world->numpop2+1;
+  start = replicate * len;
+  stop = start + len;
+  for(i = start; i < stop; i++)
     {
-      len = world->numpop2+1;
-      start = replicate * len;
-      stop = start + len;
-      for(i = start; i < stop; i++)
-	{
-	  cs[i] = calc_s_bayes (i-start, &cm[start], world);
-	}
-    }
-  else
-    {
-      len = world->numpop2 + 3*world->numpop;
-      start = replicate * len;
-      stop = start + len;
-      for(i = start; i < stop; i++)
-	{
-	  cs[i] = calc_s (i-start, &cm[start], world);
-	}
+      cs[i] = calc_s_bayes (i-start, &cm[start], world);
     }
 }
 

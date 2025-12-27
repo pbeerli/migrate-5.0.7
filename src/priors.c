@@ -785,6 +785,10 @@ MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes,
       double val = logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam) -
       		logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam);
       ////printf("%f ", val);
+      if (newparam > 0.9999)
+	newparam = 0.9999;
+      if (oldparam > 0.9999)
+	oldparam = 0.9999;
       double num = (a - 1.) * LOG(newparam) + (b - 1.0) * LOG(1. - newparam);
       double den = (a - 1.) * LOG(oldparam) + (b - 1.0) * LOG(1. - oldparam);
       val = num - den;
@@ -1515,7 +1519,10 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
       set_option_prior(&result,SPECIESSTDPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
       break;
     case GROWTHPRIOR:
-      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, 0.0, UPPERGROWTH, BAYESNUMBIN);	   
+      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, UPPERGROWTH, 0.0, BAYESNUMBIN);  
+      break;
+    case MLFPRIOR:
+		       set_option_prior(&result, MLFPRIOR, SMALLEST_MLALPHA, BIGGEST_MLALPHA, 1.0, BAYESNUMBIN);
       break;
     default:
       error("no default prior found");
@@ -1531,7 +1538,7 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   const long numpop2 = numpop * numpop;
   const int  has_mu = (int) options->bayesmurates;
   const long a = world->species_model_size * 2;
-  const long np = numpop2 + has_mu + a + world->options->growpops_numalloc;
+  const long np = numpop2 + has_mu + a + world->options->growpops_numalloc + world->options->mlalphapops_numalloc;
   //MYREAL ratemin = 0.0;
   long       i;
   long       j=0;
@@ -1543,7 +1550,8 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   long w=0;
   long from;
   long to;
-  prior_fmt  *plist = (prior_fmt *) mycalloc(np, sizeof(prior_fmt));
+  long plist_numalloc = np;
+  prior_fmt  *plist = (prior_fmt *) mycalloc(plist_numalloc, sizeof(prior_fmt));
   for (i=0; i<numpop;i++)
     {
       find_prior(i, i, THETAPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
@@ -1582,58 +1590,82 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 	  //printf("@w %li %li\n",i, w);
 	  find_prior(i, i, GROWTHPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
 	  plist[w++].bins = options->bayes_posterior_bins[GROWTHPRIOR];
+	  if (w >= plist_numalloc)
+	    {
+	      plist_numalloc = w+1;
+	      plist = realloc(plist, plist_numalloc * sizeof(prior_fmt));
+	    }
+	}
+    }
+  if (world->has_mlalpha && world->tri_mlalpha != FIXED)
+    {
+      for (i=0; i<numpop;i++)
+	{
+	  //printf("@w %li %li\n",i, w);
+	  find_prior(i, i, MLFPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
+	  plist[w++].bins = options->bayes_posterior_bins[MLFPRIOR];
+	  if (w >= plist_numalloc)
+	    {
+	      plist_numalloc = w+1;
+	      plist = realloc(plist, plist_numalloc * sizeof(prior_fmt));
+	    }
+
 	}
     }
   myfree(options->bayes_priors);
   options->bayes_priors = plist;
   options->bayes_priors_num = np;
-  for(j=0;j<np;j++)
+  long j0;
+  for(j0=0;j0<np;j0++)
     {
-      options->bayes_priors[j].v[0]= (float) options->bayes_priors[j].min;
-      options->bayes_priors[j].v[1]= (float) options->bayes_priors[j].max;
+      if(shortcut(j0, world, &j))
+	continue;
+      
+      options->bayes_priors[j0].v[0]= (float) options->bayes_priors[j].min;
+      options->bayes_priors[j0].v[1]= (float) options->bayes_priors[j].max;
       //options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].mean;
       //options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].std;
-      switch(options->bayes_priors[j].kind)
+      switch(options->bayes_priors[j0].kind)
 	{
 	case EXPPRIOR:
 	case WEXPPRIOR:
-	  options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].mean;
-	  options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].std;
-	  options->bayes_priors[j].random = trunc_random_exp; 
-	  options->bayes_priors[j].cdf = trunc_cdf_exp;
+	  options->bayes_priors[j0].v[2]= (float) options->bayes_priors[j].mean;
+	  options->bayes_priors[j0].v[3]= (float) options->bayes_priors[j].std;
+	  options->bayes_priors[j0].random = trunc_random_exp; 
+	  options->bayes_priors[j0].cdf = trunc_cdf_exp;
 	  break;
 	case BETAPRIOR:
 	  //m = options->bayes_priors[j].mean / (options->bayes_priors[j].max - options->bayes_priors[j].min);
 	  m = options->bayes_priors[j].mean;
 	  a1 = options->bayes_priors[j].alpha;
 	  beta = (a1 - a1*m)/m;
-	  options->bayes_priors[j].beta = beta;
-	  options->bayes_priors[j].v[2]= (double) a1;
-	  options->bayes_priors[j].v[3]= (double) beta;
-	  options->bayes_priors[j].random = trunc_random_beta; 
-	  options->bayes_priors[j].cdf = trunc_cdf_beta;
+	  options->bayes_priors[j0].beta = beta;
+	  options->bayes_priors[j0].v[2]= (double) a1;
+	  options->bayes_priors[j0].v[3]= (double) beta;
+	  options->bayes_priors[j0].random = trunc_random_beta; 
+	  options->bayes_priors[j0].cdf = trunc_cdf_beta;
 	  break;
 	case GAMMAPRIOR:
 	  beta = (find_beta_truncgamma(options->bayes_priors[j].mean, options->bayes_priors[j].alpha, 
 				       options->bayes_priors[j].min, options->bayes_priors[j].max));
-	  options->bayes_priors[j].beta = beta;
-	  options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].alpha;
-	  options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].beta;
-	  options->bayes_priors[j].random = trunc_random_gamma; 
-	  options->bayes_priors[j].cdf = trunc_cdf_gamma;
+	  options->bayes_priors[j0].beta = beta;
+	  options->bayes_priors[j0].v[2]= (float) options->bayes_priors[j].alpha;
+	  options->bayes_priors[j0].v[3]= (float) options->bayes_priors[j].beta;
+	  options->bayes_priors[j0].random = trunc_random_gamma; 
+	  options->bayes_priors[j0].cdf = trunc_cdf_gamma;
 	  break;
 	case NORMALPRIOR:
-	  options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].mean;
-	  options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].std;
-	  options->bayes_priors[j].random = trunc_random_normal; 
-	  options->bayes_priors[j].cdf = trunc_cdf_normal;
+	  options->bayes_priors[j0].v[2]= (float) options->bayes_priors[j].mean;
+	  options->bayes_priors[j0].v[3]= (float) options->bayes_priors[j].std;
+	  options->bayes_priors[j0].random = trunc_random_normal; 
+	  options->bayes_priors[j0].cdf = trunc_cdf_normal;
 	  break;
 	case UNIFORMPRIOR:
 	default:
-	  options->bayes_priors[j].v[2]= (float) options->bayes_priors[j].mean;
-	  options->bayes_priors[j].v[3]= (float) options->bayes_priors[j].std;
-	  options->bayes_priors[j].random = trunc_random_uni; 
-	  options->bayes_priors[j].cdf = trunc_cdf_uni;
+	  options->bayes_priors[j0].v[2]= (float) options->bayes_priors[j].mean;
+	  options->bayes_priors[j0].v[3]= (float) options->bayes_priors[j].std;
+	  options->bayes_priors[j0].random = trunc_random_uni; 
+	  options->bayes_priors[j0].cdf = trunc_cdf_uni;
 	  break;
 	}
     }

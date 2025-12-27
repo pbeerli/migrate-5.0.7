@@ -56,6 +56,8 @@ $Id: options.c 2158 2013-04-29 01:56:20Z beerli $
 #include "menu.h"
 #include "random.h"
 #include "options.h"
+#include "growth.h"
+#include "mlalpha.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -103,7 +105,7 @@ extern char * generator;
   "assign",\
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha"}
-#define NUMNUMBER 69
+#define NUMNUMBER 68
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -112,13 +114,13 @@ extern char * generator;
  "micro-max", "micro-threshold", "delimiter","burn-in",\
  "infile", "outfile", "smoothing", "title", \
  "long-chain-epsilon","print-tree","progress","l-ratio",\
- "fst-type","profile","custom-migration","population-growth","unused",\
+ "fst-type","profile","custom-migration","population-growth","population-mlalpha",\
  "long-sample", "replicate","datamodel","logfile", "seqerror-rate","uep", \
  "uep-rates","uep-bases", "mu-rates","heating","fluctuate", "resistance",\
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","mittag-leffler-alpha"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -225,6 +227,8 @@ void print_parm_tipdate(long *bufsize, char **buffer, long *allocbufsize, option
 void print_parm_inheritance(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_newpops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_growpops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
+void print_parm_mlalphapops(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
+void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options, data_fmt *data);
 void print_parm_randomsubset(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options);
 void print_parm_usertree(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options);
 void print_parm_theta(long *bufsize, char ** buffer, long *allocbufsize, option_fmt * options);
@@ -247,7 +251,6 @@ long save_newpops_buffer (char **buffer, long *allocbufsize, option_fmt * option
 void set_growth(char **value, char **tmp, option_fmt *options);
 long save_growpops_buffer (char **buffer, long *allocbufsize, option_fmt * options);
 void set_bayes_options(char *value, option_fmt *options);
-long boolcheck (char ch);
 void read_random_theta(option_fmt *options, char ** buffer);
 void read_random_mig(option_fmt *options, char ** buffer);
 void read_theta (option_fmt * options, char *parmvar, char *varvalue, char **buffer);
@@ -576,6 +579,12 @@ void init_options (option_fmt * options)
     options->growpops=(long*) mycalloc(1, sizeof(long));
     options->growpops[0] = 0;
     options->growpops_numalloc  = 1;
+    options->mlalphapops=(long*) mycalloc(1, sizeof(long));
+    options->mlalphapops[0] = 0;
+    options->mlalphapops_numalloc  = 1;
+    options->mlalpha=(double*) mycalloc(1, sizeof(double));
+    options->mlalpha[0] = 1.0;
+    options->mlalpha_numalloc  = 1;
 
     options->slice_sticksizes = (MYREAL*) mycalloc(1, sizeof(MYREAL));
     options->slice_sticksizes[0] = 1.0;
@@ -595,8 +604,8 @@ void init_options (option_fmt * options)
     options->bayes_posterior_bins[3]=BAYESNUMBIN;
     options->bayes_posterior_bins[4]=BAYESNUMBIN;
     options->bayes_posterior_bins[5]=BAYESNUMBIN;
-    options->mlalpha = 1.0;
-    options->mlinheritance = 4.0;
+    options->mlalpha[0] = 1.0;
+    options->mlinheritance = 2.0;
 }
 
 void
@@ -977,8 +986,10 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
   char *paramtgen, *parammgen;
   long from;
   long to;
+  long slen=0;
   const long numpop = world->numpop;
-  const long npp = world->numpop2 + world->bayes->mu + 2 * world->species_model_size;
+  const long npp = world->numparamcumvec[SPLITSTDPRIOR];//world->numpop2 + world->bayes->mu + 2 * world->species_model_size;
+  const long nppg = world->numparamcumvec[GROWTHPRIOR];
   char * priorkind = (char *) mycalloc(LINESIZE, sizeof(char));
   paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
   parammgen = paramtgen + LINESIZE;
@@ -1012,7 +1023,14 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     switch(options->tri_mlalpha)
       {
       case FIXED:
-	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%.2f",options->mlalpha);
+	slen = mysnprintf(s,LINESIZE,"{%.2f",options->mlalpha[0]);
+	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
+	  slen = mysnprintf(s+slen,STRSIZE,", %.2f", options->mlalpha[i]);
+	if (options->mlalpha_numalloc>1)
+	  slen = mysnprintf(s+slen,STRSIZE, ", %.2f}", options->mlalpha[options->mlalpha_numalloc-1]);
+	else
+	  slen = snprintf(s+slen, STRSIZE, "}");
+	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
 	break;
       case NO:
 	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
@@ -1113,18 +1131,18 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
       }
     for(i=0;i<pnum;i++)
       {
+	pa=0;		    
+	if(shortcut(i,world,&pa))
+	  {
+	    continue;
+	  }
 	prior_fmt *ptr = &p[i];
 	switch(ptr->type)
 	  {
 	  case THETAPRIOR:
-	    mysnprintf(s,LINESIZE, "Population size (Theta_%li)",i+1);
+	    mysnprintf(s,LINESIZE, "Population size (Theta_%li)",pa+1);
 	    break;
 	  case MIGPRIOR:
-	    pa=0;
-	    if(shortcut(i,world,&pa))
-	      {
-		continue;
-	      }
 	    m2mm(pa,numpop,&from,&to);
 	    mysnprintf(s,LINESIZE, "Migration %li to %li %s", from+1, to+1, options->usem ? "  (M)   " : " (xNm)  ");
 	    break;
@@ -1144,10 +1162,16 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	    z++;
 	    break;
 	  case GROWTHPRIOR:
-	    d=i-npp;
-	    while (world->options->growpops[d]==0 && d < world->options->growpops_numalloc)
+	    d=pa-npp;
+	    while (d < world->options->growpops_numalloc && world->options->growpops[d]==0 )
 	      d++;		       
 	    mysnprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
+	    break;
+	  case MLFPRIOR:
+	    d=pa-nppg;
+	    while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0 )
+	      d++;		       
+	    mysnprintf(s,LINESIZE, "Population ML-alpha (ML-alpha_%li)",d+1);
 	    break;
 
 	  }
@@ -1557,7 +1581,9 @@ void allocate_startparam(option_fmt *options, long numpop)
   startparam->mig = (float *) mycalloc((numpop*(numpop-1)), sizeof(float)); 
   startparam->rate = (float *) mycalloc(numpop, sizeof(float)); 
   startparam->split = (float *) mycalloc(numpop, sizeof(float));
-  startparam->splitstd = (float *) mycalloc(numpop, sizeof(float)); 
+  startparam->splitstd = (float *) mycalloc(numpop, sizeof(float));
+  startparam->growth = (float *) mycalloc(numpop, sizeof(float));
+  startparam->mlalpha = (float *) mycalloc(numpop, sizeof(float)); 
 }
 void realloc_startparam(option_fmt *options, long numpop)
 {
@@ -1570,6 +1596,8 @@ void realloc_startparam(option_fmt *options, long numpop)
       startparam->rate = (float *) myrealloc(startparam->rate, (size_t) numpop * sizeof(float)); 
       startparam->split = (float *) myrealloc(startparam->split, (size_t) numpop * sizeof(float));
       startparam->splitstd = (float *) myrealloc(startparam->splitstd, (size_t) numpop * sizeof(float)); 
+      startparam->growth = (float *) myrealloc(startparam->growth, (size_t) numpop * sizeof(float)); 
+      startparam->mlalpha = (float *) myrealloc(startparam->mlalpha, (size_t) numpop * sizeof(float)); 
     }
 }
 
@@ -1603,6 +1631,16 @@ void fill_startparam(option_fmt *options, short key, long index, float value)
 	startparam->numsplitstd = index+1;
       startparam->splitstd[index] = value;
       break;
+    case GROWTHPRIOR:
+      if (index >= startparam->numgrowth)
+	startparam->numgrowth = index+1;
+      startparam->growth[index] = value;
+      break;
+    case MLFPRIOR:
+      if (index >= startparam->nummlalpha)
+	startparam->nummlalpha = index+1;
+      startparam->mlalpha[index] = value;
+      break;
     }
 }
 
@@ -1626,6 +1664,12 @@ void add_startparam(option_fmt *options, short key, float value)
     case SPECIESSTDPRIOR:
       fill_startparam(options,SPLITSTDPRIOR,startparam->numsplitstd,value);
       break;
+    case GROWTHPRIOR:
+      fill_startparam(options,GROWTHPRIOR,startparam->numgrowth,value);
+      break;
+    case MLFPRIOR:
+      fill_startparam(options,MLFPRIOR,startparam->nummlalpha,value);
+      break;
     }
 }
 
@@ -1645,12 +1689,29 @@ long startguessvalue(option_fmt *options, short key)
       return options->startguess[3][0];
     case SPLITSTDPRIOR:
       return options->startguess[4][0];
+    case GROWTHPRIOR:
+      return options->startguess[5][0];
+    case MLFPRIOR:
+      return options->startguess[6][0];
     default:
       usererror("startguessvalue() show not reach this point, no method defined!");
     }
   //return -1;
 }
 
+/// for theta
+long show_onestartparam(FILE *file, option_fmt *options, char **temp, long numpop, float * values)
+{
+  (void) file;
+  long pop;
+  long tempsize = 0;
+  for(pop=0;pop<numpop;pop++)
+    {
+      tempsize += mysnprintf(*temp+tempsize,LINESIZE, "%f ",(double) values[pop]);
+    }
+  return tempsize;
+}
+/*
 /// for theta
 long show_thetaownparam(FILE *file, option_fmt *options, char **temp)
 {
@@ -1664,7 +1725,7 @@ long show_thetaownparam(FILE *file, option_fmt *options, char **temp)
     }
   return tempsize;
 }
-
+*/
 /// for mig
 long show_migownparam(FILE *file, option_fmt *options, char **temp)
 {
@@ -1690,7 +1751,7 @@ long show_migownparam(FILE *file, option_fmt *options, char **temp)
     }
   return tempsize;
 }
-
+/*
 /// for rate
 long show_rateownparam(FILE *file, option_fmt *options, char **temp)
 {
@@ -1731,7 +1792,7 @@ long show_splitstdownparam(FILE *file, option_fmt *options, char **temp)
     }
   return tempsize;
 }
-
+*/
 void show_startparamtype(twin_fmt *guess, long index, char **temp)
 {
   switch(guess[index][0])
@@ -1768,33 +1829,57 @@ void show_startparamtype(twin_fmt *guess, long index, char **temp)
     {
     case THETAPRIOR:
       if (verbose)
-	show_thetaownparam(file,options, &temp);
+	show_onestartparam(file, options, &temp, options->startparam.numtheta,
+			   options->startparam.theta);
+	  //	show_thetaownparam(file,options, &temp);
       else
-	show_startparamtype(guess,0,&temp);
+	show_startparamtype(guess,THETAPRIOR,&temp);
       break;
     case MIGPRIOR:
       if (verbose)
-	show_migownparam(file,options, &temp);
+	show_migownparam(file,options, &temp); //different to others
       else
-	show_startparamtype(guess,1,&temp);
+	show_startparamtype(guess,MIGPRIOR,&temp);
       break;
     case RATEPRIOR:
       if (verbose)
-	show_rateownparam(file,options, &temp);
+	show_onestartparam(file, options, &temp, options->startparam.numrate,
+			   options->startparam.rate);
+	  //show_rateownparam(file,options, &temp);
       else
-	show_startparamtype(guess,2,&temp);
+	show_startparamtype(guess,RATEPRIOR,&temp);
       break;
     case SPLITPRIOR:
       if (verbose)
-	show_splitownparam(file,options, &temp);
+	show_onestartparam(file, options, &temp, options->startparam.numsplit,
+			   options->startparam.split);
+	  //	show_splitownparam(file,options, &temp);
       else
-	show_startparamtype(guess,3,&temp);
+	show_startparamtype(guess,SPLITPRIOR,&temp);
       break;
     case SPLITSTDPRIOR:
       if (verbose)
-	show_splitstdownparam(file,options, &temp);
+	show_onestartparam(file, options, &temp, options->startparam.numsplitstd,
+			   options->startparam.splitstd);
+	  //show_splitstdownparam(file,options, &temp);
       else
-	show_startparamtype(guess,4,&temp);
+	show_startparamtype(guess,SPLITSTDPRIOR,&temp);
+      break;
+    case GROWTHPRIOR:
+      if (verbose)
+	show_onestartparam(file, options, &temp, options->startparam.numgrowth,
+			   options->startparam.growth);
+	  //show_splitstdownparam(file,options, &temp);
+      else
+	show_startparamtype(guess,GROWTHPRIOR,&temp);
+      break;
+    case MLFPRIOR:
+      if (verbose)
+	show_onestartparam(file, options, &temp, options->startparam.nummlalpha,
+			   options->startparam.mlalpha);
+	  //show_splitstdownparam(file,options, &temp);
+      else
+	show_startparamtype(guess,MLFPRIOR,&temp);
       break;
     }   
   myfree(temp);
@@ -1857,28 +1942,33 @@ void set_theta_nrandomstart(world_fmt *world, option_fmt *options)
 void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors)
 {
   long ii;
+  long  iii;
+  if (shortcut(i,world, &ii))
+    return;
+  
   switch(options->startguess[guess][0])
     {
     case PRIOR:
-      world->param0[i] = (double) priors[i].cdf((float) (options->startguess[guess][1]/100.),priors[i].v);
+      // if (world->bayes->map[i][1] != INVALID)
+      world->param0[ii] = (double) priors[ii].cdf((float) (options->startguess[guess][1]/100.),priors[ii].v);
       break;
     case RANDOMPRIOR:
-      world->param0[i] = (double) priors[i].random(priors[i].v);
+      world->param0[ii] = (double) priors[ii].random(priors[ii].v);
       break;
     case OWN:
       if (i < numx - 1)
-	ii = i;
+	iii = ii;
       else
-	ii = numx - 1;
-      world->param0[i] = (double) ppp[ii];
+	iii = numx - 1;
+      world->param0[ii] = (double) ppp[iii];
       if(i < world->numpop)
 	{
-	  if (world->param0[i] < SMALLEST_THETA)
-	    world->param0[i] = SMALLEST_THETA;
+	  if (world->param0[ii] < SMALLEST_THETA)
+	    world->param0[ii] = SMALLEST_THETA;
 	}
       break;
     default:
-      world->param0[i] = (double) priors[i].cdf(0.5,priors[i].v);
+      world->param0[ii] = (double) priors[ii].cdf(0.5,priors[ii].v);
     }
 }
 
@@ -1892,54 +1982,79 @@ void set_param_fromstartparam(world_fmt *world, option_fmt *options)
     float *ppp;
     short guess=0;
     long numx=0;
-    long b1 = world->numpop;
-    long b2 = world->numpop2;
-    long b3 = world->bayes->mu ? world->numpop2 : -1;
-    long xxx = b3 > 0 ? 1 : 0;
-    long b4 = world->numpop2 + xxx;
-    long b5 = world->numpop2 + xxx + 2 * world->species_model_size;
-    for (i = 0; i < b4; i++)
+    long numpop = world->numpop;
+    long numpop2 = world->numpop2;
+    long numrate = world->bayes->mu ? world->numpop2 : -1;
+    long xxx = numrate > 0 ? 1 : 0;
+    long numrate2 = world->numparamcumvec[RATEPRIOR];
+    long numsplit = world->numparamcumvec[SPLITSTDPRIOR];
+    long numgrowth = world->numparamcumvec[GROWTHPRIOR];
+    long numparam = world->numparam;
+    for (i = 0; i < numrate2; i++)
       {
-	if (i < b1)
+	if (i < numpop)//theta
 	  {
-	    guess = 0;
+	    guess = THETAPRIOR;
 	    numx = options->startparam.numtheta;
 	    ppp = options->startparam.theta;
 	  }
-	else if (i < b2)
+	else if (i < numpop2)//migration
 	  {
-	    guess = 1;
+	    guess = MIGPRIOR;
 	    numx = options->startparam.nummig;
 	    ppp = options->startparam.mig;
 	  }
-	else if (i == b3)
+	else if (i == numrate && xxx != 0) // rate
 	  {
-	    guess = 2;
+	    guess = RATEPRIOR;
 	    numx = options->startparam.numrate;
 	    ppp = options->startparam.rate;
 	  }
 	else
 	  {
+	    warning("Please check: failed in set_param_fromstartparam()\n");
 	    continue;
 	  } 
 	set_mystartparams(i, numx, guess, ppp, world, options, priors);
       }
-    for (i=b4; i<b5; i+=2)
+    if (world->has_speciation)
       {
-	numx = options->startparam.numsplit;
-	ppp = options->startparam.split;
-	set_mystartparams(i, numx, 3, ppp, world, options, priors);
-	numx = options->startparam.numsplitstd;
-	ppp = options->startparam.splitstd;
-	set_mystartparams(i+1, numx, 4, ppp, world, options, priors);
+	for (i=numrate2; i<numsplit; i+=2)
+	  {
+	    numx = options->startparam.numsplit;
+	    ppp = options->startparam.split;
+	    set_mystartparams(i, numx, SPLITPRIOR, ppp, world, options, priors);
+	    // what happens when split distro is exponential?
+	    numx = options->startparam.numsplitstd;
+	    ppp = options->startparam.splitstd;
+	    set_mystartparams(i+1, numx, SPLITSTDPRIOR, ppp, world, options, priors);
+	  }
+      }
+    if (world->has_growth)
+      {
+	for (i=numsplit; i<numgrowth; i++)
+	  {
+	    numx = options->startparam.numgrowth;
+	    ppp = options->startparam.growth;
+	    set_mystartparams(i, numx, GROWTHPRIOR, ppp, world, options, priors);
+	  }
+      }
+    if (world->has_mlalpha && world->tri_mlalpha != FIXED)
+      {
+	for (i=numgrowth; i<numparam; i++)
+	  {
+	    numx = options->startparam.nummlalpha;
+	    ppp = options->startparam.mlalpha;
+	    set_mystartparams(i, numx, MLFPRIOR, ppp, world, options, priors);
+	  }
       }
     //if(options->automatic_bins)
     //	{
     //	  priors[i]->bins = MIN(sqrt(options->lsteps), priors[i]->bins);
     //	}
 #ifdef DEBUG
-    printf("%i> b1=%li\n    b2=numpop=%li\n    b3=numpop2=%li\n    b4=mu=%li\n     b5=%li",myID,b1,b2,b3,b4,b5); 
-    for (i=0;i<b5;i++)
+    printf("%i> numpop=%li\n    numpop2=%li\n    numrate=%li\n    numrate2=%li\n     numsplit=%li\n",myID,numpop,numpop2,numrate,numrate2,numsplit); 
+    for (i=0;i<numsplit;i++)
       {
 	printf("%i> startparam %li: %f\n",myID, i, world->param0[i]);  
       }
@@ -3134,6 +3249,8 @@ void print_parm_growpops(long *bufsize, char **buffer, long *allocbufsize, optio
   myfree(input);
 }
 
+
+
 void print_parm_randomsubset(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options)
 {
     print_parm_comment(bufsize, buffer, allocbufsize, " random-subset=number:random_numberseed");
@@ -3431,43 +3548,44 @@ void   set_parm_prior_values(prior_fmt * prior, char * mytext)
       //	  strcat(mytext,tmp3);
       //	  strcat(mytext,tmp4);
       //	  break; 
-	case EXPPRIOR: 
-	  show_priormean(tmp2,prior);
-	  show_priormax(tmp3, prior);
-	  strcat(mytext,tmp2);
-	  strcat(mytext,tmp3);
-	  break;
-	case WEXPPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_priordelta(tmp4, prior);
-	  strcat(mytext,tmp2);
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-        case GAMMAPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_prioralpha(tmp4, prior);
-	  strcat(mytext,tmp2);	  
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-        case NORMALPRIOR:
-	  show_priormean(tmp2, prior);
-	  show_priormax(tmp3, prior);
-	  show_prioralpha(tmp4, prior);
-	  strcat(mytext,tmp2);	  
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
-	case UNIFORMPRIOR:
-	default:	  
-	  show_priormax(tmp3, prior);
-	  show_priordelta(tmp4, prior);
-	  strcat(mytext,tmp3);
-	  strcat(mytext,tmp4);
-	  break;
+    case EXPPRIOR: 
+      show_priormean(tmp2,prior);
+      show_priormax(tmp3, prior);
+      strcat(mytext,tmp2);
+      strcat(mytext,tmp3);
+      break;
+    case WEXPPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_priordelta(tmp4, prior);
+      strcat(mytext,tmp2);
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case GAMMAPRIOR:
+    case BETAPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_prioralpha(tmp4, prior);
+      strcat(mytext,tmp2);	  
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case NORMALPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_prioralpha(tmp4, prior);
+      strcat(mytext,tmp2);	  
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
+    case UNIFORMPRIOR:
+    default:	  
+      show_priormax(tmp3, prior);
+      show_priordelta(tmp4, prior);
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      break;
     }
 }
 
@@ -3526,6 +3644,11 @@ void print_parm_proposal(long *bufsize, char **buffer, long *allocbufsize, optio
     {
       print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= GROWTH %s",
 			 show_proposaltype(options->slice_sampling[GROWTHPRIOR]));
+    }
+  if(options->mlalphapops_numalloc>0)
+    {
+      print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= MLF %s",
+			 show_proposaltype(options->slice_sampling[MLFPRIOR]));
     }
 }
 
@@ -3595,7 +3718,7 @@ void print_parm_hyperprior(long *bufsize, char **buffer, long *allocbufsize, opt
   print_parm_comment(bufsize, buffer, allocbufsize, " Hyper-prior for all parameters");
   print_parm_comment(bufsize, buffer, allocbufsize, " The parameter of the prior is drawn from a Gamma distribution with mean and alpha");
   print_parm_comment(bufsize, buffer, allocbufsize, " for example:");
-  print_parm_comment(bufsize, buffer, allocbufsize, "   bayes-hyperprior=YES:10000:1.0:5.0");
+  print_parm_comment(bufsize, buffer, allocbufsize, "   bayes-hyperpriors=YES:10000:1.0:5.0");
   print_parm_comment(bufsize, buffer, allocbufsize, " uses a hyper prior with the mean of the specified prior");
   print_parm_comment(bufsize, buffer, allocbufsize, " and and alpha so that this specifies ~Normal");
   print_parm_br(bufsize, buffer, allocbufsize);
@@ -3927,8 +4050,8 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_comment(&bufsize, buffer, allocbufsize, "Progress report to the window where the program was started");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: progress=<NO | YES>");
     print_parm_comment(&bufsize, buffer, allocbufsize, "         NO       nothing is printed to the console");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "         YES      some messages about progress are reported [default]");
-    //    print_parm_comment(&bufsize, buffer, allocbufsize, "         VERBOSE  more messages are reported to console");    
+    print_parm_comment(&bufsize, buffer, allocbufsize, "         YES      progress report, no data summary! [default]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "         VERBOSE  data summary and more console messages");    
     print_parm_mutable(&bufsize, buffer, allocbufsize, "progress=%s",
              options->progress ? (options->verbose ? "YES" : "YES") : "NO ");
     print_parm_br(&bufsize, buffer, allocbufsize);
@@ -3980,26 +4103,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_br(&bufsize, buffer, allocbufsize);
 
 #endif
-#ifdef NEWVERSION
-    print_parm_comment(&bufsize, buffer, allocbufsize, "Use an alternative to exponential distribution [mittag-leffler]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-alpha=<NO|YES|YES:ESTIMATE|YES:number>");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  where numbers can have the range of 0.01 to 1.0, (NO=1.0=default=exp distrib)");
-    switch(options->tri_mlalpha)
-      {
-      case FIXED:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:%.2f", options->mlalpha);
-	break;
-      case NO:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=NO");
-	break;
-      case ESTIMATE:	
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:ESTIMATE");
-	break;
-      }
-    print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);	
-    print_parm_br(&bufsize, buffer, allocbufsize);
-#endif
+
     //
 print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mutation rate) instead of 4Nm or 2 Nm or Nm");
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax use-M=<NO | YES> Default is YES, the name 4Nm is ambiguous");
@@ -4283,6 +4387,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_mutable(&bufsize, buffer, allocbufsize, "custom-migration={%s}", options->custm);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_growpops(&bufsize, buffer, allocbufsize, options, data);
+    print_parm_mlalpha(&bufsize, buffer, allocbufsize, options, data);
+    print_parm_mlalphapops(&bufsize, buffer, allocbufsize, options, data);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Influence of geography on migration rate");
     print_parm_comment(&bufsize, buffer, allocbufsize, "a distance matrix between populations changes the migration rate matrix so that");
     print_parm_comment(&bufsize, buffer, allocbufsize, "(genetic?) migration rates =  inferred migration rate / distance ~ a dispersion coefficient");
@@ -4678,6 +4784,7 @@ void set_bayes_options(char *value, option_fmt *options)
       options->bayes_priors_num += 1;
       options->bayes_priors = (prior_fmt *) myrealloc(options->bayes_priors,
 				      (unsigned long) options->bayes_priors_num*sizeof(prior_fmt));
+      memset (options->bayes_priors + (options->bayes_priors_num - 1), 0, sizeof (prior_fmt));
     }
   prior = &(options->bayes_priors[ options->bayes_priors_num-1]);
   prior->from = from;
@@ -5127,18 +5234,17 @@ booleancheck (option_fmt * options, char *var, char *value)
       if (!has_mlalpha)
 	{
 	  options->tri_mlalpha = NO;
-	  options->mlalpha = 1.0;
+	  //options->mlalpha[0] = 1.0;
 	}
       else
 	{
 	  if (value!=NULL)
 	    {
-#ifdef NEWVERSION
-	      get_next_word(&value,":",&tmp);
+	      get_next_word(&value,":{",&tmp);
 	      if (value==NULL)
 		{
 		  options->tri_mlalpha = ESTIMATE;
-		  options->mlalpha = 1.0;
+		  options->mlalpha[0] = 1.0;
 		  options->mlinheritance = 2.0;
 		}
 	      else
@@ -5146,27 +5252,38 @@ booleancheck (option_fmt * options, char *var, char *value)
 		  if (value[0] == 'E' || value[0] == 'e')
 		    {
 		      options->tri_mlalpha = ESTIMATE;
-		      options->mlalpha = 1.0;;
+		      options->mlalpha[0] = 1.0;
 		      options->mlinheritance = 2.0; 
 		    }
 		  else
 		    {
 		      options->tri_mlalpha = FIXED;
-		      options->mlalpha = atof(value);
+		      long z = 0;
+		      while (value != NULL) 
+			{
+			  if (!strcmp(value,""))
+			      break;
+			  if (z >= options->mlalpha_numalloc)
+			    {
+			      options->mlalpha_numalloc = z+1;
+			      options->mlalpha = myrealloc(options->mlalpha,
+							   options->mlalpha_numalloc*sizeof(long));
+			    }
+			  get_next_word(&value,",;{} ",&tmp);
+			  if (tmp != NULL)
+			    {
+			      options->mlalpha[z] = atof(tmp);
+			      options->mlalpha_num++;
+			    }
+			  else
+			    warning("Expected a value in mittag-leffler-alpha:YES:...\n");
+			  z++;
+			}
 		      options->mlinheritance = 2.0; //atof(value);
 		    }
 		}
 	    }
-#else
-          options->tri_mlalpha = NO;
-	  options->mlalpha = 1.0;
-#endif
 	}
-      //else
-      //	{
-      //  if(options->tri_mlalpha)
-      //    options->mlalpha = 1.0;
-      //}
       break;
     default:
         return FALSE;
@@ -5183,6 +5300,8 @@ numbercheck (option_fmt * options, char *var, char *value)
   long    mbins = BAYESNUMBIN;
   long    sbins = BAYESNUMBIN;
   long    rbins = BAYESNUMBIN;
+  long    gbins = BAYESNUMBIN;
+  long    abins = BAYESNUMBIN;
   
     MYREAL musum = 0., lastrate = 1.;
     long i = 0, z=0, cc = 0;
@@ -5715,8 +5834,11 @@ numbercheck (option_fmt * options, char *var, char *value)
         break;
     case 31:   /* population-growth */
       set_growth(&value, &tmp, options);
-        break;
-        /*case 32 and case 33 are fallthroughs to 2 and 3 */
+        break;	
+    case 32:   /* population-mlalpha */
+      set_mlalpha(&value, &tmp, options);
+        break;	
+        /*case 33 is a fallthroughs for case 5: */
     case 34:   /*replicate */
         switch (uppercase (value[0]))
         {
@@ -5969,6 +6091,8 @@ numbercheck (option_fmt * options, char *var, char *value)
       mbins = BAYESNUMBIN;
       rbins = BAYESNUMBIN;
       sbins = BAYESNUMBIN;
+      gbins = BAYESNUMBIN;
+      abins = BAYESNUMBIN;
       temp = strtok (value, " ,;\n\0");
       if (temp != NULL)
         {
@@ -5983,7 +6107,17 @@ numbercheck (option_fmt * options, char *var, char *value)
 		    rbins = atol (temp);
 		    temp = strtok (NULL, " ,;\n\0");
 		    if (temp != NULL)
-		      sbins = atol (temp);
+		      {
+			sbins = atol (temp);
+			temp = strtok (NULL, " ,;\n\0");
+			if (temp != NULL)
+			  {
+			    gbins = atol (temp);
+			    temp = strtok (NULL, " ,;\n\0");
+			    if (temp != NULL)
+			      abins = atol (temp);
+			  }
+		      }
 		  }
 	      }
 	}
@@ -5998,6 +6132,11 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  options->bayes_posterior_bins[3]=sbins;
 	  options->bayes_posterior_bins[4]=sbins;
 	}
+      if (gbins>0)
+	options->bayes_posterior_bins[5]=gbins;
+      if (abins>0)
+	options->bayes_posterior_bins[6]=abins;
+
 #ifdef DEBUG
       printf("%i> read from parmfile: bayesposteriobins %li %li %li %li %li\n\n\n\n\n\n",
 	     myID,
@@ -6328,9 +6467,10 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    }
 	}
       break;
-    case 68: /*mittag-leffler-alpha=value*/
+      //case 68: /*mittag-leffler-alpha=value*/
       //mittag-leffler
-      if (value!=NULL)
+      // error("do not go here");
+      /*if (value!=NULL)
 	{
 #ifdef NEWVERSION
 	  get_next_word(&value,":",&tmp);
@@ -6338,7 +6478,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    {
 	      //if (tmp[0] === 'E' || tmp == 'e')
 	      options->tri_mlalpha = FIXED;
-	      options->mlalpha = atof(tmp);
+	      options->mlalpha[0] = atof(tmp);
 	      options->mlinheritance = 2.0;
 	    }
 	  else
@@ -6356,7 +6496,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	{
 	  options->tri_mlalpha = NO;
 	  options->mlalpha = 1.0;
-	}
+	  }*/
       break;
     default:
       myfree(keeptmp);
@@ -7494,10 +7634,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
   else
     choices[SEQUENCEERRORUPDATE]=0;
 
-  if(options->tri_mlalpha==ESTIMATE)
-    choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
-  else
-    choices[MITTAGLEFFLERUPDATE]=0;
+  //if(options->tri_mlalpha==ESTIMATE)
+  //  choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
+  //else
+  //  choices[MITTAGLEFFLERUPDATE]=0;
 
   switch(flag)
     {
@@ -7513,7 +7653,7 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     }
 
   double denom = choices[TREEUPDATE] + choices[PARAMETERUPDATE] + choices[HAPLOTYPEUPDATE] +
-    choices[SKYLINETIMEUPDATE] + choices[ASSIGNMENTUPDATE] + choices[SEQUENCEERRORUPDATE] + choices[MITTAGLEFFLERUPDATE];
+    choices[SKYLINETIMEUPDATE] + choices[ASSIGNMENTUPDATE] + choices[SEQUENCEERRORUPDATE];// + choices[MITTAGLEFFLERUPDATE];
 
   if(denom>0.0)
     {
@@ -7523,7 +7663,7 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
       choices[3] = choices[2] + choices[3] / denom;
       choices[4] = choices[3] + choices[4] / denom;
       choices[5] = choices[4] + choices[5] / denom;
-      choices[6] = choices[5] + choices[6] / denom;
+      //    choices[6] = choices[5] + choices[6] / denom;
     }
   else
     {

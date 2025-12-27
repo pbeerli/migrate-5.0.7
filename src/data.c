@@ -2341,10 +2341,6 @@ read_hapmap (FILE * infile, data_fmt * data, option_fmt * options,  long pop)
 	label2count = atol(input);
 	read_word(infile,input,NULL);
 	label12count = atol(input);
-	fprintf(stdout,"%20li|",data->position[locus]);
-	fprintf(stdout,"label12count=%li, not equal to label1count+label2count=%li+%li\n",
-		label12count, label1count, label2count);
-
 	if (label12count != label1count + label2count)
 	  {
 	    fprintf(stderr,"label12count=%li, not equal to label1count+label2count=%li+%li\n",

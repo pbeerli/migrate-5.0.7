@@ -48,6 +48,7 @@ $Id: world.c 2169 2013-08-24 19:02:04Z beerli $
 #include "reporter.h"
 #include "tools.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "bayes.h"
 #include "laguerre.h"
 #include "options.h"
@@ -209,7 +210,7 @@ void print_popstring(long pop, world_fmt *world, option_fmt *options, data_fmt *
 void klone_tree_setup(world_fmt *kopie, option_fmt *options);
 void set_replicates (world_fmt * world, long repkind, long rep, long *repstart,
 		     long *repstop);
-long get_numparam(world_fmt* world);
+void set_numparam(world_fmt* world);
 
 //##
 extern void   unset_penalizer_function(boolean inprofiles);
@@ -289,6 +290,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     //
     // fill in growth using growpops in options
     init_growpop(wopt,options, numpop);
+    // fill in mlalpha using mlalphapops in options
+    init_mlalphapop(wopt,options, numpop);
     //
     // allow to run the prior only
     wopt->prioralone = options->prioralone;
@@ -557,9 +560,9 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
   long maxreplicate;
   long numchains=1;
   long npall;
-  //mittag-leffler
-  world->mlalpha = options->mlalpha;
-  world->mlinheritance = options->mlinheritance;
+  //mittag-leffler moved to init_mlalpha() just after init_growth() 
+  //world->mlalpha = options->mlalpha;
+  //world->mlinheritance = options->mlinheritance;
   world->options = (worldoption_fmt *) mycalloc (1, sizeof (worldoption_fmt));
   world->buffer = (char *) mycalloc (LINESIZE, sizeof (char));
   if(options->murates_fromdata)
@@ -680,6 +683,11 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  init_speciesvector(world, options);
 	  // growth
 	  init_growth(world,numpop);
+	  init_mlalpha(world,numpop);
+	  memcpy(world->mlalpha,options->mlalpha,options->mlalpha_num * sizeof(double));
+	  world->tri_mlalpha = options->tri_mlalpha;
+	  set_numparam(world); //sets world->numparam and world->numparamvec and world->paramcumvec
+		
 	  bayes_init(world->bayes,world, options);
 	  if(world->cold)
 	    {
@@ -708,7 +716,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
       //}
       if(world->options->bayes_infer)
 	{
-	  npall =world->numpop2+world->bayes->mu+world->species_model_size*2 + world->grownum;
+	  npall =world->numparam;
 	  if (options->slice_sticksizes == NULL)
 	    options->slice_sticksizes = (MYREAL *) mycalloc(npall, sizeof (MYREAL));
 	  else
@@ -759,16 +767,18 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	{
 	  error("Only Bayesian inference is allowed");
 	}
-      addition = world->species_model_size * 2 + world->bayes->mu + world->grownum;//#speciation*mu-rate+#growthmax
-#ifdef LONGSUM
+
       
+      //addition = world->species_model_size * 2 + world->bayes->mu + world->grownum;//#speciation*mu-rate+#growthmax
+#ifdef LONGSUM
+      warning("LONGSUM not working yet");
       addition = 1 + world->numpop * 3;
 #endif /*LONGSUM*/
       world->alloclike = world->options->lsteps;
       world->likelihood = (MYREAL *) mycalloc (world->alloclike , sizeof (MYREAL)); //debug
       world->lineages = (long *) mycalloc (world->numpop, sizeof (long));
-      world->param0 = (MYREAL *) mycalloc ((world->numpop2 + addition), sizeof (MYREAL));
-      world->param00 = (MYREAL *) mycalloc ((world->numpop2 +addition), sizeof (MYREAL));
+      world->param0 = (MYREAL *) mycalloc (world->numparam, sizeof (MYREAL));
+      world->param00 = (MYREAL *) mycalloc (world->numparam, sizeof (MYREAL));
       // skyline parameters
       world->timeelements = options->timeelements;
       world->times = (MYREAL *) mycalloc ((world->timeelements +  world->timeelements * (world->numpop2)), sizeof (MYREAL));
@@ -928,7 +938,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	}
       /*Allocation of memory for effective sample size and autocorrelation 
         for all parameters (incl rate and speciation PLUS the tree*/
-      size = 1 + world->numpop2+options->bayesmurates + world->species_model_size * 2 + world->grownum;
+      size = 1 + world->numparam;
       world->autocorrelation =  (MYREAL *) mycalloc((2 * size),sizeof(MYREAL));
       world->effective_sample =  world->autocorrelation + size; 
       if(world->cold)
@@ -3381,7 +3391,7 @@ klone (world_fmt * original, world_fmt * kopie,
 #endif
   long locus=0;
   const long np = original->numpop;
-  const long npp = original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
+  const long npp = original->numparam; //original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
   kopie->repkind = SINGLECHAIN;
   kopie->loci = original->loci;
   kopie->skipped = original->skipped;
@@ -3506,6 +3516,7 @@ klone (world_fmt * original, world_fmt * kopie,
   //init_speciesvector(kopie);
   //fill_speciesvector(kopie,options);
   reset_growth(kopie);
+  reset_mlalpha(kopie);
 }
 
 
@@ -3517,7 +3528,7 @@ klone_part (world_fmt * original, world_fmt * kopie,
   (void) options;
   (void) data;
   (void) temperature;
-  long npp = original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
+  long npp = original->numparam; //original->numpop2 + original->bayes->mu + original->species_model_size * 2 + original->grownum;
     long i;
 #ifdef UEP
     
@@ -3753,7 +3764,7 @@ boolean updating(world_fmt *world)
   double *choices = world->options->choices;
   long choice=0;
   const boolean has_mu = world->bayes->mu;
-  const long np = world->numpop2 + has_mu + world->species_model_size * 2 + world->grownum;
+  const long np = world->numparam; //world->numpop2 + has_mu + world->species_model_size * 2 + world->grownum;
   double r = RANDUM();
   while(r>choices[choice])
     {
@@ -3816,13 +3827,28 @@ boolean updating(world_fmt *world)
   return success;
 }
 
-long get_numparam(world_fmt* world)
+void set_numparam(world_fmt* world)
 {
-  //returns the number of total parameters
-  return world->numpop2 + \
-    world->bayes->mu + \
-    2 * world->species_model_size + \
-    world->grownum;
+  //world->numparam = world->numpop2 +		\
+  //world->bayes->mu +				\
+  //2 * world->species_model_size +		\
+  //world->grownum +				\
+  //world->mlalphanum;
+  world->numparamvec[THETAPRIOR] = world->numpop;
+  world->numparamvec[MIGPRIOR] = world->numpop2;
+  world->numparamvec[RATEPRIOR] = world->bayes->mu;
+  world->numparamvec[SPLITPRIOR] = world->species_model_size;
+  world->numparamvec[SPLITSTDPRIOR] = world->species_model_size ;
+  world->numparamvec[GROWTHPRIOR] = world->options->growpops_numalloc ;//world->grownum;
+  world->numparamvec[MLFPRIOR] =  world->options->mlalphapops_numalloc ;//world->mlalphanum;
+  long i;
+  world->numparamcumvec[THETAPRIOR] =   world->numparamvec[THETAPRIOR];
+  world->numparamcumvec[MIGPRIOR]   =   world->numparamvec[MIGPRIOR]; 
+  for (i=2; i < PRIOR_SIZE; i++)
+    {
+      world->numparamcumvec[i] = world->numparamcumvec[i-1] + world->numparamvec[i];
+    }
+  world->numparam = world->numparamcumvec[MLFPRIOR];
 }
 
 

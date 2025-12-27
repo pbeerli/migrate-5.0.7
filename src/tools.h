@@ -162,6 +162,7 @@ extern void get_runtime (char *runtime, time_t start, time_t end);
 extern void print_llike (MYREAL llike, char *strllike);
 extern int sprint_tabdigits(double x, char * temp);
 /* searching and finding*/
+extern boolean is_notin(long x, long *order, long orderlen);
 extern boolean find (long i, long *list, long listlen);
 /* conversion between the different parameter schemes*/
 extern long mstart (long pop, long numpop);

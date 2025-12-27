@@ -26,8 +26,8 @@ MYREAL sumbezier(long intervals, MYREAL x0, MYREAL y0, MYREAL x1, MYREAL y1, MYR
 
 MYREAL combine_scaling_factor(world_fmt *world)
 { 
-  const long np = world->numpop2 + world->species_model_size * 2 + world->grownum;
-  const long np1 = np -  world->grownum;
+  const long np = world->numparam;//world->numpop2 + world->species_model_size * 2 + world->grownum;
+  const long np1 = world->numparamcumvec[SPLITSTDPRIOR];//np -  world->grownum;
   long pop;
   long i;
   MYREAL scaling_factor=0.0;
@@ -253,7 +253,7 @@ void      print_marginal_like(float *temp, long *z, world_fmt * world)
       temp[(*z)++] =  (float) world->bf[locus * hc + t-1];
       temp[(*z)++] =  (float) lsum;
 #ifdef DEBUG
-      printf("@MARGLIKE %f %f\n@",  world->bf[locus * hc + t-1], temp[(*z)-2]);
+      //printf("@MARGLIKE %f %f\n@",  world->bf[locus * hc + t-1], temp[(*z)-2]);
 #endif
     }
   temp[(*z)++] =  (float) (world->hmscale[locus] - log(world->hm[locus]));

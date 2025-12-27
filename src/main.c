@@ -50,6 +50,7 @@
 #include "bayes.h"
 #include "data.h"
 #include "growth.h"
+#include "mlalpha.h"
 #include "haplotype.h"
 #include "heating.h"
 #include "tables.h"
@@ -963,15 +964,18 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
     {
   /* report to screen */
       print_menu_options (EARTH, options, data);
-      if (options->progress)
+      if (options->progress && options->verbose)
 	print_data_summary (stdout, EARTH, options, data);
       /* print to outfile */
       pdf_master_init(EARTH, options, data);
       *outfilepos = print_title (EARTH, options);
       print_options (EARTH->outfile, EARTH, options, data);
-      print_data_summary (EARTH->outfile, EARTH, options, data);
-      print_data (EARTH, options, data);
-      print_spectra (EARTH, options, data);
+      if(options->verbose)
+	{
+	  print_data_summary (EARTH->outfile, EARTH, options, data);
+	  print_data (EARTH, options, data);
+	  print_spectra (EARTH, options, data);
+	}
       if(options->murates_fromdata)
 	{
 	  if (options->progress)
@@ -1114,7 +1118,7 @@ void 	recalc_skyline_values(world_fmt *world, option_fmt * options, long maxrepl
   long i, j, locus;
   mighistloci_fmt *aa;
   long * eventnum;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   const float invmax = (float) (1./maxreplicate);
   if(world->options->mighist && world->options->skyline)
     {
@@ -1305,7 +1309,7 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
   char nowstr[STRSIZE];
   char dots[STRSIZE];
   world_fmt *world = universe[0];
-  const  long npp = world->numpop2 + (long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
+  const  long npp = world->numparam;//world->numpop2 + (long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
   get_time (nowstr, "%H:%M:%S");
   plog = (char *) mycalloc(LONGLINESIZE,sizeof(char));
 #ifdef MPI
@@ -1402,7 +1406,7 @@ boolean analyze_oldbayesdata(world_fmt **universe, option_fmt *options, data_fmt
 	  world->data->skiploci[locus] = TRUE;
 	  continue;
 	}
-      calc_hpd_credibility(world, locus, world->numpop2, world->numpop2 + world->bayes->mu+2*world->species_model_size + world->grownum);
+      calc_hpd_credibility(world, locus, world->numpop2, world->numparam);//world->numpop2 + world->bayes->mu+2*world->species_model_size + world->grownum);
     }
   myfree(files);
   return TRUE;
@@ -1431,7 +1435,7 @@ setup_locus (long locus, world_fmt * world, option_fmt * options,
   //  print_menu_locus (world->options->logfile, world, locus);
   world->start = TRUE;
   reset_growth(world);
-
+  reset_mlalpha(world);
   
   if(options->has_unassigned && locus>0)
     {
@@ -2536,7 +2540,7 @@ void reset_bayesmdimfile(world_fmt *world, option_fmt *options)
                   world->data->skiploci[locus] = TRUE;
                   continue;
               }
-              calc_hpd_credibility(world, locus, world->numpop2, world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
+              calc_hpd_credibility(world, locus, world->numpop2, world->numparam);//world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
           }
       }
   }

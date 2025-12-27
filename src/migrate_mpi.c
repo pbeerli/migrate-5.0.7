@@ -53,6 +53,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #ifndef WINDOWS
 #include <unistd.h>
 #endif
+#include <assert.h>
 
 /*should go into profile.h*/
 #define GRIDSIZE 9
@@ -132,7 +133,9 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt * world, long startposition);
 
 long unpack_BF_buffer(MYREAL *buffer, long start, long locus, world_fmt * world);
+long unpack_heat(MYREAL *buffer, long start, long locus, world_fmt * world);
 long unpack_ess_buffer(MYREAL *buffer, long start, world_fmt *world);
+long pack_heat(MYREAL **buffer, long start, long locus, world_fmt * world);
 long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world);
 long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world);
 
@@ -432,6 +435,11 @@ void mpi_runloci_worker (world_fmt ** universe, int usize,
                 done = TRUE;
 		mpi_runreplicates_worker (universe, usize, options,  data, heating_pool, treefilepos, Gmax);
 	      }
+	    //    printf("@@@@%i> after mpi_send_replicate heat=%f averageheat=%f\n",myID, universe[0]->heat, universe[0]->averageheat);
+	    //printf("@@@@%i> after mpi_send_replicate heat=%f averageheat=%f\n",myID, universe[1]->heat, universe[1]->averageheat);
+	    //printf("@@@@%i> after mpi_send_replicate heat=%f averageheat=%f\n",myID, universe[2]->heat, universe[2]->averageheat);
+	    //printf("@@@@%i> after mpi_send_replicate heat=%f averageheat=%f\n",myID, universe[3]->heat, universe[3]->averageheat);
+
 	  }
       }
     else
@@ -682,7 +690,8 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
         replicate = temp[2];
         if (status.MPI_TAG != 0) //stop condition
           {
-	    nng=universe[0]->numpop2 + universe[0]->bayes->mu + 1 + universe[0]->species_model_size * 2 + universe[0]->grownum;	    
+	    nng=universe[0]->numparam;
+	      //numpop2 + universe[0]->bayes->mu + 1 + universe[0]->species_model_size * 2 + universe[0]->grownum;	    
 	    memset(universe[0]->accept_archive,0,sizeof(long)*2*nng);//resets also trials_archive
             run_replicate(locus, replicate, universe, options, data, heating_pool, usize,treefilepos, Gmax);
             rawmsgsize = 1 + mysnprintf(rawmessage,LINESIZE,"R%li ",replicate);
@@ -753,7 +762,7 @@ mpi_startparam_master(world_fmt * world)
 
     MPI_Status status;
 
-    long nn  = world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
+    long nn  = world->numparam; //world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
     long nng = nn + 1;
 
     tmp = (MYREAL*) mycalloc(nng,sizeof(MYREAL));
@@ -790,7 +799,7 @@ mpi_startparam_worker (world_fmt * world)
     long locus;
 
     MYREAL *tmp;
-    long nn  = world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
+    long nn  = world->numparam;//world->numpop2+ world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
     long nng = nn + 1;
 
     if(locidone>0)
@@ -1750,11 +1759,20 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
     for (locus = 0; locus < data->allsubloci; locus++)
     {
       s = &(data->mutationmodels[locus]);
+#ifdef MPIDATAONDEMAND    
+      sgets_safe (&input, &inputsize, &buf);
+      sscanf (input,  "%c %i %i %li %li\n",
+	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
+      long numpp = s->numpatterns;
+      init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      s->numpatterns = numpp;
+      s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+#else
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
       init_mutationmodel_readsites3(s, s->datatype, s->numsites);
-
+#endif
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%li %li %li %lf\n",
 	      &s->startsite, &s->numstates, &s->numsiterates,&s->lambda); 
@@ -1780,7 +1798,7 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       //if(s->datatype == 'b')
       //s->maxalleles = XBROWN_SIZE;
 #ifdef DEBUG
-      printf("@123456@@@@@@@@@@@@@@@@@ %i> datatype=%c maxalleles=%li \n",myID, s->datatype, s->maxalleles);
+      //printf("@123456@@@@@@@@@@@@@@@@@ %i> datatype=%c maxalleles=%li \n",myID, s->datatype, s->maxalleles);
 #endif	      
 
       sgets_safe (&input, &inputsize, &buf);
@@ -1800,7 +1818,13 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       s->dataclass = (dataclass==0) ? SITECHARACTER : SITEWORD;
       s->scaling = (scaling==0) ? FALSE : TRUE;
       s->estimateseqerror = (estimateseqerror==0) ? FALSE : TRUE;
-      init_mutationmodel_readsites3(s, s->datatype, s->numsites);
+      //is this a false redo of earlier?
+      //#ifdef MPIDATAONDEMAND    
+      //init_mutationmodel_readsites2(s, s->datatype, s->numsites);
+      //s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+      //#else
+      //init_mutationmodel_readsites3(s, s->datatype, s->numsites);
+      //#endif
       for(i=0;i<s->numsites;i++)
 	{
 	  sgets_safe (&input, &inputsize, &buf);
@@ -2338,7 +2362,7 @@ unpack_result_buffer (MYREAL *buffer, world_fmt * world,
   long rep;
   long pop;
   long addon=0;
-  long nn = world->numpop2+ world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long nn = world->numparam; //world->numpop2+ world->bayes->mu + world->species_model_size * 2 + world->grownum;
   //  long numpop2 = world->numpop2;
   timearchive_fmt **atl = world->atl;
   MYREAL ***apg0 = world->apg0;
@@ -2382,14 +2406,14 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
   long z = 0;
   long addon = 0;
   long numpop2 = world->numpop2;
-  long nn = numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long nn = world->numparam; //numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   timearchive_fmt **atl = world->atl;
   MYREAL ***apg0 = world->apg0;
   
   if (maxrep > 1)
     addon = 1;
   
-  bufsize = (maxrep+addon) + (maxrep+addon) * 4 * numpop2 + maxrep * world->options->lsteps + \
+  bufsize = (maxrep+addon) + (maxrep+addon) * 4 * nn + maxrep * world->options->lsteps + \
     world->options->heated_chains * world->loci + 5 * world->loci + 1 + nn * 2 + nn*6 + 2 * world->options->heated_chains;
   (*buffer) = (MYREAL *) myrealloc (*buffer, sizeof (MYREAL) * bufsize);
   memset (*buffer, 0, sizeof (MYREAL) * bufsize);
@@ -2413,14 +2437,16 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
   // BF material
   if(!world->data->skiploci[locus])
     {
+      if (world->options->adaptiveheat)
+	z = pack_heat(buffer,z, locus,world);
       z = pack_BF_buffer(buffer, z, locus, world);
     }
   // ESS material
   z = pack_ess_buffer(buffer, z, world);
   // hyper material
   z = pack_hyper_buffer(buffer, z, world);
-#ifdef DEBUG_MPI
-  fprintf(stdout,"DEBUG: %i> z=%li, bufsize=%li\n", myID, z, bufsize);
+#ifdef DEBUG
+  fprintf(stdout,"#####DEBUG: %i> z=%li, bufsize=%li\n", myID, z, bufsize);
 #endif
   if(bufsize >= z)
     {
@@ -2500,7 +2526,7 @@ unpack_mighist_replicate_buffer(MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
@@ -2627,7 +2653,7 @@ unpack_mighist_buffer (MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
   eventbinnum = aa->migeventbinnum;
@@ -2734,7 +2760,7 @@ long pack_mighist_buffer (MYREAL **buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
@@ -2779,7 +2805,7 @@ unpack_skyline_buffer (MYREAL *buffer, world_fmt * world,
   long *receive_eventbinnum;
   MYREAL temp;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   receive_eventbinnum = (long *) mycalloc(npall, sizeof(long));
 
   aa = &world->mighistloci[locus];
@@ -2838,7 +2864,7 @@ long pack_skyline_buffer (MYREAL **buffer, world_fmt * world,
   long j, i;
   long z = 0L;
   mighistloci_fmt *aa;
-  long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
   long bufsize = npall + 1;
   aa = &world->mighistloci[locus];
   //printf("Buffer in pack_skyline()=%f (%p)(%p)\n",(*buffer)[0], (*buffer), buffer);
@@ -2892,6 +2918,7 @@ unpack_bayes_buffer (MYREAL *buffer, world_fmt * world,
 
 ///
 /// pack bayes parameters to fit into mpi_results_worker()
+/// packs the bayes-histograms
 long 
 pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
 		   long locus, long maxrep, long numpop)
@@ -2903,16 +2930,15 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   //  long numbins     = 0;
   bayes_fmt *bayes = world->bayes;
   long np2         = world->numpop2;
-  long npp         = np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npp         = world->numparam;//np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
   bayeshistogram_fmt  *hist;
   hist = &(world->bayes->histogram[locus]);
   // memory for pack_single_bayes_buffer_part()
   // locus and numparams + accept and trial of genealogy
-  bufsize = npp + 11*npp;
-  //O bufsize =  4; 
+  bufsize = npp + 11*npp; //DEBUG why 12xnpp and not 11xnpp 
   for(i=0; i < npp; i++)
     {
-      bufsize += (3 * npp * hist->bins[i]);
+      bufsize += (3 * npp * hist->bins[i]); //total bufsize now npp(12npp+3npp*bins)
     }
   
   //  // hist_bayes_buffer:
@@ -2938,8 +2964,8 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   //   hmscale, hm    +2
   //   bf: number of heated chains +world->options->heated_chains
   //   steppingstone+scalar    +2*world->options->heated_chains
-  bufsize += 4 + 3 * world->options->heated_chains + 1;
-  // Autoarchive, ESS buffer:     parameters           +2*(numpop2+loci)
+  bufsize += 4 + 3 * world->options->heated_chains + 1;//DEBUG: why 4 + 1?
+  // Autoarchive, ESS buffer:     parameters           +2*(npp+loci)
   //                              genealogy            +2
   bufsize += 2*(2*npp + 2);
   //test printf("%i> bufsize=%li (npp=%li, numbins=%li)\n",myID, bufsize, npp, numbins);
@@ -2960,6 +2986,8 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   if(!world->data->skiploci[locus])
     {
       // fprintf(stderr,"%i> pack_result_buffer(): packed BF result locus=%li replicate %li\n",myID,locus, -1);
+      if (world->options->adaptiveheat)
+	z = pack_heat(buffer,z, locus,world);
       z = pack_BF_buffer(buffer, z, locus, world);
       if(z > bufsize)
 	{
@@ -2994,46 +3022,35 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
     long                pnum;
     long                tmp1, tmp2;
     long                tmplocus;
-    bayeshistogram_fmt  *hist;
     long                total = 0;
     long                np2 = world->numpop2; 
-    long                npp = np2 + bayes->mu + world->species_model_size * 2 + world->grownum; 
+    long                npp = world->numparam;
     long                npp11 = 11 * npp;
-    long                loci = world->loci > 1 ?  world->loci -1 : 0;
+    //long                loci = world->loci > 1 ?  world->loci -1 : 0;
+    bayeshistogram_fmt  *hist;
     //
+    assert(world->accept_archive != NULL);
+    assert(world->trials_archive != NULL);
     // begin unpack_single_bayes_buffer_part
     tmplocus = (long) buffer[z++]; 
     pnum = (long) buffer[z++];
-#ifdef DEBUG
-    const MYREAL        rat = numcpu / (world->maxreplicate * world->loci);
-    fprintf (stdout, "%i> unpack_hist_bayes_buffer() received pnum=%li, rat=%f\n", myID, pnum, rat);fflush(stdout);
-#endif
     if(tmplocus!=locus)
     {
         bayes->numparams=0;
         locus = tmplocus;
     }
-
-// Cesky Krumlov 2013    printf("%i> original accepted/trials:  [%li,%li,%li,%li,%li]/[%li,%li,%li,%li,%li]\n",
-// Cesky Krumlov 2013	   myID, world->accept_archive[0],world->accept_archive[1],world->accept_archive[2],world->accept_archive[3],world->accept_archive[4],world->trials_archive[0],world->trials_archive[1],world->trials_archive[2],world->trials_archive[3],world->trials_archive[4]);
-
+    // parameters
     for (j = 0; j < npp; ++j)
-    {
-      if(bayes->map[j][1] != INVALID)
+      {
+	if(bayes->map[j][1] != INVALID)
 	  {
-	    world->accept_archive[j] += (tmp1 = (long) buffer[z++]);//*rat);
-	    world->trials_archive[j] += (tmp2 = (long) buffer[z++]);//*rat);
-#ifdef DEBUG
-	    fprintf (stdout, "%i> received (acc %li) (trial %li) => (sumacc %li) (sumtrial %li)\n", myID, tmp1, tmp2, world->accept_archive[j], world->trials_archive[j]);
-#endif        
+	    world->accept_archive[j] += (tmp1 = (long) buffer[z++]);
+	    world->trials_archive[j] += (tmp2 = (long) buffer[z++]);
 	  }
-    }
+      }
     // genealogy
-    world->accept_archive[j] += (tmp1 = (long) buffer[z++]);//*rat);
-    world->trials_archive[j] += (tmp2 = (long) buffer[z++]);//*rat);
-#ifdef DEBUG
-	    fprintf (stdout, "%i> genealogy received (acc %li) (trial %li) => (sumacc %li) (sumtrial %li)\n", myID, tmp1, tmp2, world->accept_archive[j], world->trials_archive[j]);
-#endif        
+    world->accept_archive[j] += (tmp1 = (long) buffer[z++]);
+    world->trials_archive[j] += (tmp2 = (long) buffer[z++]);
     // end unpack_single_bayes_buffer_part
     //
     if(!world->options->has_bayesmdimfile)
@@ -3062,9 +3079,6 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 		total += hist->bins[i];
 	      }
 	  }
-#ifdef DEBUG
-	printf("%i> @@@@ locus=%li histbin[0]=%li (hist[loci].bins[0]=%li)\n", myID, locus, hist->bins[0],world->bayes->histogram[loci].bins[0]);
-#endif
 	hist->binsum = total; 
 	// this steps kills poor memory machines [setting results to floats may help a little]
 	hist->results = (double *) mycalloc(total * npp, sizeof(double));
@@ -3080,18 +3094,19 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	  }
 	memcpy(hist->datastore,buffer+z,sizeof(MYREAL)*11*npp);
 	z += 11*npp;
-		//for(j=0;j<11;j++)
-		//  hist->datastore[11*i+j] = buffer[z++];
 	numbins = 0;
 	for(pa=0; pa < npp; pa++)
 	  {
-	    for(i=0;i<hist->bins[pa];i++)
+	    if(world->bayes->map[pa][1] != INVALID)
 	      {
-		hist->set50[numbins + i] = (buffer[z++] < 1.0 ? '0' : '1'); 
-		hist->set95[numbins + i] = (buffer[z++] < 1.0 ? '0' : '1'); 
-		hist->results[numbins + i] = (double) buffer[z++];
+		for(i=0;i<hist->bins[pa];i++)
+		  {
+		    hist->set50[numbins + i] = (buffer[z++] < 1.0 ? '0' : '1'); 
+		    hist->set95[numbins + i] = (buffer[z++] < 1.0 ? '0' : '1'); 
+		    hist->results[numbins + i] = (double) buffer[z++];
+		  }
+		numbins += hist->bins[pa];
 	      }
-	    numbins += hist->bins[pa];
 	    //
 	    // CHECK
 	    world->bayes->histtotal[locus * npp + pa] = hist->bins[pa];
@@ -3103,9 +3118,15 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	  }
 	for(i=0;i<npp;i++)
 	  {
-	    for(j=0;j<npp;j++)
+	    if(world->bayes->map[i][1] != INVALID)
 	      {
-		hist->covariance[i][j] = buffer[z++];
+		for(j=0;j<npp;j++)
+		  {
+		    if(world->bayes->map[j][1] != INVALID)
+		      {
+			hist->covariance[i][j] = buffer[z++];
+		      }
+		  }
 	      }
 	  }
       }
@@ -3129,7 +3150,7 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	      bayes->histogram[locus].smoothed = (boolean *) mycalloc(npp, sizeof(boolean));
 	    else
 	      memset(bayes->histogram[locus].smoothed,0,sizeof(boolean)*npp);
-	    calc_hpd_credibility(world, locus, world->numpop2, world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
+	    calc_hpd_credibility(world, locus, world->numpop2, world->numparam);//world->numpop2 + world->bayes->mu+world->species_model_size*2 + world->grownum);
 	  }
       }
 }
@@ -3196,7 +3217,7 @@ long unpack_ess_buffer(MYREAL *buffer, long start, world_fmt *world)
   long z = start;
   static long n=1;
   //long np2 = world->numpop2;
-  long npp = world->numpop2 + ((long) world->bayes->mu)  + world->species_model_size * 2 + world->grownum;
+  long npp = world->numparam;//world->numpop2 + ((long) world->bayes->mu)  + world->species_model_size * 2 + world->grownum;
 
 #ifdef DEBUG
   const MYREAL        rat = (MYREAL) numcpu / (world->maxreplicate * world->loci);
@@ -3229,7 +3250,7 @@ long unpack_hyper_buffer(MYREAL *buffer, long start, world_fmt *world)
   long z = start;
   hyper_fmt *hyper = world->bayes->hyperp;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
   if (world->bayes->hyperprior)
     {
       for(i=0;i<npp;i++)
@@ -3288,14 +3309,23 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
   return z;
 }
 
+long unpack_heat(MYREAL *buffer, long start, long locus, world_fmt * world)
+{
+  return 0;
+}
+long pack_heat(MYREAL **buffer, long start, long locus, world_fmt * world)
+{
+  return 0;
+}
+
  /// packing autocorrelation and ess buffer
 long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
 {
-  // buffer memory needs are (npp + 1) + (npp+1) (numpop2 + mu + speciesmodel*2)
+  // buffer memory needs are (npp + 1) + (npp+1)
   long i;
   long z = start;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
   // (*buffer) = (MYREAL *) myrealloc(*buffer, (start + ((npp + 1) + (npp+1) * npp))*sizeof(MYREAL));
   for(i=0;i<npp;i++)
     {
@@ -3318,20 +3348,24 @@ long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
  /// packing hyper buffer
 long pack_hyper_buffer(MYREAL **buffer, long start, world_fmt *world)
 {
+  // mmeory needs are 6 * npp
   long i;
   long z = start;
   const long np2 = world->numpop2;
-  const long npp = np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum;
+  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum;
   if (world->bayes->hyperprior)
     {
       for(i=0;i<npp;i++)
-	{      
-	  (*buffer)[z++] = world->bayes->hyperp[i].mean;
-	  (*buffer)[z++] = world->bayes->hyperp[i].meanstd;
-	  (*buffer)[z++] = world->bayes->hyperp[i].alpha;
-	  (*buffer)[z++] = world->bayes->hyperp[i].alphastd;
-	  (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].meann;
-	  (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].alphan;
+	{
+	  if(world->bayes->map[i][1] != INVALID)
+	    {
+	      (*buffer)[z++] = world->bayes->hyperp[i].mean;
+	      (*buffer)[z++] = world->bayes->hyperp[i].meanstd;
+	      (*buffer)[z++] = world->bayes->hyperp[i].alpha;
+	      (*buffer)[z++] = world->bayes->hyperp[i].alphastd;
+	      (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].meann;
+	      (*buffer)[z++] = (MYREAL) world->bayes->hyperp[i].alphan;
+	    }
 	}
     }
   return z;
@@ -3344,11 +3378,11 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
   // buffer memory needed is (npp + 11*npp + (3 * npp * hist->bins[i])
   long  j;
   long  i;
-  long  npp     = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum; 
+  long  npp     = world->numparam;
   long  numbins = 0;
   long  z       = startposition;
   bayes_fmt *bayes = world->bayes;
-#ifdef DEBUG_MPI
+#ifdef DEBUG
     printf("%i> pack_hist_bayes_buffer: position=%li last value = %f numparams=%li npp=%li\n",myID, startposition, (z > 0) ? (*buffer)[startposition] : -9999., hist->numparam, npp);
 #endif
 #ifdef DEBUG
@@ -3372,38 +3406,31 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
     for(i=0; i < npp; i++)
       {
 	// bins are zero for "c" and "0" parameters
-	//	if(bayes->map[i][1] != INVALID)
-        //  {
+	if(bayes->map[i][1] != INVALID)
+          {
 	    for(j=0;j<hist->bins[i];j++)
 	      {
 		(*buffer)[z++] = (MYREAL) (hist->set50[numbins + j]=='1' ? 1.0 : 0.0);
 		(*buffer)[z++] = (MYREAL) (hist->set95[numbins + j]=='1' ? 1.0 : 0.0);
-		(*buffer)[z++] = (MYREAL) hist->results[numbins + j];//@#@#@# was results2
+		(*buffer)[z++] = (MYREAL) hist->results[numbins + j];
 	      }
-	    //  }
-#ifdef DEBUG
-	    printf("<%li elements> ",3*hist->bins[i]);
-#endif
+	  }
 	numbins += hist->bins[i];
       }
     // pack covariance matrix
     for(i=0;i<npp;i++)
       {
-	for(j=0;j<npp;j++)
-	  {
-	    (*buffer)[z++] = hist->covariance[i][j];
-#ifdef DEBUG
-	    printf("%f ",(*buffer)[z-1]);
-#endif
-	  }
+	 if(bayes->map[i][1] != INVALID)
+	   {
+	     for(j=0;j<npp;j++)
+	       {
+		 if(bayes->map[j][1] != INVALID)
+		   {
+		     (*buffer)[z++] = hist->covariance[i][j];
+		   }
+	       }
+	   }
       }
-#ifdef DEBUG
-	    printf("\n");
-#endif
-
-#ifdef DEBUG_MPI
-    printf("%i> pack_hist_bayes_buffer: position=%li numbins=%li, last value = %f\n",myID, z, numbins, (*buffer)[z-1]);
-#endif
     return z;
 }
 
@@ -3681,7 +3708,7 @@ long unpack_single_bayes_buffer(MYREAL *buffer,bayes_fmt * bayes, world_fmt * wo
   //    long oldallocparams = world->bayes->allocparams;
   long repstart;
   long repstop;
-  long npp = world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
+  long npp = world->numparam;//world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
   long nn = npp + 2;
   set_replicates (world, world->repkind, world->options->replicatenum,
 		  &repstart, &repstop);
@@ -3742,7 +3769,7 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     long i, j;
     long bufsize;
     long z = 0;
-    long nn = 2 + world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
+    long nn = 2 + world->numparam;//world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
     const long nng= nn-1;
     bufsize = 2 * (nng); //acceptance ratio: params + tree
     bufsize += 2; // loci + numparams
@@ -3800,7 +3827,7 @@ long pack_single_bayes_buffer_part(MYREAL **buffer, bayes_fmt *bayes, world_fmt 
 {
     long j;
     long z = 0;
-    const long nng= world->numpop2 + world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
+    const long nng= 1+world->numparam;//world->numpop2 + world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
 
     (*buffer)[z++] = (MYREAL) locus;
     (*buffer)[z++] = (MYREAL) bayes->numparams;
@@ -4276,7 +4303,7 @@ void handle_mdim(float *values,long n, int sender, world_fmt * world)
 	  }
       }
 #ifdef DEBUG
-    fprintf (stdout, " [%i @@@@@@@@@@@@@writing to bayesallfile] \n", myID);
+    //  fprintf (stdout, " [%i @@@@@@@@@@@@@writing to bayesallfile] \n", myID);
 #endif
 #ifdef ZNZ
     znzprintf(file,"%s\n",temp);
@@ -4687,7 +4714,7 @@ void mpi_mdim_send(float *values, long size)
       mysnprintf(p1,LINESIZE,"Z%li",size);
       MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
 #ifdef DEBUG
-      fprintf(stdout,"%i> mdimlast=%f\n",myID,values[size-1]);
+      //fprintf(stdout,"%i> mdimlast=%f\n",myID,values[size-1]);
 #endif
       MYMPISEND (values, size, MPI_FLOAT, (MYINT) MASTER, (MYINT) myID+PRINTTAG, comm_world);
 #endif
@@ -4800,7 +4827,7 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
   long    numpop         = world->numpop;
   long    numpop2        = numpop * numpop;
   //long    numpop2plus    = numpop2 + 2 * numpop;
-  long    npp            = numpop2 + world->bayes->mu * world->loci;
+  long    npp            = world->numparam; //numpop2 + world->bayes->mu * world->loci;
   MYREAL  *buffer        = NULL;
   //  timearchive_fmt **ta   = world->atl;
   buffer = (MYREAL *) mycalloc (allocbufsize, sizeof (MYREAL));
@@ -4838,9 +4865,12 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
     // BF material
   bufsize = world->options->heated_chains * world->loci + 5 * world->loci + 20 * (npp+1) + 6 * npp;
   buffer = (MYREAL *) myrealloc (buffer, bufsize *  sizeof (MYREAL));
+  bufsize = 0;
   if(!world->data->skiploci[locus])
     {
       //fprintf(stderr,"%i> REPLICANT: packed result locus=%li replicate %li\n",myID,locus, replicate);
+      if (world->options->adaptiveheat)
+	bufsize = pack_heat(&buffer, bufsize, locus,world);
       bufsize = pack_BF_buffer(&buffer, 0, locus, world);
     }
   bufsize = pack_ess_buffer(&buffer, bufsize, world);

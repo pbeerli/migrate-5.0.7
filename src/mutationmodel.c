@@ -66,8 +66,12 @@ int get_states(mutationmodel_fmt *s, data_fmt *data, long locus)
     case 'a':
     case 'b':
     case 'm':
+#ifdef MPIDATAONDEMAND
       //nummaxallele = data->maxalleles[locus];
+      nummaxallele = XBROWN_SIZE;
+#else
       nummaxallele = findAllele(data,"\0",locus);
+#endif
       break;
     case 'n':
     case 'u':

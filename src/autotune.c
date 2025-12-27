@@ -127,7 +127,8 @@ MYREAL mean_acceptance_rate(world_fmt * world)
    long which;
    long i;
   bayes_fmt * bayes = world->bayes;
-  long nng = world->numpop2 + ( long) bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
+  long nng = world->numparam;
+  //world->numpop2 + ( long) bayes->mu + 1 + world->species_model_size * 2 + world->grownum; 
   MYREAL sum = 0.0;
   long count = 0;
   if (!world->options->bayes_infer)
@@ -150,7 +151,8 @@ MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYRE
 {
     char autostop = world->options->burnin_autostop;
     const  long delta = ((stop >= 10000) ? 1000 : (stop / 10));
-    const  long nn = world->numpop2 + ( long) world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
+    const  long nn = world->numparam;
+    //world->numpop2 + ( long) world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum;
     MYREAL oldvar= *var;
     MYREAL acceptance;
     MYREAL ess;
@@ -232,7 +234,7 @@ void burnin_bayes(world_fmt * world)
   boolean reportdone=FALSE;
 #endif
   const  long stop = world->options->burn_in * world->increment;
-  const  long nn = world->numpop2 + ( long) world->bayes->mu+ world->species_model_size * 2 + world->grownum;
+  const  long nn = world->numparam;//world->numpop2 + ( long) world->bayes->mu+ world->species_model_size * 2 + world->grownum;
    long delta = ((stop > 100000) ? (stop / 10) : (stop/3));
   MYREAL * autocorrelation;
   MYREAL * effective_sample;
@@ -317,7 +319,7 @@ void burnin_bayes(world_fmt * world)
 void burnin_chain (world_fmt * world)
 {
   char autostop = world->options->burnin_autostop;
-  const  long nng = world->numpop2 + ( long) world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; //to set zero including the genealogy
+  const  long nng = 1 + world->numparam;//world->numpop2 + ( long) world->bayes->mu + 1 + world->species_model_size * 2 + world->grownum; //to set zero including the genealogy
   const boolean treeprint = (boolean) world->options->treeprint;
      long z=0;
     world->burnin_z=0;        
