@@ -6,40 +6,66 @@
 # without a reference sequence it generages a SNP migrate file
 # for more help see the help() function
 #
-# part of the migrate distribution (and of git repository ....[soon to be added]
+# part of the migrate distribution
+#
+# Created: 2020
+# Considerably modified and improved December 2025
 #
 # MIT licence
-# (c) Peter Beerli, Tallahassee 2020 
+# (c) Peter Beerli, Tallahassee 2020-2025
 import sys
 import gzip
 import datetime as dt
+from collections import Counter
 
+IUPACTRANS = {'A': ['A'],'C': ['C'],'G': ['G'],'T': ['T'],
+              'U': ['T'],'R': ['A','G'],'Y': ['C','T'],
+              'M': ['A','C'],'K': ['G','T'], 'S': ['G','C'],
+              'W': ['A','T'],'H': ['A','C','T'], 'B': ['C','G','T'],
+              'V': ['A','C','G'], 'D': ['A','G','T'],
+              'N': ['A','C','G', 'T'], 'X': ['A','C','G', 'T'],
+              '?': ['A','C','G', 'T']}
+IUPAC =    'URYMKSWHBVDNX'
+NONIUPAC = '?????????????'
+CHROMLINK = -1
 DELIM = "|/"
-NMLEN = 10
+NMLEN = 10 
 
 def help(args):
-    print("syntax: vcf2mig --vcf vcffile.vcf <--ref ref1.fasta,ref2.fasta,... | --linksnp number >  <--popspec numpop ind1 ind2 .... | --pop populationfile.txt> <--chrom chr1,chr2,...> --out migrateinfile")
+    print("syntax: vcf2mig --vcf vcffile.vcf")
+    print("               <<--ref|--abbrevref> ref1.fasta,ref2.fasta,... | --linksnp number >  ")
+    print("               <--popspec numpop ind1 ind2 .... | --pop populationfile.txt>")
+    print("               <--chrom chr1,chr2,...>")
+    print("                --out migrateinfile\n\nDetails:")
     print("  --vcf vcffile : a VCF file that is uncompressed or .gz, currently only")
     print("                  few VCF options are allowed, simple reference")
     print("                  and alternative allele, diploid and haploid data")
     print("                  can be used")
+    print("  --abbrevref ref1.fasta,ref2.fasta,... : reference in fasta format")
+    print("                  for more info see next option, returns snps + invariant counts")
     print("  --ref ref1.fasta,ref2.fasta,... : reference in fasta format")
     print("                  several references can be given, for example for")
     print("                  each chromosome, if this option is NOT present then")
     print("                  the migrate dataset will contain only the SNPs")
-    print("  --linksnp number : cannot not be used with --ref; defines linkage groups of snps")
-    print("                  for example in a VCF file covering 10**9 sites, a value of 100000")
-    print("                  will lead to 10 linked snp loci, if this option and the --ref are")
-    print("                  are missing, then the resulting dataset will contain single, unlinked snps")
+    print("  --allowindel   if there are indels or deletions they will be used and not deleted")
+    print("  --linksnp <number|chrom>: cannot not be used with --ref; defines linkage groups of snps")
+    print("                  the keyword 'chrom' will link all snps within one chromosome (the VCF tag CHROM") 
+    print("                  the 'number' specifies the distance among snps that are linked")
+    print("                  read from first to last snp, so if number=1000 and the first snp is at position x")
+    print("                  then all snps within the x+1000 will belong to the linkage group, is done for each chrom")
+    print("                  If this option and the --ref are are missing, then the resulting dataset")
+    print("                  will contain single, unlinked snps")
     print("  --popspec numpop ind1,ind2,... : specify the population structure, number of populations")
     print("                  with the number of individuals for each population")
-    print("                  This option exlcudes the option --pop")
-    print("  --pop popfile:  specify a file that contains a single line with")
-    print("                  numpop ind1,ind2 in it")
+    print("                  This option excludes the option --pop; if the numbers do not match the VCF file")
+    print("                  then the options takes precedence and distributes according to --popspec")
+    print("  --pop popfile:  specify a file that contains a single line with (use spaces!)")
+    print("                  numpop ind1 ind2 ... ")
     print("                  This option exlcudes the option --popspec")
-    print("  --chrom chr1,chr2,... sepcify subset of chromosomes in vcf file")
+    print("  --chrom chr1,chr2,... specify subset of chromosomes in vcf file")
     print("                  if all chromosomes are used ignore this option")
-    print("  --out migratedatafile:  specify a name for the converted dataset in migrate format")    
+    print("  --out migratedatafile:  specify a name for the converted dataset in migrate format")
+    print("  --strict: replaces all characters that are not ACGTN? with ?")    
     print("")
     print("Example:")
     print("vcf2mig.py --vcf vcffile.vcf.gz --ref ref.fasta --popspec 2 10,10 --out migratefile")
@@ -47,8 +73,6 @@ def help(args):
     print("vcf2mig.py --vcf vcffile.vcf --linksnp 10000 --popspec 2 5,10 --out migratefile") 
     print("")
     print(f"\n\nYou specified:{args}")
-
-
 
 
 def parse_args(args):
@@ -60,7 +84,8 @@ def parse_args(args):
     numind = []
     numloc = []
     migratefile = None
-
+    strictvcf = False
+    refabbrev= False
     argstring = " ".join(args)
     if "--help" in argstring or "-h" in argstring or "-help" in argstring:
         help(args)
@@ -70,17 +95,30 @@ def parse_args(args):
         # search for vcffile
         key = '--vcf'
         vcffile = args[args.index(key)+1]
-
         # search for referencefile
         key = '--ref'
         if key in argstring:
             referencefile = args[args.index(key)+1]
-
-        # search for linked snps
-        key = '--linksnps'
+        key = '--abbrevref'
         if key in argstring:
-            linkedsnps = int(args[args.index(key)+1])
-            print("linked snps",linkedsnps)
+            referencefile = args[args.index(key)+1]
+            refabbrev=True
+        else:
+            refabbrev=False
+        # search for linked snps
+        key = '--linksnp'
+        if key in argstring:
+            linkedsnps = args[args.index(key)+1]
+            if linkedsnps[0] == 'C' or linkedsnps[0] == 'c':
+                linkedsnps = CHROMLINK
+            else:
+                linkedsnps = int(linkedsnps)            
+        # allow indels and deletions
+        key = '--allowindel'
+        if key in argstring:
+            allowindel = True
+        else:
+            allowindel = False
         # search for populationspec
         key = '--popspec'
         if key in argstring:
@@ -89,13 +127,11 @@ def parse_args(args):
             numind = [int(x) for x in numind.split(',')]
             populationfile = None
             popset=True
-            
         # search for chromosome specification     
         key = '--chrom'
         if key in argstring:
             use_chrom = args[args.index(key)+1]
             use_chrom = use_chrom.strip().split(',')
-
         # search for populationfile
         key = '--pop'
         if key in argstring and not popset:
@@ -104,18 +140,23 @@ def parse_args(args):
             popset=True
         if not popset:
             raise(NameError)
-        
         # search for migratefile
         key = '--out'
         if key in argstring:
             migratefile = args[args.index(key)+1]
+        key = '--strict'
+        if key in argstring:
+            strictvcf = True
+        else:
+            strictvcf = False
     except:
         print(key)
         print(args)
         help(args)
         sys.exit(-1)
-    return vcffile, referencefile, linkedsnps, numind, numloc, migratefile,use_chrom
+    return vcffile, referencefile, linkedsnps, numind, numloc, migratefile,use_chrom,allowindel,strictvcf, refabbrev
 
+# parses the header of the VCF file
 def read_vcf_header(vcffile):
     '''
     reads vcf file header material without processing, it 
@@ -135,16 +176,15 @@ def read_vcf_header(vcffile):
         if line[0]!='#':
             break
         lines.append(line.strip())
-    f.close()
-    
-    #for line in lines:
-    print(f"In read_header@{lines}")
+    f.close()    
     return lines
 
+# parses VCF file header
 def find_header(header,key):
     values = [h for h in header if key in h]
     return values
 
+# parses the data part of the VCF file
 def read_body(vcffile, header):
     if '.gz' in vcffile:
         f = gzip.open(vcffile,'rb')
@@ -152,17 +192,11 @@ def read_body(vcffile, header):
     else:
         f = open(vcffile,'r')
         mygzip = False
-    #print("@",header)
     variables = header[-1].split()
-    #print(f"@{variables}")
-    #numcol = len(variables)
     minimal=["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
     d = {}
     for v in variables:
         d[v.replace('#','')] = find_header(header[:-1],v.replace('#',''))
-    #for di in d.keys():
-    #    print(di,d[di])
-    #print(variables)
     if "FORMAT" in " ".join(variables):
         minimal.extend(["FORMAT"])
         indstart = variables.index('FORMAT')+1
@@ -176,12 +210,17 @@ def read_body(vcffile, header):
         if line[0]=='#':
             continue
         a = line.strip().split()
-        print(line[:50])
+        #print(line[:50])
         chrom = a[0]
         pos   = int(a[1])
         id    = a[2]
         ref   = a[3]
-        alt   = a[4]        
+        alt   = a[4]
+        if not allowindel:
+            if len(ref)>1:
+                continue
+            if max(list(map(len,alt.split(','))))>1:
+                continue
         qual  = a[5]
         filter = a[6]
         info = a[7]
@@ -197,22 +236,11 @@ def read_body(vcffile, header):
     return data,names,chroms
 
 
-#def read_vcf2(vcffile):
-
-
+# parses vcf file, this is minimal, lots of the details will be ignored
+# main goal is parsing location and ref and alt and samples
 def read_vcf(vcffile):
-    '''
-    input: a vcffile name
-    ref is a single nuc
-    alt can be a comma delimited list of alternatives
-    output: a list with [locus, pos, ref, alt, ploidy, list with either 0,1,2 or [a1,a2]]
-    exactly as [[chrom,pos,id,ref,alt,qual,filter,info,format,individuals],names,chroms,ploidy]
-    '''
     header = read_vcf_header(vcffile)
     data, names, chroms = read_body(vcffile,header)
-    #print(data)
-    #print("first:",data[0][-1][0])
-    #if "|" in data[0][-1][0]:
     s = data[0][-1][0]
     count = sum(s.count(d) for d in DELIM)
     if count:
@@ -221,45 +249,60 @@ def read_vcf(vcffile):
         ploidy = 1
     return data, names, chroms, ploidy
 
+
 def read_populations(populationfilename):
     f = open(populationfilename,'r')
     x = f.read().split()
     f.close()
-    numpop=x[0]
+    numpop=int(x[0])    
     numind = [int(xi) for xi in x[1:]]
-    return numpop,numind
+    return numind,numpop
+
+def calculate_freq(sequence, head):
+    counts = Counter(sequence)
+    #print(counts)
+    counts = sorted(counts.items())
+    counts.insert(0,("Loc", head[1:].split()[0]))
+    return dict(counts)
 
 def read_reference(file):
-    x = int(file)
-    if x>1:
-        return [[">gugus",'A'*x,x]]
     references=[]
     allfiles = file.split(',')        
     for fi in allfiles:
         f = open(fi,'r')
         head = f.readline()
-        sequence = f.read().strip()
-        if ">" in sequence:
-            while ">" in sequence:
-                h = sequence.index(">")
-                newseq = "".join(sequence[:h].split())
+        mysequence = f.read().strip()
+        if ">" in mysequence:
+            while ">" in mysequence:
+                h = mysequence.index(">")
+                newseq = "".join(mysequence[:h].split())
                 newsites = len(newseq)
-                references.append([head,newseq,newsites])
-                #print(h,[head,newseq,newsites])
-                sequence = sequence[h:]
-                head = sequence.split('\n',1)
-                sequence = head[1]
+                if strictvcf:
+                    trans = newseq.maketrans(IUPAC,NONIUPAC)
+                    newseq = newseq.translate(trans)
+                myfreqs = calculate_freq(newseq.upper(),head)
+                references.append([head,newseq,newsites,myfreqs])
+                mysequence = mysequence[h:]
+                head = mysequence.split('\n',1)
+                mysequence = head[1]
                 head = head[0]
-                sites = len(sequence)
-        sequence = "".join(sequence.split())
-        sites = len(sequence)
-        #print(h,[head,newseq,newsites])
-        references.append([head,sequence, sites])
+                sites = len(mysequence)
+        mysequence = "".join(mysequence.split())
+        if strictvcf:
+            trans = mysequence.maketrans(IUPAC,NONIUPAC)
+            mysequence.translate(trans)
+        myfreqs = calculate_freq(mysequence.upper(), head)
+        #print("myfreqs", myfreqs)
+        sites = len(mysequence)
+        references.append([head, mysequence, sites, myfreqs])
         f.close()
 
+    #print("lreflast", len(references[-1]), len(references))
+    #print(references[0][0],references[0][1][:10],references[0][2],references[0][3])
     return references
 
 def harmonize_use_chroms(use_chrom, chroms):
+    
     if use_chrom == None:
         if references == None:
             use_chrom = sorted(chroms)
@@ -272,244 +315,314 @@ def harmonize_use_chroms(use_chrom, chroms):
             print(chroms)
             sys.exit(-10)
     else:
-        print(use_chrom)
-        print(chroms)
-        for c in use_chrom:
-            if c not in " ".join(chroms):
-                print("mismatch between chromomose in {use_crom} and in VCF file {chroms}")
-                sys.exit(-9)
+        lu = len(use_chrom)            
+        use_chrom = list(set(use_chrom).intersection(chroms))
+        if use_chrom == None:
+            #check for : or = and remove those
+            print("Mismatch with names in --chrom and reference file")
+            chroms = [ ch.replace(':','').replace('=','') for ch in chroms ]
+            use_chrom = list(set(use_chrom).intersection(chroms))
+            if use_chrom == None:
+                print("Warning, no match with vcf CHROM tag")
+        if len(use_chrom) != lu:
+            print("the --chrom list did only partly match with the vcf, used these:")
+            print(f"{use_chrom}")
     return use_chrom
 
-def create_pop(references,vcf,begin, stop, use_chrom, ploidy):
-    global snpcount
-    ind = []
-    snps = False
-    #print(ind)
-    if references != None:
-        for k,r in enumerate(references):
-            ref = r
-            newind=[]
-            for i in range(begin,stop):
-                for p in range(ploidy):
-                    newind.append(list(ref))
-            ind.append(newind)
-    else:
-        snps = True
-        count = 0
-        for v in vcf:
-            chrom = v[0]
-            if chrom not in use_chrom:
-                continue
-            count +=1
-        newind=[]
-        snpcount = count
-        print("variable sites in VCF:",count)
-        for i in range(begin,stop):
-            for p in range(ploidy):
-                newind.append(list('.'*count))
-        ind.append(newind)
-        
-    indix = range(len(use_chrom))
-    count = 0
+# takes vcf data and parses its content into a population structure
+# containint all individuals and all chromosomes, snps
+def create_pop_snps(vcf,begin, stop, use_chrom, ploidy):
+    
+    idata = []
     positions = []
-    for v in vcf:
+    for vi,v in enumerate(vcf):
         chrom = v[0]
         if chrom not in use_chrom:
             continue
         chrom = use_chrom.index(chrom)
-        if snps:
-            pos = count
-            count += 1
-            positions.append([chrom,v[1]])
-        else:
-            pos = v[1]
+        pos = v[1]
+        positions.append((chrom,pos))
         ref = v[3]
         alt = v[4].split(',')
-        individuals = v[9]
-        #print(individuals)
-        #print(v)
-        if chrom >= len(ind):
-            print(f"Problem with #loci>={chrom} and # of references={len(ind)}")
-            sys.exit(-1)
-        #print(">>>>>>>",begin,stop)
-        for i,j in enumerate(range(begin,stop)):
-            s = individuals[j].split(':')[0]
-            #print(f'{s=}')
-            sep = next((c for c in DELIM if c in s), None)
-            # split on it (or wrap in a list if none)
-            individuals2 = s.split(sep) if sep else s
-            #if stop==20:
-            #print("@", 1, i, j, ref,alt,individuals2, pos) #, ind[chrom][i][pos])
-            #sys.exit()
-            if type(individuals2)==list:
-                ip = i*ploidy
-                cadd=-1
-                for iind in individuals2:
-                    cadd += 1
-                    try:
-                        if iind == '0':
-                            ind[chrom][ip+cadd][pos]  = ref
-                        elif iind == '1':
-                            #print("@@@@@", chrom,i,ip,cadd,pos,alt,ref)
-                            ind[chrom][ip+cadd][pos] = alt[0]
-                        else:
-                            #print("@2    ", chrom, ip, alt, ref, pos, ref, individuals)
-                            ind[chrom][ip+cadd][pos] = alt[1]
-                            #ind[chrom][i] == "".join(xx)
-                    except:
-                        print("EXCEPT",ip,cadd,pos,ref,alt[0])
-    
-            else:                
-                if individuals2 =='0':
-                    #print(pos, ref, individuals)
-                    ind[chrom][i][pos]  = ref
-                elif individuals2 == '1':
-                    ind[chrom][i][pos] = alt[0]
+        if allowindel:
+            lr = len(ref)
+            if lr>1:
+                #deletion?
+                for ai in range(len(alt)):
+                    if len(alt[ai]) < lr:
+                        alt[ai] = alt[ai].ljust(lr, '-')
+            else: # insertion?
+                la = []
+                for ai in range(len(alt)):
+                    la.append(len(alt[ai]))
+                maxla = max(la)
+                if(maxla>1):
+                    ref = '@'+ref.ljust(maxla,'-')
+                    for ai in range(len(alt)):
+                        alt[ai] = '@'+alt[ai].ljust(maxla,'-')
                 else:
-                    #print(chrom, i, alt, ref, pos, ref, individuals2)
-                    #print("###", individuals2)
-                    ind[chrom][i][pos] = alt[1]
-                    #ind[chrom][i] == "".join(xx)
-                #if stop==20:
-                #    print(2, i, j, ref, alt, individuals2, pos, ind[chrom][i][pos])
-            #if individuals[i]=='1':
-            #    print(ind[chrom][i][pos], ref,alt)
-            #    sys.exit(-1)
-    ni=[]        
-    for i in ind:
-        newind=[]
-        for j in i:
-            newind.append("".join(j))
-            #print(f'{"".join(j):6.6s}')
-        ni.append(newind)
-    if snps:
-        return ni,positions
-    else:
-        return ni,None
-    
-#    for v in vcf:
-#        chrom = v[0]-1
-#        ref = references[chrom][2]
+                    pass #standard point mutation
+        individuals = v[9]
+        popindividuals = individuals[begin:stop]
+        sdata = []
+        for ri, rawsample in enumerate(popindividuals):
+            s = rawsample.split(':')[0] #removes the quality scores
+            sep = next((c for c in DELIM if c in s), None)
+            sample = s.split(sep) if sep else s
+            if type(sample) == list:
+                for pi in range(ploidy):
+                    if sample[pi] == '0':
+                        sdata.append(ref)
+                    elif sample[pi] != '.':
+                        sdata.append(alt[int(sample[pi])-1])
+                    else:
+                        sdata.append('?')
+        idata.append(sdata)
+    return idata,positions
+
+def convert_chrompos(positions):
+    chromset = dict()
+    for pi in positions:
+        if  pi[0] in chromset:
+            chromset[pi[0]].append(pi[1])
+        else:
+            chromset[pi[0]] = [pi[1]]
+    return [items for items in chromset.items()]
         
-def write_migrate(migratefile, data, sites, references, names):
-    f = open(migratefile,'w')
-    if references==None:
-        if linkedsnps==None:
-            f.write(f" {len(data)} {sites} Translated from VCF {dt.date.today()}\n")
-        else:
-            f.write(f" {len(data)} {len(sites)} Translated from VCF {dt.date.today()}\n")
-    else:
-        print(f" {len(data[0])} {len(data[0][0])} Translated from VCF {dt.date.today()}\n")
-        f.write(f" {len(data[0])} {len(data[0][0])} Translated from VCF {dt.date.today()}\n")
-    f.write(    f"# VCF file used:      {vcffile}\n")
-    if references==None:
-        f.write(f"# SNP data file!\n")
-    else:
-        for ref in references:
-            f.write(f"# Reference file:     {ref}\n")
-    f.write(    f"# Migrate input file: {migratefile}\n")
-    positions = data[0][1]
-    if positions==None:
-        for s in sites:
-            f.write(f"(s{s}) ")
-        f.write("\n")
-    else:
-        if linkedsnps==None:
-            for pi in positions:
-                f.write("(n1) ")
-            f.write("\n")
-        else:
-            for si in sites:
-                    f.write(f"(n{si}) ")
-            f.write("\n")
-    for i,pop in enumerate(data):
-        pop1,pop2 = pop
+        
+
+def create_pop_references(references, snps, positions, use_chrom, ploidy):
+    chrompos = convert_chrompos(positions)
+    allpop = []
+    for si in snps:  #population block
+        #print("si", si)
+        poploci = []
+        #print("chrompos",chrompos)
+        z = -1
+        for chrom, pos in chrompos:  #locus block
+            haplotypes=[references[chrom] for _ in si[chrom]] #seq for ind in locus
+            #print("in ref: haplot", haplotypes)
+            insertionmuts=[]
+            for po in pos:   # fill in all the variants
+                z += 1
+                #print(f'si{z} {si[z]}')
+                for hi, mut in enumerate(si[z]):
+                    #print("@mut",mut, hi, po, pos, chrom, z)
+                    if '@' in mut: #insertion
+                        haplotypes[hi] = haplotypes[hi][:po] + '@' + haplotypes[hi][po+1:]
+                        insertionmuts.append((hi,mut[1:]))
+                    else:
+                        haplotypes[hi] = haplotypes[hi][:po] + mut + haplotypes[hi][po+len(mut):]
+            #print("in ref2: haplot", haplotypes)
+            fix_haplotypes(haplotypes,insertionmuts)            
+            poploci.append(haplotypes)
+        allpop.append((poploci,positions))
+        #sys.exit()
+    return allpop
+            
+def fix_haplotypes(haplotypes,insertionmuts):
+    search = '@'
+    for hi, mut in insertionmuts:
         count = 0
-        newpop = list(zip(*pop1))
-        f.write(f" {len(newpop)} Pop{i+1}\n")
-        #print(f" {len(newpop)} Pop{i+1}\n")
-        for z,ind in enumerate(newpop):
-            #print(z,len(ind))
-            #for ip in range(ploidy):
-            ploi = f":{((z % ploidy)+1)}"
-            thename = f"{names[i][int(count/ploidy)]:{NMLEN}.{NMLEN}}".rstrip()
-            #print(ploi,count, ploidy, i, len(newpop))
-            nname = f"{z}{thename}{ploi}"
-            print(nname)
-            f.write(f"{nname:20s} ")
-            print(f"{nname:20s} ")
-            for locus in ind:
-                f.write(f"{locus}")
-            f.write("\n")
+        while True:
+            index = haplotypes[hi].find(search)
+            if index == -1:
+                break
+            haplotypes[hi] = (haplotypes[hi][:index] + mut + haplotypes[hi][index + 1:])
             count += 1
+    return haplotypes
+
+# Final result is stored in current_string
+
+
+# writer for migrate modern format:
+# data is either
+#   - augmented refsequence+VCF data
+#   - or snps from the VCF data 
+def write_migrate(migratefile, data, freqs, positions, sites, references, names, comment):
+    f = open(migratefile,'w')
+    numpop = len(data)
+    # header section
+    #loci = len(list(set(list(zip(*positions))[0])))
+    sites = list(map(len,[di[0] for di in data[0]]))
+    loci = len(sites)
+    chrompos = convert_chrompos(positions)
+    if references != None and refabbrev == False:
+        f.write(f'{numpop} {loci} {vcffile}\n')
+        f.write(f"# VCF file used:      {vcffile}\n")
+        f.write(f"# Translated from VCF {dt.date.today()}\n")
+        f.write(f"# Reference file: {referencefile}\n")
+        f.write(f"# Migrate input file: {migratefile}\n")
+        f.write(f"# References augmented with VCF data file!\n")
+        f.write(f"# {comment}\n")
+        sitestr = " ".join([f'(s{si})' for si in sites])
+        f.write(f"{sitestr}\n")
+    else:
+        if linkedsnps == None:
+            unlinked_loci = len(sites)
+            f.write(f'{numpop} {unlinked_loci} {vcffile}\n')
+            f.write(f"# VCF file used:      {vcffile}\n")
+            f.write(f"# Translated from VCF {dt.date.today()}\n")
+            f.write(f"# Migrate input file: {migratefile}\n")
+            f.write(f"# SNP data file!\n")
+            f.write(f"# {comment}\n")
+            sitestr = " ".join([f'(n1)' for _ in sites])
+            f.write(f"{sitestr}\n")
+        elif linkedsnps == CHROMLINK:
+            chrompos = convert_chrompos(positions)
+            sitestr = " ".join([f'(n{len(si[1])})' for si in chrompos])
+            linkedloci = len(chrompos)
+            f.write(f'{numpop} {linkedloci} {vcffile}\n')
+            f.write(f"# VCF file used:      {vcffile}\n")
+            f.write(f"# Translated from VCF {dt.date.today()}\n")
+            f.write(f"# Migrate input file: {migratefile}\n")
+            f.write(f"# SNP data file!\n")
+            f.write(f"# {comment}\n")
+            f.write(f"{sitestr}\n")
+        else:
+            nucs=[]
+            delta = linkedsnps 
+            chrompos = convert_chrompos(positions)
+            for chrom in chrompos:
+                nuc = 1
+                x = 0
+                for xi, pos in enumerate(chrom[1][1:]):
+                    if pos < chrom[1][x] + delta:
+                        nuc += 1
+                    else:
+                        nucs.append(nuc)
+                        x = xi
+                        nuc=1
+                else:
+                    nucs.append(nuc)
+            loci = len(nucs)
+            sitestr = " ".join([f'(n{si})' for si in nucs])
+            f.write(f'{numpop} {loci} {vcffile}\n')
+            f.write(f"# VCF file used:      {vcffile}\n")
+            f.write(f"# Translated from VCF {dt.date.today()}\n")
+            f.write(f"# Migrate input file: {migratefile}\n")
+            f.write(f"# SNP data file!\n")
+            f.write(f"# {comment}\n")
+            f.write(f"{sitestr}\n")
+    # write out the frequencies if present
+    if freqs != None:
+        fistr = check_freqsout(freqs)
+        for fi, fis in enumerate(fistr):
+            f.write(f"#*freq: {fi+1} {fis}\n")
+    
+    #individual name adjustments
+    newnames=[]
+    maxnamelen = 0
+    for namepop in names:
+        newnamepop = []
+        for ni in namepop:
+            if ploidy !=1:
+                newnamepop1 = [ni+f":{plo+1}" for plo in range(ploidy)]
+            else:
+                newnamepop1 = [ni]
+            newnamepop.extend(newnamepop1)
+            maxlen = max(map(len,newnamepop1))
+            if maxlen>maxnamelen:
+                maxnamelen = maxlen
+        newnames.append(newnamepop)
+    names = newnames
+    namelen = maxnamelen if maxnamelen > 10 else 10
+    f.write(f"# individual name length is {namelen}!\n")
+    # data section handles snps and reference augmented sequences
+    for indx, (di,ni) in enumerate(zip(data,names)):
+        dii = list(zip(*di))
+        #print(f" {len(ni)} Pop{indx+1}")
+        f.write(f" {len(ni)} Pop{indx+1}\n")
+        for idx, d in enumerate(dii):
+            #print(idx, end=' ')
+            #print(f"{ni[idx]:<{namelen}}","".join(d))
+            f.write(f'{ni[idx]:<{namelen}} {"".join(d)}\n')
     f.close()
 
-def link_snps(pos,size):
-    s=[]
-    h=0
-    count=0
-    oldpi0 = pos[0][0]
-    for pi in pos:
-        if pi[0]!=oldpi0:
-            oldpi0=pi[0]
-            h = 0
-            count=0
-            
-        if pi[1] < h + size:
-            count += 1
-        else:            
-            h += size
-            s.append(count)
-            count = 0
-    s.append(count)
-    return s
+def check_freqsout(freqs):
+    fis = []
+    for fi in freqs:
+        if 'A' not in fi:
+            fi['A']=0
+        if 'C' not in fi:
+            fi['C']=0
+        if 'G' not in fi:
+            fi['G']=0
+        if 'T' not in fi:
+            fi['T']=0
+        if '?' not in fi:
+            fi['?']=0
+        
+        alltotal = sum(value for key, value in fi.items() if key != 'Loc')
+        total = sum(value for key, value in fi.items() if key in list('ACGT'))
+        fistr = f"{fi['Loc']} ACGT={total} All={alltotal} A={fi['A']} C:{fi['C']} G:{fi['G']} T:{fi['T']} ?:{fi['?']}" 
+        fis.append(fistr)
+    return fis
 
     
 if __name__ == "__main__":
-
     numpop = -1
-    vcffile, referencefile, linkedsnps, numind, numloc, migratefile, use_chrom = parse_args(sys.argv)
-    print("parsed options")
+    vcffile, referencefile, linkedsnps, numind, numloc, migratefile, use_chrom, allowindel, strictvcf, refabbrev = parse_args(sys.argv)
+    print("Parsed options:")
+
     vcf,names, chroms, ploidy  = read_vcf(vcffile)
-    print("read VCF file")
-    #if numpop == -1:
-    #    numpop, numind = read_populations(populationfile)
-    #print("read populations")
-    #else: already done in parse_args using --popspec
     print(f"VCF file used: {vcffile}")
+
+    start = 0
+    populations=[]
+    data = [] 
+    
     if referencefile != None:
         references = read_reference(referencefile)
-        print("finished reading references")
         for ref in referencefile.split(','):
             print(f"Reference file: {ref}")
-        refheaders, references, sites = list(zip(*references))
-        snps=False
-    else:
-        # we only report snps and if linkedsnps !=None then the snps are linked within blocks of that size
+        refheaders, references, sites, freqs = list(zip(*references))
+        bsnps=False
+        
+    else: # we only report snps and if linkedsnps !=None then the snps are linked 
         references = None
         refheaders = None
         sites = linkedsnps
-        snps=True
-        
-    start = 0
-    #print("@", sites)
-    populations=[]
-    data = [] #this contains all data for all population popxlocixindividuals
+        bsnps=True
+
     use_chrom = harmonize_use_chroms(use_chrom,chroms)
-    for ni in numind:
-        #print("numind",ni)
-        populations.append(names[start:ni+start])
-        data.append(create_pop(references,vcf, start, ni+start,use_chrom,ploidy))
-        start += ni
-    if snps:
-        positions = data[0][1]
-        if linkedsnps!=None:
-            sites = link_snps(positions,linkedsnps)
-        else:
-            sites = len(positions)
-        referencefiles = None
+
+    if refabbrev:
+        for fi in freqs:
+            item = fi['Loc']
+            fi['Loc'] = item.replace(':','').replace('=','')
+        freqs = [fi for fi in freqs if fi['Loc'] in use_chrom]
     else:
+        freqs = None
+
+    for nii in numind:
+        ni = nii
+        populations.append(names[start:ni+start])
+        data.append(create_pop_snps(vcf, start, ni+start,use_chrom,ploidy))
+        start += ni
+    snps, positions = zip(*data)
+    if references != None and refabbrev==False:
+        data = create_pop_references(references, snps,positions[0], use_chrom, ploidy)
+        refdata, positions = zip(*data)
         referencefiles = referencefile.split(',')
-        
-    write_migrate(migratefile, data, sites,referencefiles, populations)
+    else:
+        positions = positions[0]
+        sites = len(positions)
+    if references!=None and refabbrev==False:
+        comment = 'Using references augmented VCF data'
+        print(comment)
+        #for re in refdata:
+        #    for r in enumerate(re):
+        #        print(r)
+        #print(positions[0])
+        write_migrate(migratefile, refdata, freqs, positions, sites,references, populations, comment)
+    else:
+        if linkedsnps == CHROMLINK:
+            comment = "Using all SNPs, linked by chromosome"
+        elif linkedsnps == None:
+            comment = "Using unlinked SNPS"
+        else:
+            comment = f"Using all SNPs, linked every {linkedsnps} for each chromosome"
+        print(comment)
+        write_migrate(migratefile, snps,  freqs, positions, sites, references, populations, comment)
     print(f"Migrate input file: {migratefile}")
