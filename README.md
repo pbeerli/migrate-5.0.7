@@ -1,26 +1,67 @@
-Migrate 5.0.7
---------------
+#Migrate 5.0.8
 Released Summer 2025
 
-Quick installation guide 
-------------------------
-- Unpack the compressed distribution file
+##Quick installation guide for the source code
+
+### from Github 
+- Fastest way is the clone the gitub repository
+
+		git clone https://github.com/pbeerli/migrate-5.0.7.git 
+ 
 - in the top directory do:
-  ./configure
-  or
-  ./configure --enable-debug
-  and then do
-  make
-  this should create the binary and
-  if you have openmpi installed: it should create also the parallel version migrate-n-mpi
-  sudo make install
-  will move the binaries to /usr/local/bin,
-  if you do not have access to that use
-  ./configure --prefix=/pathtoyourhomedirectory
-  make
+  if you get the package from the github repository
+  you will need
+
+  	 	autoreconf -i
+
+  If this fails: To install autoreconf, you need to install the Autotools build system. On Ubuntu use
+
+  		sudo apt-get install autoconf automake.
+
+  On macOS, you can use Homebrew with
+  		brew install autoconf automake
+  After installation, redo the 
   
-  if I have time I will distribute binaries for mac and windows, for unix (and mac) the source install should
-  work best.
+  		autoreconf -i
+
+  Once that works use
+  
+  		./configure
+
+  or
+
+  		./configure --enable-debug
+
+  and then do
+
+  		make
+
+  this should create the binary and
+  if you have **openmpi** installed (check how to download for your system):
+  it should also create the parallel version migrate-n-mpi.
+  If this fails with errors (for example missing an include file)
+
+  try this:
+  
+  		git submodule update --init --recursive
+  		cp ./lib/haru/win32/include/hpdf_config.h ./lib/haru/include/
+  		./configure
+  		make
+  if this fails let me know.
+
+  If you want the binaries in an executable path you may want to do 
+  		sudo make install
+  This will move the binaries to */usr/local/bin*,
+  if you do not have access to that use
+
+  	./configure --prefix=/pathtoyourhomedirectory
+  	make
+  	make install
+  This will create a *bin* directory in your homedirectory, you still will need to check whether the *bin* directory is in the search PATH.
+  
+  
+### from my website
+  - Download from my website: https://peterbeerli.com/migrate-html5/download_version4; Unpack the compressed distribution file. The binary distribution will have the executable *migrate-n* and *migrate-n-mpi* in the *src*, but little guarantee can be given that they work, I will need to write some detailed instructions for the parallel version because that will need additional software installed (openmpi). For UNIX and Mac use the source code distribution and compile for your machine, for windows, I will need to write compile instructions. 
   
 
 Content
@@ -109,9 +150,7 @@ as source code or binary executables. Currently I supply binaries for
 - Windows: migrate-n.exe 
 
 The source code should compile on all platforms (windows may be tricky)
-- single CPU version (with or without using AVX or threading (use configure and make)
-- parallel version using either openpmpi or mpich2 (compiles to migrate-n-mpi) 
-
+[see top]
 
 The file is compressed as tar.gz or as zip file.
  	
@@ -134,7 +173,7 @@ or https://peterbeerli.com/migrate-html5/index.html
 Installation
 ------------
 (a) Binaries
-Unpack the compressed archive, open the directory migrate-4.4.x
+Unpack the compressed archive, open the directory migrate-5.x
 - Mac: from the binary distribution copy migrate-n to /usr/local/bin
   and then use the Terminal.app 
 - Windows: the preferred way to use migrate-n.exe is through the commandline 
@@ -164,20 +203,15 @@ the rudimentary man page can go to the /usr/local/man/man1.
    This will create the Makefile 
    [./configure --help for more options]
  	
-4. type "make" (please report warnings and especially errors).
-   If you have a multiprocessor machine (non-Macintosh computer!) you perhaps want to try 
-   "make thread" (this allows parallel execution of chains when 
-   using the heating scheme). 
-   If you compile on a Macintosh with INTEL CPU and MACOS 10.10+ try
-   "make". On Macs configure will use automatically use the built-in 
-   threading framework (GrandCentral) that will be faster than the standard threading.
+4. type "make" (please report errors, there will be some warnings depending on your system).
 
    The result of the compilation should be an executable 
-   "migrate-n" in the current directory [it is called "migrate-n" because
+   "migrate-n" a parallel executable migrate-n-mpi in the src directory
+   [it is called "migrate-n" because
    on some computer system there is a system program called "migrate"]
 
 5. sudo make install 
-   This will install the programs and man-page into usr/local/bin, 
+   This will install the programs and (outdated) man-page into usr/local/bin, 
    /usr/local/man/man1
    [you need to be root or administrator to do this; this step is NOT necessary, 
    to use the program, but it would be convenient for all users
@@ -228,7 +262,7 @@ migrate-support@googlegroups.com
 
 Disclaimers
 -----------
-Copyright 1997-2021 Peter Beerli
+Copyright 1997-2026 Peter Beerli
  
 ** MIT OPENSOURCE LICENSE*****************************************************************
 *  Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -250,7 +284,7 @@ Copyright 1997-2021 Peter Beerli
 * 
 
 Last update:
-March 13  2021
+December 27  2025
 
 
 
