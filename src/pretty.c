@@ -1936,7 +1936,7 @@ pdf_bayes_print_accept(world_fmt *world)
 	      }
 	    else  if(world->has_speciation && j < nps)
 	      {
-		s = &world->species_model[j];
+		s = get_which_species_model(j, world->species_model,world->species_model_size);
                 symbol_D(left_margin, page_height, 12, s->from+1,s->to+1);
                 pdf_printf(250, page_height, 'L', "%8li/%-8li", accept, trials);
                 pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);

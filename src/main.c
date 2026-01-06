@@ -2141,7 +2141,10 @@ run_replicate (long locus,
     if (setup_locus (locus, EARTH, options, data) == 0)
         return;
     if (options->heating)
-        heating_prepare (universe, usize, options, data, replicate);
+      {
+	heating_prepare (universe, usize, options, data, replicate);
+	heating_mutationmodel_baseref_finish(universe, usize, locus);
+      }
     type = 's';
     runs = 0;
     if(options->bayes_infer)

@@ -2740,6 +2740,7 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
                 hist->minima[pa] = (double) HUGE;
 	      }
 	  }
+	//fprintf(stderr,"%i> @BINSUM@ locus=%li binsum=%li\n",myID,loc,hist->binsum);
     }
 }
 
@@ -4732,6 +4733,9 @@ void bayes_combine_loci(world_fmt * world)
   visited = (boolean *) mycalloc(np2,sizeof(boolean));
   // Not every locus is filling all bins in the posterior
   // counts keeps track of the number of loci that are used per bin
+  fprintf(stderr,"@@ binsum: loci=%li, %li\n",world->loci, bayes->histogram[world->loci].binsum);
+  for(int ii=0;ii<world->loci;ii++)
+    fprintf(stderr,"@@ binsum: loci=%li, %li\n",ii, bayes->histogram[ii].binsum);
   counts = (long *) mycalloc(bayes->histogram[world->loci].binsum,sizeof(long));
   //
   // set the target ('sum' over all loci) minima and maxima

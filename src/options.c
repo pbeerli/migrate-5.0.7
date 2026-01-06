@@ -598,12 +598,13 @@ void init_options (option_fmt * options)
     // speciation
     options->species_model_dist = NORMAL_DIST; //NORMALSHORTCUT_DIST;
     options->has_speciation=FALSE;
-    options->bayes_posterior_bins[0]=BAYESNUMBIN;
-    options->bayes_posterior_bins[1]=BAYESNUMBIN;
-    options->bayes_posterior_bins[2]=BAYESNUMBIN;
-    options->bayes_posterior_bins[3]=BAYESNUMBIN;
-    options->bayes_posterior_bins[4]=BAYESNUMBIN;
-    options->bayes_posterior_bins[5]=BAYESNUMBIN;
+    options->bayes_posterior_bins[0]=BAYESTHETABIN;//theta
+    options->bayes_posterior_bins[1]=BAYESTHETABIN;//m
+    options->bayes_posterior_bins[2]=BAYESTHETABIN;//rate
+    options->bayes_posterior_bins[3]=BAYESTHETABIN;//species
+    options->bayes_posterior_bins[4]=BAYESTHETABIN;//species std
+    options->bayes_posterior_bins[5]=BAYESTHETABIN;//growth
+    options->bayes_posterior_bins[6]=BAYESTHETABIN;//mlalpha
     options->mlalpha[0] = 1.0;
     options->mlinheritance = 2.0;
 }
@@ -5296,12 +5297,12 @@ boolean
 numbercheck (option_fmt * options, char *var, char *value)
 {
   //int retval;
-  long    tbins = BAYESNUMBIN;
-  long    mbins = BAYESNUMBIN;
-  long    sbins = BAYESNUMBIN;
-  long    rbins = BAYESNUMBIN;
-  long    gbins = BAYESNUMBIN;
-  long    abins = BAYESNUMBIN;
+  long    tbins = BAYESTHETABIN;
+  long    mbins = BAYESTHETABIN;
+  long    sbins = BAYESTHETABIN;
+  long    rbins = BAYESTHETABIN;
+  long    gbins = BAYESTHETABIN;
+  long    abins = BAYESTHETABIN;
   
     MYREAL musum = 0., lastrate = 1.;
     long i = 0, z=0, cc = 0;
@@ -6087,7 +6088,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  }
         break;
     case 49: /*bayes-posteriorbins*/    
-      tbins = BAYESNUMBIN;
+      tbins = BAYESTHETABIN;
       mbins = BAYESNUMBIN;
       rbins = BAYESNUMBIN;
       sbins = BAYESNUMBIN;
@@ -6121,6 +6122,12 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  }
 	      }
 	}
+      mbins = (mbins == BAYESNUMBIN) ? tbins : mbins;
+      rbins = (rbins == BAYESNUMBIN) ? mbins : rbins;
+      sbins = (sbins == BAYESNUMBIN) ? mbins : sbins;
+      gbins = (gbins == BAYESNUMBIN) ? mbins : gbins;
+      abins = (abins == BAYESNUMBIN) ? mbins : abins;
+
       if (tbins>0)
 	options->bayes_posterior_bins[0]=tbins;
       if (mbins>0)
@@ -6138,13 +6145,15 @@ numbercheck (option_fmt * options, char *var, char *value)
 	options->bayes_posterior_bins[6]=abins;
 
 #ifdef DEBUG
-      printf("%i> read from parmfile: bayesposteriobins %li %li %li %li %li\n\n\n\n\n\n",
+      printf("%i> read from parmfile: bayesposteriobins %li %li %li %li %li %li %li\n\n\n\n\n\n",
 	     myID,
 	     options->bayes_posterior_bins[0],
 	     options->bayes_posterior_bins[1],
 	     options->bayes_posterior_bins[2],
 	     options->bayes_posterior_bins[3],
-	     options->bayes_posterior_bins[4]);
+	     options->bayes_posterior_bins[4],
+	     options->bayes_posterior_bins[5],
+	     options->bayes_posterior_bins[6]);
 #endif 
       break;
     case 46:   /*bayesfile=FILENAME  set bayesfile and bayes analysis? */

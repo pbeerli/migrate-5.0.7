@@ -34,6 +34,8 @@ extern void init_mutationmodel_readsites(mutationmodel_fmt *mumod, char datatype
 extern void init_mutationmodel_readsites2(mutationmodel_fmt *mumod, char datatype, long numsites);
 extern void init_mutationmodel_readsites3(mutationmodel_fmt *mumod, char datatype, long numsites); //long sites)
 extern void finish_mutationmodel(world_fmt *world, data_fmt *data, option_fmt *options, long locus);
+extern void heating_mutationmodel_baseref_finish(world_fmt ** universe, int usize, long locus);
+
 extern void print_mutationrate_weights(FILE *file, MYREAL *murates, long *segregs, MYREAL *wattersons, long loci);
 // klone for heating 
 extern void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data, long locus);

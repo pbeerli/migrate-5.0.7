@@ -775,6 +775,8 @@ free_datapart (data_fmt * data, world_fmt * world , long locus)
 	    {
 	      mutationmodel_fmt *s = &world->mutationmodels[sublocus];
 	      long sites = s->numsites;
+	      if (s->baseref_used)
+		sites -= 4; //snps + ref sequence derived invariants -- to avoid memory smash
 	      long site;
 	      for(site=0;site<sites;site++)
 		{
@@ -3090,10 +3092,10 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 		fprintf(file,"\n");
 		fprintf (file,"Site Rate variation per locus\n");
 		fprintf (file,"-----------------------------\n");
-		print_ratetbl (file, world, options,0,'A');
+		print_ratetbl (file, world, options,0,'C');//was A
 		for(locus=1; locus< data->loci; locus++)
 		  {
-		    print_ratetbl (file, world, options,locus,'F');
+		    print_ratetbl (file, world, options,locus,'G');//was F
 		  }
 	      }
 	    fprintf(file,"\n");
@@ -3799,6 +3801,8 @@ create_alleles (world_fmt *world, data_fmt * data, option_fmt *options)
       for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
 	{
 	  mutationmodel_fmt *s= &world->mutationmodels[sublocus];
+	  if (s->baseref_used)
+	    return -1;
 	  z = 0;
 	  if(data->repeatlength[sublocus]!=0)
 	    find_allele_repeatlength(data, options,sublocus);

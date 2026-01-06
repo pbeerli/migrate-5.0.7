@@ -2307,9 +2307,32 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 	s->dataclass = SITECHARACTER;
       else
 	s->dataclass = SITEWORD;
-      
+
       if(s->dataclass==SITECHARACTER)
 	{
+	  sgets_safe (&input, &inputsize, &buf);
+	  if (input[0] == '1')
+	    {
+	      if(s->baseref==NULL)
+		{
+		  s->baseref = (long*) mycalloc(BASEREF, sizeof(long));
+		}
+	      else
+		{
+		  s->baseref = (long*) myrealloc(s->baseref, BASEREF * sizeof(long));
+		}
+	      fprintf(stderr,"%i> baseref %s", myID, input);
+	      sscanf(input,"%li %li %li %li %li %li %li %li\n",
+		     &s->baseref_used,
+		     &s->baseref[0],
+		     &s->baseref[1],
+		     &s->baseref[2],
+		     &s->baseref[3],
+		     &s->baseref[4],
+		     &s->baseref[5],
+		     &s->baseref[6]);
+	    }
+	  
 	  for(site=0; site < s->numsites;site++)
 	    {
 	      char c = *buf++;
@@ -2930,65 +2953,51 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   //  long numbins     = 0;
   bayes_fmt *bayes = world->bayes;
   long np2         = world->numpop2;
-  long npp         = world->numparam;//np2 + bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npp         = world->numparam;// was set in world.c: set_numparam()
   bayeshistogram_fmt  *hist;
   hist = &(world->bayes->histogram[locus]);
   // memory for pack_single_bayes_buffer_part()
   // locus and numparams + accept and trial of genealogy
-  bufsize = npp + 11*npp; //DEBUG why 12xnpp and not 11xnpp 
-  for(i=0; i < npp; i++)
+  bufsize = 0;
+  // 2 * 2 * (np+1) pack_single_bayes_buffer_part
+  bufsize += 2 * 2 * (npp+1);
+  // npp + 11*npp + 3*bin*npp + npp*npp pack_hist_bayes_buffer
+  if(!world->options->has_bayesmdimfile)
     {
-      bufsize += (3 * npp * hist->bins[i]); //total bufsize now npp(12npp+3npp*bins)
+      bufsize += 12*npp;
+      for(i=0; i < npp; i++)
+	{
+	  bufsize += (3 * npp * hist->bins[i]); //total bufsize now npp(12npp+3npp*bins)
+	}
+      bufsize += npp*npp;
     }
-  
-  //  // hist_bayes_buffer:
-  //// max buffer memory needed is (npp + 11*npp + (3 * npp * hist->bins[i])
-  //for(i=0; i < npp; i++)
-  //  {
-  //    if (!world->options->has_bayesmdimfile)
-  //	{
-  //	  //                   datastore           +11
-  //	  bufsize += 11; 
-  //	  
-  //	  if(bayes->map[i][1] != INVALID)
-  //	    {
-  //	      //for each parameter
-  //	      //                   bins number          +1
-  //	      //                   bins*3              +3*bins
-  //	      bufsize += 1 + 3 * hist->bins[i]; //set50, set95, result per bin 
-  //	    }
-  //	}
-  //  }
-  //bufsize += npp*npp;
-  // pack_BF_buffer
-  //   hmscale, hm    +2
-  //   bf: number of heated chains +world->options->heated_chains
-  //   steppingstone+scalar    +2*world->options->heated_chains
-  bufsize += 4 + 3 * world->options->heated_chains + 1;//DEBUG: why 4 + 1?
-  // Autoarchive, ESS buffer:     parameters           +2*(npp+loci)
-  //                              genealogy            +2
-  bufsize += 2*(2*npp + 2);
-  //test printf("%i> bufsize=%li (npp=%li, numbins=%li)\n",myID, bufsize, npp, numbins);
-
+  // 2 + 3*heatedchains pack_BF_buffer
+  bufsize += 2 + 3 * world->options->heated_chains;
+  // 2*(npp+1) pack_ess_buffer
+  bufsize += 2 * (npp+1);
+  // 6*npp pack_hyper
   if(bayes->hyperprior)
     {
       bufsize += npp*6;
     }
+  
   (*buffer) = (MYREAL *) myrealloc(*buffer, sizeof(MYREAL) * (bufsize));
   memset (*buffer, 0,sizec * bufsize);
-  
+
+  // needs 2 + 2*(numparam+1)  
   z = pack_single_bayes_buffer_part(buffer,world->bayes,world,locus);
 
-  //printf("%i> z=%li (%li)\n",myID,z, 2 + 2 * (np2+1));
+  // needs z + numparam + 11*numparam+ 3*numparam*bins + numparam*numparam
   if(!world->options->has_bayesmdimfile)
     z = pack_hist_bayes_buffer(buffer, hist, world, z);
+
   // BF material
   if(!world->data->skiploci[locus])
     {
       // fprintf(stderr,"%i> pack_result_buffer(): packed BF result locus=%li replicate %li\n",myID,locus, -1);
       if (world->options->adaptiveheat)
-	z = pack_heat(buffer,z, locus,world);
-      z = pack_BF_buffer(buffer, z, locus, world);
+	z = pack_heat(buffer,z, locus,world); //needs zero -- what should we report with this?
+      z = pack_BF_buffer(buffer, z, locus, world); // z + 2 + heatedchains + 2 * heatedchains
       if(z > bufsize)
 	{
 	  fprintf(stderr,"%i> ERROR: allocated bufsize=%li is smaller than used bufsize=%li\n",myID, bufsize, z);
@@ -2996,12 +3005,14 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
 	}
     }
   // ESS material
+  // needs 2 * (npp + 1)
   z = pack_ess_buffer(buffer, z, world);
   if(z > bufsize)
     {
       fprintf(stderr,"%i> ERROR: allocated bufsize=%li is smaller than used bufsize=%li\n",myID, bufsize, z);
       error("buffer allocation overflowed");
     }
+  // needs 6*npp
   z = pack_hyper_buffer(buffer,z,world);
   if(z > bufsize)
     {
@@ -3299,7 +3310,6 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
       (*buffer)[z++] = world->steppingstones[locus * hc + i];
       (*buffer)[z++] = world->steppingstone_scalars[locus * hc + i];
     }
-  //printf("%i> locus=%li send hmscale=%f hm=%f bf=%f %f %f %f\n",myID, locus,world->hmscale[locus],world->hm[locus], world->bf[locus*hc],world->bf[locus*hc+1],world->bf[locus*hc+2],world->bf[locus*hc+3]);
 #ifdef DEBUG
   printf("%i> packbuffer: z=%li - %li\n",myID,z-hc-2,z);
   for(ii=z-hc-2;ii<z;ii++)
@@ -3325,7 +3335,7 @@ long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
   long i;
   long z = start;
   const long np2 = world->numpop2;
-  const long npp = world->numparam;//np2 + ((long) world->bayes->mu) + world->species_model_size * 2 + world->grownum; 
+  const long npp = world->numparam;
   // (*buffer) = (MYREAL *) myrealloc(*buffer, (start + ((npp + 1) + (npp+1) * npp))*sizeof(MYREAL));
   for(i=0;i<npp;i++)
     {
@@ -3386,7 +3396,7 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
     printf("%i> pack_hist_bayes_buffer: position=%li last value = %f numparams=%li npp=%li\n",myID, startposition, (z > 0) ? (*buffer)[startposition] : -9999., hist->numparam, npp);
 #endif
 #ifdef DEBUG
-	    printf("%i>",myID);
+    printf("%i>",myID);
 #endif    
     for(i = 0; i < npp; ++i)
       {
@@ -3769,10 +3779,10 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     long i, j;
     long bufsize;
     long z = 0;
-    long nn = 2 + world->numparam;//world->numpop2 + (world->bayes->mu)  + world->species_model_size * 2 + world->grownum; 
+    long nn = 2 + world->numparam;
     const long nng= nn-1;
     bufsize = 2 * (nng); //acceptance ratio: params + tree
-    bufsize += 2; // loci + numparams
+    bufsize += 2;        // loci + numparams
     bufsize += world->bayes->numparams * nn;
     bufsize += 3 + world->options->heated_chains + 1;
     //printf("%i> bufsize in pack_single_bayes_buffer()=%li\n",myID,bufsize);
@@ -4142,6 +4152,23 @@ void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, opt
 	mutationmodel_fmt *s = &data->mutationmodels[sublocus];
 	int tmp = (s->dataclass == SITECHARACTER ? 0 : 1);
 	bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%i %f %f %f %f\n", tmp, s->basefreqs[0],s->basefreqs[1],s->basefreqs[2],s->basefreqs[3]);
+	if (s->baseref_used && s->baseref != NULL && s->dataclass == SITECHARACTER)
+	  {
+	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %li %li %li %li %li %li\n",
+				  (long) s->baseref_used,
+				  s->baseref[0],
+				  s->baseref[1],
+				  s->baseref[2],
+				  s->baseref[3],
+				  s->baseref[4],
+				  s->baseref[5],
+				  s->baseref[6]);
+	    fprintf(stderr,"%i> send baseref %s", myID, buffer);
+	  }
+	else
+	  {
+	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li\n",(long) s->baseref_used);
+	  }
 	long site;
 	for(site=0; site < s->numsites; site++)
 	  {
