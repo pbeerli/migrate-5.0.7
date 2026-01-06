@@ -74,5 +74,7 @@ AC_SUBST([LIBHPDF_LIBS])
 AC_CONFIG_FILES([
   Makefile
   src/Makefile
+  lib/haru/include/hpdf_config.h
 ])
 AC_OUTPUT
+
