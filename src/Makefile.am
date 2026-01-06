@@ -41,7 +41,7 @@ if USE_SYSTEM_LIBHPDF
 COMMON_CPPFLAGS += $(LIBHPDF_CFLAGS)
 COMMON_LDADD    += $(LIBHPDF_LIBS)
 else
-COMMON_CPPFLAGS += -I../lib/haru/include
+COMMON_CPPFLAGS += -I../lib/haru/include -I../lib/haru/build/include
 COMMON_LDADD    += ../lib/haru/src/libhpdf.a
 endif
 
