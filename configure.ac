@@ -65,7 +65,7 @@ AC_SUBST([ZLIB_CFLAGS])
 AC_SUBST([ZLIB_LIBS])
 
 # System libharu detection
-PKG_CHECK_MODULES([LIBHPDF], [libharu], [have_libhpdf=yes], [have_libhpdf=no])
+PKG_CHECK_MODULES([LIBHPDF], [libhpdf], [have_libhpdf=yes], [have_libhpdf=no])
 AM_CONDITIONAL([USE_SYSTEM_LIBHPDF], [test "$have_libhpdf" = "yes"])
 AC_SUBST([LIBHPDF_CFLAGS])
 AC_SUBST([LIBHPDF_LIBS])
