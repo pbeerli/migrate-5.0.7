@@ -24,8 +24,7 @@ COMMON_CPPFLAGS = \
     -DMERSENNE_TWISTER -DSFMT_MEXP=19937
 
 COMMON_LDADD = \
-    ../lib/SFMT-src-1.5.1/SFMT.o \
-    $(ZLIB_LIBS)
+    ../lib/SFMT-src-1.5.1/SFMT.o
 
 # --- zlib selection (optional, you already have USE_SYSTEM_ZLIB) ---
 if USE_SYSTEM_ZLIB
@@ -44,6 +43,7 @@ else
 COMMON_CPPFLAGS += -I../lib/haru/include -I../lib/haru/build/include
 COMMON_LDADD    += ../lib/haru/src/libhpdf.a
 endif
+COMMON_LDADD    += $(ZLIB_LIBS)
 
 # migrate-n
 migrate_n_SOURCES = $(COMMON_SOURCES)
