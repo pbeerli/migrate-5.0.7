@@ -2,7 +2,7 @@
 * text=auto
 
 # Explicitly declare C/C++/header files as text
-*.c     text
+*.c     text 
 *.h     text
 *.cpp   text
 *.hpp   text
@@ -17,8 +17,11 @@ Makefile.in text eol=lf
 aclocal.m4 text eol=lf
 
 # Treat build system files as text
-*.m4    text
-*.in    text
+*.ac   text eol=lf
+*.am   text eol=lf
+*.m4   text eol=lf
+*.in   text eol=lf
+configure text eol=lf
 
 # Ignore diff for binary files (e.g., PDF or built libs)
 *.pdf   binary
