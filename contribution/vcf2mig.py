@@ -953,7 +953,7 @@ def check_freqsout(freqs):
         
         alltotal = sum(value for key, value in fi.items() if key != 'Loc')
         total = sum(value for key, value in fi.items() if key in list('ACGT'))
-        fistr = f"{fi['Loc']} ACGT={total} All={alltotal} A={fi['A']} C:{fi['C']} G:{fi['G']} T:{fi['T']} ?:{fi['?']}" 
+        fistr = f"{fi['Loc']} ACGT={total} All={alltotal} A={fi['A']} C={fi['C']} G={fi['G']} T={fi['T']} ?={fi['?']}" 
         fis.append(fistr)
     return fis
 
