@@ -1700,14 +1700,40 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 	  oldsite = s->numpatterns;
 	  invi = s->numpatterns; //seq->endsite;
 	  //s->numpatterns += 4; //seq->endsite += 4;
-	  if (options->totalsites>0)
+	  if (options->totalsites>0 || s->baseref != NULL)
 	    {
-	      long invsites = options->totalsites - oldsite;
-	      s->aliasweight[invi++] = invsites*s->basefreqs[NUC_A];
-	      s->aliasweight[invi++] = invsites*s->basefreqs[NUC_C];
-	      s->aliasweight[invi++] = invsites*s->basefreqs[NUC_G];
-	      s->aliasweight[invi]   = invsites*s->basefreqs[NUC_T];
-	      world->options->datatype = 's';
+	      if (s->baseref != NULL)
+		{
+		  //long invsites = options->totalsites - oldsite;
+		  long total = s->baseref[0];
+		  s->basefreqs[NUC_A] = (double) s->baseref[2+NUC_A] / total;
+		  s->basefreqs[NUC_C] = (double) s->baseref[2+NUC_C] / total;
+		  s->basefreqs[NUC_G] = (double) s->baseref[2+NUC_G] / total;
+		  s->basefreqs[NUC_T] = 1.0 - s->basefreqs[NUC_A] - s->basefreqs[NUC_C] - s->basefreqs[NUC_G];
+		  s->aliasweight[invi++] = s->baseref[2+NUC_A]; //0:acgt, 1:all, 2=A
+		  s->aliasweight[invi++] = s->baseref[2+NUC_C];
+		  s->aliasweight[invi++] = s->baseref[2+NUC_G];
+		  s->aliasweight[invi]   = s->baseref[2+NUC_T];
+		}
+	      else
+		{
+		  long invsites = options->totalsites - oldsite;
+		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_A];
+		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_C];
+		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_G];
+		  s->aliasweight[invi]   = invsites*s->basefreqs[NUC_T];
+		}
+	      // this section produces an issue with the mutationmodel copying klone_mutationmodel....
+	      // perhaps adjust for heated chains and the last for EARTH
+	      //world->options->datatype = 's';
+	      //s->datatype = 's';  // make sure this works DEBUG totalsites invsites
+	      //s->numpatterns += s->addon;
+	      //s->numsites += s->addon;
+	      s->baseref_used = TRUE;
+	      //if (s->numsites < s->numpatterns)
+	      //error("makevalues: numsites < numpatterns");
+	      //s->addon = 0;
+	      fprintf(stderr,"Reconstituted Sequence data: SNPs + invariants sites [mcmcmc=%f]\n",world->heat);
 	    }
 	}
     }
@@ -3133,7 +3159,7 @@ find_tipdate(char * id, long pop, world_fmt *world)
 {
   MYREAL date;
   long ind;
-  long slen;
+  //long slen;
   long locus = world->locus;
   tipdate_fmt *sampledates = world->data->sampledates[pop][locus];
 
@@ -5203,7 +5229,7 @@ pseudo_tl_snp (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
     }
     else
     {
-        for (i = 0; i < endsite - 4; i++)
+      for (i = 0; i < endsite - s->addon; i++)// was 4 instead of s->addon
         {
             //check against JF code: k = s->category[s->alias[i] - 1] - 1;
             for (j = 0; j < rcategs; j++)

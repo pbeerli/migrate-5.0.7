@@ -1500,7 +1500,7 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
   //
   result->from = from;
   result->to = to;
-  printf("find_prior: default %li %li\n", from, to);
+  //printf("find_prior: default %li %li\n", from, to);
   switch(priortype)
     {
     case THETAPRIOR:

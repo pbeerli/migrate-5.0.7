@@ -5,19 +5,30 @@ EXTRA_DIST = \
   lib/SFMT-src-1.5.1/SFMT.c \
   lib/SFMT-src-1.5.1/SFMT.h \
   lib/haru/src/*.c \
-  lib/haru/include/*.h
+  lib/haru/include/*.h \
+  lib/haru/include/hpdf_config.h.in
 
 DISTCLEANFILES = \
-  lib/SFMT-src-1.5.1/SFMT.o \
+  lib/SFMT-src-1.5.1/SFMT.o
+
+if !USE_SYSTEM_LIBHPDF
+DISTCLEANFILES += \
   lib/haru/src/build/*.o \
   lib/haru/src/libhpdf.a
+endif
+
+
 
 # Tell Automake we have additional build artifacts
 BUILT_SOURCES = \
-  lib/SFMT-src-1.5.1/SFMT.o \
-  lib/haru/src/libhpdf.a
+  lib/SFMT-src-1.5.1/SFMT.o
+
+if !USE_SYSTEM_LIBHPDF
+BUILT_SOURCES += lib/haru/src/libhpdf.a
+endif
 
 # Hook: build libhpdf.a
+if !USE_SYSTEM_LIBHPDF
 lib/haru/src/libhpdf.a:
 	@echo "Compiling static libharu (no JPEG, no PNG)..."
 	mkdir -p lib/haru/src/build
@@ -29,7 +40,7 @@ lib/haru/src/libhpdf.a:
 	  esac; \
 	done && \
 	ar rcs libhpdf.a build/*.o
-
+endif
 # Hook: build SFMT.o
 lib/SFMT-src-1.5.1/SFMT.o:
 	@echo "Compiling SFMT..."

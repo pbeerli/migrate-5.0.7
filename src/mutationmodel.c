@@ -219,6 +219,9 @@ void set_subloci_basefrequencies(mutationmodel_fmt *s, world_fmt *world, option_
     case 'h': //inserted 2021 debugging problem with hapmap data
     case 's':
       //set_subloci_basefrequencies_seq(s, world, options, data, xs);
+      if (s->baseref_used)
+	return;
+      
       s->numstates = get_states(s,data,xs);
       if(s->basefreqs==NULL)
 	s->basefreqs = (double*) mycalloc((s->numstates+BASEFREQLENGTH-4), sizeof(double));
@@ -291,6 +294,8 @@ void calc_seq_basefreq(mutationmodel_fmt *s, option_fmt *options, data_fmt *data
   MYREAL freqg = 0.0;
   MYREAL freqt = 0.0;
   MYREAL total = 0.0;
+  if (s->baseref_used)
+    return;
   for (pop = 0; pop < data->numpop; pop++)
     {
 #ifdef DEBUG
@@ -798,17 +803,27 @@ void set_mutationmodel_eigenmaterial(long z, world_fmt *world) //eigenvectormatr
 
 void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
 {
-  // #$freq: 8 chr7 ACGT=10 All=10 A=3 C:2 G:4 T:1 ?:0
-  long readpos;
+  // #*freq: 8 chr7 ACGT=10 All=10 A=3 C:2 G:4 T:1 ?:0
+  // #*freq: 1 chr22 0 ACGT=1000000 All=1000000 A=259124 C=241270 G=239209 T=260397 ?=0
+  long readpos = 6;
   long readpos2;
+  fprintf(stderr,"baseref %s\n",input);
   char * locusname = (char *) mycalloc(LINESIZE,sizeof(char));
   char * word = (char *) mycalloc(LINESIZE,sizeof(char));
-  readpos = read_word_delim(input+6, word, " ", TRUE); // sublocus
-  long sublocus = atoi(word)-1;
+  readpos += read_word_delim(input+6, word, " ", TRUE); // sublocus
+  long sublocus = atoi(word)-2; //starts at 1 but first line is over all loci and will be discarded
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // locus name
   size_t count = sizeof(word) - 1;
-  if (count - LINESIZE < 0)
+  if (count < LINESIZE)
     strncpy(locusname, word, count);
+  readpos += read_word_delim(input+readpos, word, " ", TRUE); // line [ignore for the moment]
+  long line = atoi(word)-1;
+  if (line < 0)
+    {
+      myfree(word);
+      myfree(locusname);
+      return;
+    }
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // ACGT
   long acgt = atol(&word[5]);
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // All
@@ -824,6 +839,8 @@ void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // N?
   long N = atol(&word[2]);
   printf("%li %li %li %li %li -- %li %li\n",A,C,G,T,N,acgt,all);
+  if (world->mutationmodels[sublocus].baseref == NULL)
+    world->mutationmodels[sublocus].baseref = calloc(7,sizeof(long));
   world->mutationmodels[sublocus].baseref[0]=acgt;
   world->mutationmodels[sublocus].baseref[1]=all;
   world->mutationmodels[sublocus].baseref[2]=A;
@@ -831,6 +848,7 @@ void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
   world->mutationmodels[sublocus].baseref[4]=G;
   world->mutationmodels[sublocus].baseref[5]=T;
   world->mutationmodels[sublocus].baseref[6]=N;
+  world->mutationmodels[sublocus].baseref_used=TRUE;
   myfree(word);
   myfree(locusname);
 }
@@ -1063,6 +1081,7 @@ void init_mutationmodel_readsites(mutationmodel_fmt *mumod, char datatype, char 
   mumod->ttratio = 2.0;
   // number of ACGT from referencence sequences
   mumod->baseref = (long *) mycalloc (BASEREF, sizeof (long));
+  mumod->baseref_used = FALSE;
 }
 
 void init_mutationmodel_readsites2(mutationmodel_fmt *mumod, char datatype, long numsites) //long sites)
@@ -1281,7 +1300,8 @@ void destroy_mutationmodel(world_fmt* world)
 		  myfree(s->savealiasweight);
 		  myfree(s->category);
 		  myfree(s->contribution);
-		  myfree(s->baseref);
+		  if (s->baseref != NULL)
+		    myfree(s->baseref);
 		  if(s->tbl!=NULL)
 		    {
 		      for(i = 0; i < s->numsiterates; i++)
@@ -1361,6 +1381,24 @@ void copy_micro_steps(mutationmodel_fmt *s, mutationmodel_fmt *old)
     memcpy(s->steps[i],old->steps[i],sizeof(MYREAL) * (size_t) old->micro_threshold);
 }
 
+void heating_mutationmodel_baseref_finish(world_fmt ** universe, int usize, long locus)
+{
+  size_t i;
+  mutationmodel_fmt * s;
+  for (i=0; i < usize; i++)
+    {
+      s = &universe[i]->mutationmodels[locus];
+      if (s->baseref_used == TRUE)
+	{
+	  s->numpatterns += s->addon;
+	  s->numsites += s->addon;
+	  s->addon=0;
+	  s->datatype ='s';
+	  universe[i]->options->datatype = 's';
+	}
+    }
+}
+
 void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data, long locus)
 {
   long z, mi;
@@ -1409,6 +1447,8 @@ void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data
       munew->siteprobs   = (double *) mycalloc(munew->numsiterates,sizeof(double));
       memcpy(munew->siterates, muold->siterates, (size_t) muold->numsiterates * sizeof(double));
       memcpy(munew->siteprobs, muold->siteprobs, (size_t) muold->numsiterates * sizeof(double));
+
+      
 
       munew->datatype        = muold->datatype; //specifices the model
       munew->dataclass       = muold->dataclass;
@@ -1470,6 +1510,20 @@ void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data
       munew->contribution =  (contribarr *) mycalloc ((muold->numpatterns + muold->addon), sizeof (contribarr));
       munew->numcategs = muold->numcategs;
       munew->ttratio = muold->ttratio;
+
+      if (muold->baseref_used && muold->baseref != NULL)
+	{	  
+	  munew->baseref = (long *) mycalloc (BASEREF, sizeof (long));
+	  memcpy(munew->baseref, muold->baseref, sizeof(long) * BASEREF);
+	  munew->baseref_used = muold->baseref_used;
+	}
+      else
+	{
+	  munew->baseref = NULL;
+	  munew->baseref_used = FALSE;
+	}
+
+      
       munew->addon = muold->addon;
       munew->xi = muold->xi;
       munew->xv = muold->xv;

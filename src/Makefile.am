@@ -17,17 +17,33 @@ COMMON_SOURCES = \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
     mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c
 
-# Shared flags
+# Shared flags (common defines + local includes)
 COMMON_CPPFLAGS = \
-    -I../lib/haru/include -I../lib/SFMT-src-1.5.1 \
+    -I../lib/SFMT-src-1.5.1 \
     -DPRETTY -DNEWVERSION -D_REENTRANT \
-    $(ZLIB_CFLAGS) $(LIBHPDF_CFLAGS) \
     -DMERSENNE_TWISTER -DSFMT_MEXP=19937
 
 COMMON_LDADD = \
-    ../lib/haru/src/libhpdf.a \
-    ../lib/SFMT-src-1.5.1/SFMT.o \
-    $(ZLIB_LIBS) $(LIBHPDF_LIBS)
+    ../lib/SFMT-src-1.5.1/SFMT.o
+
+# --- zlib selection (optional, you already have USE_SYSTEM_ZLIB) ---
+if USE_SYSTEM_ZLIB
+COMMON_CPPFLAGS += $(ZLIB_CFLAGS)
+else
+# If you vendor zlib, add your bundled zlib include/lib here
+# COMMON_CPPFLAGS += -I../lib/zlib/include
+# COMMON_LDADD    += ../lib/zlib/libz.a
+endif
+
+# --- libharu selection ---
+if USE_SYSTEM_LIBHPDF
+COMMON_CPPFLAGS += $(LIBHPDF_CFLAGS)
+COMMON_LDADD    += $(LIBHPDF_LIBS)
+else
+COMMON_CPPFLAGS += -I../lib/haru/include -I../lib/haru/build/include
+COMMON_LDADD    += ../lib/haru/src/libhpdf.a
+endif
+COMMON_LDADD    += $(ZLIB_LIBS)
 
 # migrate-n
 migrate_n_SOURCES = $(COMMON_SOURCES)
@@ -48,5 +64,8 @@ migrate_n_mpi_LDADD += $(MATHLIBS)
 
 # Trigger build of bundled sources
 BUILT_SOURCES = \
-    ../lib/SFMT-src-1.5.1/SFMT.o \
-    ../lib/haru/src/libhpdf.a
+    ../lib/SFMT-src-1.5.1/SFMT.o
+
+if !USE_SYSTEM_LIBHPDF
+BUILT_SOURCES += ../lib/haru/src/libhpdf.a
+endif
