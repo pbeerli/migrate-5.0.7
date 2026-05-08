@@ -1276,7 +1276,7 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
   //double priormin = -10.;//w->bayes->minparam[pop];
   //double priormax = 10;//w->bayes->maxparam[pop];
   // /Users/beerli/Documents/Work/manuscripts/manuscripts-working/fractional-ML/fractional-ML-pipeline/training-pipeline/mcmc-old-factor2
-  lines    =  2 * (lineages[pop]-1); //discussion with claude code may 7 2026
+  lines    =  2 * (lineages[pop]); 
   if(world->has_mlalpha && mlalphapops[pop]!=0)
     mlalpha = world->mlalpha[mlalphapops[pop]-1];
   
