@@ -286,8 +286,8 @@ void init_options (option_fmt * options)
     unsigned long timeseed;
     /* General options --------------------------------------- */
     //
-    options->smoothing[0]=KERNEL;
-    options->smoothing[1]=SAVITZKY;
+    options->smoothing[0]=BINNING;     //KERNEL;
+    options->smoothing[1]=AVERAGE; //SAVITZKY;
     options->smoothing_window[0] = DEFAULTKERNELWINDOW;
     options->smoothing_window[1] = DEFAULTKERNELWINDOW;
     // name length
@@ -5658,11 +5658,13 @@ numbercheck (option_fmt * options, char *var, char *value)
 	      options->smoothing[0]=BINNING;
 	      break;
 	    case 'K': // using kernel-smoothing
-	    default:
 	      options->smoothing[0]=KERNEL;
 	      temp2 = strchr(temp,':');
 	      if (temp2!=NULL)
 		options->smoothing_window[0] = atol(temp2+1);
+	      break;
+	    default:
+	      options->smoothing[0]=BINNING;
 	      break;
 	    }
 	  temp = strtok (NULL, ",:;}\n");
@@ -5682,19 +5684,25 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  options->smoothing_window[0] = DEFAULTKERNELWINDOW;
 		  break;
 		case 'S': // using kernel-smoothing
-		default:
 		  options->smoothing[1]=SAVITZKY;
 		  temp2 = strtok (NULL, " ,:;}\n");
 		  if (temp2!=NULL)
 		    options->smoothing_window[1] = atol(temp2);
 		  break;
+		default:
+		  options->smoothing[1]=AVERAGE;
+		  options->smoothing_window[1] = DEFAULTKERNELWINDOW;
 		}
 	    }
 	}
       else
 	{
-	  options->smoothing[0]=KERNEL;
-	  options->smoothing[1]=SAVITZKY;
+	  //options->smoothing[0]=KERNEL;
+	  //options->smoothing[1]=SAVITZKY;
+	  //options->smoothing_window[0] = DEFAULTKERNELWINDOW;
+	  //options->smoothing_window[1] = DEFAULTKERNELWINDOW;
+	  options->smoothing[0]=BINNING;
+	  options->smoothing[1]=AVERAGE;
 	  options->smoothing_window[0] = DEFAULTKERNELWINDOW;
 	  options->smoothing_window[1] = DEFAULTKERNELWINDOW;
 	}
