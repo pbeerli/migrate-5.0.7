@@ -377,6 +377,7 @@ MYREAL probg_treetimes(world_fmt* world)
     //const long locus = world->locus;
     const  long npp = world->numparamcumvec[RATEPRIOR];
     const  long nppall = world->numparamcumvec[SPLITSTDPRIOR]; //OK, don't add growth here!
+    const MYREAL like = world->likelihood[world->G];
     species_fmt *s;
     long i;
     long pop;
@@ -410,6 +411,16 @@ MYREAL probg_treetimes(world_fmt* world)
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
     double mlalpha;// = world->mlalpha;
+    // DIAGNOSTIC (remove after finding bug)
+#ifdef DEBUGMIG
+    static long _diagcnt = 0;
+    double _total_wmig = 0.0;
+    double _total_mig_ep = 0.0;
+    long   _n_mig = 0;
+    // per-direction: index 0 = M21 direction (param0[2]), index 1 = M12 direction (param0[3])
+    long   _n_mig_dir[2] = {0, 0};
+    double _wmig_pop[2] = {0.0, 0.0}; // waiting-time weight per population
+#endif
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
     boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
@@ -438,6 +449,7 @@ MYREAL probg_treetimes(world_fmt* world)
       tli = &tl[i];
       t1 = tli->age; 
       k = tli->lineages;// the lineages are filled in the actual timeslice: e.g. tli1=time=0=lasttip lineages are not
+      //printf("%i> %li %li %lf %lf %lf %lf \n" ,myID, k[0], k[1], t0, t1, sumprob, eventprob);
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
       type = tli->eventnode->type;
@@ -452,7 +464,8 @@ MYREAL probg_treetimes(world_fmt* world)
 	  else
 	    mlalpha = mlalphas[xx-1];
 	  deltatime = -pow(deltatime2,mlalpha);
-	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
+	  fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
+	  
 	}
       if(type == 't')
         {
@@ -485,6 +498,7 @@ MYREAL probg_treetimes(world_fmt* world)
 		    {
 		      waitprobcoal += deltatime * kpop * (kpop - 1) / (mu_rate * param0[pop]);
 		      assert(!isnan(waitprobcoal));
+		      assert(deltatime<0);
 		    }
 		}
 	      msta = world->mstart[pop];
@@ -509,8 +523,15 @@ MYREAL probg_treetimes(world_fmt* world)
 		    }
 		}
 	      waitprobmig += sum;
+#ifdef DEBUGMIG
+	      if (numpop==2)
+		_wmig_pop[pop] += sum * deltatime;
+#endif
 	    }
 	  waitprobmig *= deltatime;
+#ifdef DEBUGMIG
+	  _total_wmig += waitprobmig;
+#endif
 	  assert(!isnan(waitprobmig));
 	  if (world->has_speciation)
 	    {
@@ -565,6 +586,16 @@ MYREAL probg_treetimes(world_fmt* world)
 					     tli->eventnode->actualpop, (long) numpop)]/param0[tli->eventnode->actualpop]);
 		}
 	      assert(!isnan(eventprob));
+#ifdef DEBUGMIG
+	      _n_mig++;
+	      _total_mig_ep += eventprob;
+	      if (numpop==2)
+		{
+		  long _midx = m2mmm(tli->eventnode->pop, tli->eventnode->actualpop, (long)numpop);
+		  if (_midx == numpop) _n_mig_dir[0]++;       // M21 direction (param0[2])
+		  else if (_midx == numpop+1) _n_mig_dir[1]++; // M12 direction (param0[3])
+		}
+#endif	      
 	      break;
 	    case 'd':
 	      s = get_fixed_species_model(tli->eventnode->pop,tli->eventnode->actualpop, world->species_model, world->species_model_size);
@@ -616,9 +647,32 @@ MYREAL probg_treetimes(world_fmt* world)
 	  assert(!isnan(sumprob));
 	}
       //printf("%i> progtreetimes(): sumprob=%f waitcoal=%f + waitmig=%f + waitspec=%f + eventprob=%f\n",myID, sumprob,waitprobcoal,waitprobmig,waitprob_spec, eventprob);
+      //      if (world->heat<=1.0)
+      //	printf("%i> l=%li %c (%li,%li) t0=%lf t1=%lf sp=%lf ep=%lf\n" ,myID, world->locus, type, k[0], k[1], t0, t1, sumprob, eventprob);
     }
     assert(!isnan(sumprob));
-    return sumprob;
+#ifdef DEBUGMIG
+    // DIAGNOSTIC: print every 5000th call
+    if((_diagcnt++ % 5000) == 0)
+      {
+	long _p;
+	fprintf(stderr,"DIAG[%li] locus=%li nmig=%li total_wmig=%.4g total_mig_ep=%.4g Mhat=%.2f M=",
+		_diagcnt, world->locus, _n_mig, _total_wmig, _total_mig_ep,
+		(_total_wmig < -1e-30 && _n_mig > 0) ? _n_mig / (-_total_wmig) : -1.0);
+	for(_p = world->numpop; _p < world->numpop + world->numpop*(world->numpop-1); _p++)
+	  fprintf(stderr,"%.2f ", param0[_p]);
+	if(numpop==2)
+	  {
+	    double mhat21 = (_wmig_pop[0]<-1e-30 && _n_mig_dir[0]>0) ? _n_mig_dir[0]/(-_wmig_pop[0]) : -1.0;
+	    double mhat12 = (_wmig_pop[1]<-1e-30 && _n_mig_dir[1]>0) ? _n_mig_dir[1]/(-_wmig_pop[1]) : -1.0;
+	    fprintf(stderr,"n21=%li wt0=%.4g Mhat21=%.3f | n12=%li wt1=%.4g Mhat12=%.3f",
+		    _n_mig_dir[0], _wmig_pop[0], mhat21,
+		    _n_mig_dir[1], _wmig_pop[1], mhat12);
+	  }
+	fprintf(stderr," sumprob=%.4g like=%.4g\n", sumprob, like);
+      }
+#endif
+    return sumprob; //+ like;
 }
 
 //newlocal

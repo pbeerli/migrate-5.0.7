@@ -103,7 +103,8 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
 char   set_type(world_fmt *world, long topop, long frompop, char *custm2, long numpop);
 node * set_type2(world_fmt *world, node *p, node *q, char *custm2);
 
-MYREAL time_to_coalmig (world_fmt * world, long pop, long timeslice, long *lineages, char * event,  long * to, long * from);
+MYREAL time_to_coalmig(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from);
+//MYREAL time_to_coalmig (world_fmt * world, long pop, long timeslice, long *lineages, char * event,  long * to, long * from);
 MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from);
 MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, long timeslice, long * lineages, char * event, long * to, long * from);
 MYREAL time_to_speciation(world_fmt * world, long pop, double age, char * event, long * to, long * from);
@@ -1234,6 +1235,74 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
     }
 }
 
+MYREAL time_to_coalmig(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from)
+{  
+  world_fmt *w = world;
+  long  lines;
+  MYREAL  rate = w->options->mu_rates[w->locus];
+  //long    timeslice;
+  long    addition=0;
+  long    timepop;
+  MYREAL  inheritance = w->options->inheritance_scalars[w->locus];
+  MYREAL  timethetarate;
+  MYREAL denom=0.0;
+  MYREAL invdenom;
+  MYREAL interval= (double) HUGE;
+  MYREAL r=0.0;
+  MYREAL logr = (double) -HUGE;
+  long z=0;
+  *from = -1;
+  *to = -1;
+  //timeslice=tentry->timeslice;
+  timepop = (w->numpop2+addition)*timeslice + pop;
+  timethetarate = w->timek[timepop] * w->param0[pop];
+  lines    =   2 * (lineages[pop]); 
+  
+  r = UNIF_RANDUM ();
+  logr = log(r);
+  long msta = world->mstart[pop];
+  long msto = world->mend[pop];
+  double lambda_coal = (double) lines / (rate*timethetarate) ;
+  double lambda_M = 0;
+  double ranlist[world->numpop];
+  ranlist[0] = lambda_coal;
+  z = 1;
+  for (long i = msta; i < msto; i++)
+    {
+      lambda_M += world->param0[i];
+      ranlist[z] = world->param0[i] + ranlist[z-1];
+      z++;
+    }
+  double lambda_total = (lambda_coal + lambda_M);
+  //for (int j=0; j<world->numpop; j++)
+  //  printf("%lf ",ranlist[j]/lambda_total);
+  //printf("\n");
+  interval =  -(logr)/ lambda_total;
+  z=0;
+  r = UNIF_RANDUM ();
+  while (r > ranlist[z]/lambda_total)
+    z++;
+  
+  if (interval<0.0)
+    warning("%i> x=%f in timecoal [denom=%f lines=%li r=%f inh=%f rate=%f timethetarate=%f]\n",myID, 
+	    interval,denom,lines,r,inheritance,rate,timethetarate);
+  if (z==0)
+    {
+      *event = 'c';
+      *from = pop;
+    }
+  else
+    {
+      *event = 'm';
+      if (pop>=z)
+	*from = z - 1;
+      else
+	*from = z;
+    }
+  *to = pop;
+  //printf("coalmig: %c %li -> %li %lf\n",*event, *from, *to, interval);
+  return interval;
+}
 
 
 MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from)
@@ -1276,7 +1345,7 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
   //double priormin = -10.;//w->bayes->minparam[pop];
   //double priormax = 10;//w->bayes->maxparam[pop];
   // /Users/beerli/Documents/Work/manuscripts/manuscripts-working/fractional-ML/fractional-ML-pipeline/training-pipeline/mcmc-old-factor2
-  lines    =  2 * (lineages[pop]); 
+  lines    =   2 * (lineages[pop]); 
   if(world->has_mlalpha && mlalphapops[pop]!=0)
     mlalpha = world->mlalpha[mlalphapops[pop]-1];
   
@@ -1292,7 +1361,7 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 	  //-(1/(k (k - 1)/(theta^a)))^(1/
 	  //a) ((Sin[Pi a]/(Tan[Pi a (1 - RandomReal[])])) - Cos[Pi a])^(1/
 	  //a) Log[RandomReal[]]
-	  denom = lines /(rate*timethetarate);
+	  denom = (double) lines /(rate*timethetarate);
 	  //interval = interval_mittag_leffler(r, mlalpha, denom,priormin,priormax);
 	  interval = propose_new_mlftime(denom, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	}
@@ -1309,7 +1378,7 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 	    {
 	      r = UNIF_RANDUM ();
 	      logr = log(r);
-	      invdenom    = (rate*timethetarate) / lines;
+	      invdenom    = (rate*timethetarate) / (double) lines;
 	      interval =  -(logr * invdenom);
 	    }
 	}
@@ -1418,9 +1487,9 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 		}
 	      else
 		{
-	      invdenom = 1.0 / (mm);
-	      interval =  (-(LOG (UNIF_RANDUM ())) * invdenom);
-	    }
+		  invdenom = 1.0 / (mm);
+		  interval =  (-(LOG (UNIF_RANDUM ())) * invdenom);
+		}
 	    }
 	  if (the_eventtime > interval)
 	    {
@@ -1506,10 +1575,12 @@ MYREAL eventtime_single(proposal_fmt *proposal, world_fmt *world, long pop, long
   char myevent=' ';
   long fromx = *from;
   long tox = *to;
-  ceventtime = time_to_coalescence(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
-  keep_min_eventtime(&the_eventtime, ceventtime, &the_event, myevent, to, tox, from, fromx);
-  meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, &myevent,&tox, &fromx);
+  //ceventtime = time_to_coalescence(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
+  //keep_min_eventtime(&the_eventtime, ceventtime, &the_event, myevent, to, tox, from, fromx);
+  //meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, &myevent,&tox, &fromx);
+  meventtime = time_to_coalmig(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
   keep_min_eventtime(&the_eventtime, meventtime, &the_event, myevent, to, tox, from, fromx);
+  //printf("@ c m: %lf %lf, %c\n",ceventtime,meventtime,the_event);
   deventtime = time_to_speciation(world, pop, age, &myevent, &tox, &fromx);
   keep_min_eventtime(&the_eventtime, deventtime, &the_event, myevent, to, tox, from, fromx);
   //  }
