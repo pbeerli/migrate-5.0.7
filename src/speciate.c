@@ -1898,6 +1898,12 @@ long newtree_update (world_fmt * world, long g, boolean assign)
         world->migration_counts = 0;
         /* report the number of migration on the tree */
         count_migrations (world->root->next->back, &world->migration_counts);
+        if(world->options->bayes_infer)
+          {
+            world->bayes->oldval = probg_treetimes(world);
+            world->param_like = world->bayes->oldval;
+            world->logprior = calculate_prior(world);
+          }
         free_timevector (timevector);
 #ifndef TESTING2
 	free_masterproposal (proposal);
@@ -2794,6 +2800,5 @@ int main(int argc, char **argv)
 }
 
 #endif
-
 
 

@@ -59,3 +59,27 @@ lib/SFMT-src-1.5.1/SFMT.o
 # Misc
 tags
 cruft/
+
+example/3pop/
+example/README
+example/bayesallfile-gap
+example/bayesallfile_msat.gz
+example/bayesfile_msat
+example/besttreefile
+example/example.log
+example/outfile-gap
+example/outfile-gap.pdf
+example/outfile-twoswisstowns
+example/outfile-twoswisstowns.pdf
+example/outfile-twoswisstowns2
+example/outfile-twoswisstowns2.pdf
+example/outfile_hapmap
+example/outfile_hapmap.pdf
+example/outfile_msat
+example/outfile_msat.pdf
+example/outfile_snp
+example/outfile_snp.pdf
+example/runtest
+example/twoswisstowns.assign
+src/#mcmc1.c#
+src/.#mcmc1.c

@@ -177,6 +177,15 @@ void klone_part (world_fmt * original, world_fmt * kopie,
                  option_fmt * options, data_fmt * data, MYREAL temperature);
 void clone_polish (world_fmt * original, world_fmt * kopie);
 long chance_swap_tree (world_fmt * tthis, world_fmt * that);
+static MYREAL heated_swap_score(world_fmt *world);
+static void sync_swap_state(world_fmt *world);
+static void swap_bayes_chain_state(world_fmt *tthis, world_fmt *that);
+#ifdef SWAP_DEBUG
+static void print_swap_debug(world_fmt *tthis, world_fmt *that, MYREAL a, MYREAL b,
+                             MYREAL ha, MYREAL hb, MYREAL quot, MYREAL rr,
+                             boolean accepted);
+static void print_swap_debug_post(world_fmt *tthis, world_fmt *that);
+#endif
 void advance_clone_like (world_fmt * world, long accepted, long *j);
 void polish_world (world_fmt * world);
 void fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop);
@@ -3605,27 +3614,255 @@ clone_polish (world_fmt * original, world_fmt * kopie)
         kopie->likelihood[0] = original->likelihood[0];
 }
 
+static MYREAL
+heated_swap_score(world_fmt *world)
+{
+  MYREAL score = world->likelihood[world->G];
+
+  if (world->options->bayes_infer)
+    {
+      score += probg_treetimes(world);
+      score += calculate_prior(world);
+    }
+  return score;
+}
+
+static void
+sync_swap_state(world_fmt *world)
+{
+  if (world->options->bayes_infer)
+    {
+      world->bayes->oldval = probg_treetimes(world);
+      world->logprior = calculate_prior(world);
+      world->param_like = world->bayes->oldval;
+    }
+}
+
+#ifdef SWAP_DEBUG
+static void
+print_swap_debug(world_fmt *tthis, world_fmt *that, MYREAL a, MYREAL b,
+                 MYREAL ha, MYREAL hb, MYREAL quot, MYREAL rr, boolean accepted)
+{
+  FILE *out;
+  long i;
+  const long numpop = tthis->numpop;
+  const long numpop2 = tthis->numpop2;
+
+  if (!tthis->options->bayes_infer)
+    {
+      return;
+    }
+
+  out = (tthis->options->writelog && tthis->options->logfile != NULL)
+    ? tthis->options->logfile : stdout;
+
+  FPRINTF(out,
+          "[%3i] SWAPDEBUG heatid(%li,%li) heat(%g,%g) score(%0.10f,%0.10f) rr=%0.10f quot=%0.10f accept=%c Mthis={",
+          myID, tthis->heatid, that->heatid, ha, hb, a, b, rr, quot,
+          accepted ? 'Y' : 'N');
+  for (i = numpop; i < numpop2; i++)
+    {
+      FPRINTF(out, "%s%0.10f", i == numpop ? "" : ",", tthis->param0[i]);
+    }
+  FPRINTF(out, "} Mthat={");
+  for (i = numpop; i < numpop2; i++)
+    {
+      FPRINTF(out, "%s%0.10f", i == numpop ? "" : ",", that->param0[i]);
+    }
+  FPRINTF(out, "} like(%0.10f,%0.10f) probg(%0.10f,%0.10f) prior(%0.10f,%0.10f)\n",
+          tthis->likelihood[tthis->G], that->likelihood[that->G],
+          probg_treetimes(tthis), probg_treetimes(that),
+          calculate_prior(tthis), calculate_prior(that));
+  fflush(out);
+}
+
+static void
+print_swap_debug_post(world_fmt *tthis, world_fmt *that)
+{
+  FILE *out;
+  long i;
+  const long numpop = tthis->numpop;
+  const long numpop2 = tthis->numpop2;
+
+  if (!tthis->options->bayes_infer)
+    {
+      return;
+    }
+
+  out = (tthis->options->writelog && tthis->options->logfile != NULL)
+    ? tthis->options->logfile : stdout;
+
+  FPRINTF(out,
+          "[%3i] SWAPDEBUG_POST heatid(%li,%li) coldM={",
+          myID, tthis->heatid, that->heatid);
+  for (i = numpop; i < numpop2; i++)
+    {
+      FPRINTF(out, "%s%0.10f", i == numpop ? "" : ",", that->param0[i]);
+    }
+  FPRINTF(out, "} warmM={");
+  for (i = numpop; i < numpop2; i++)
+    {
+      FPRINTF(out, "%s%0.10f", i == numpop ? "" : ",", tthis->param0[i]);
+    }
+  FPRINTF(out,
+          "} cold{like=%0.10f probg=%0.10f prior=%0.10f param_like=%0.10f} warm{like=%0.10f probg=%0.10f prior=%0.10f param_like=%0.10f}\n",
+          that->likelihood[that->G], probg_treetimes(that), calculate_prior(that), that->param_like,
+          tthis->likelihood[tthis->G], probg_treetimes(tthis), calculate_prior(tthis), tthis->param_like);
+  fflush(out);
+}
+#endif
+
+static void
+swap_bayes_chain_state(world_fmt *tthis, world_fmt *that)
+{
+  MYREAL *tempparam0;
+  MYREAL *tempparam00;
+  MYREAL tempparam_like;
+  MYREAL temprate;
+  MYREAL templrate;
+  MYREAL *temptimes;
+  MYREAL *tempseqerrorrates;
+  float *temprecord;
+  species_fmt *tempspecies;
+  double *tempgrowth;
+  double *tempsavegrowth;
+  double *tempmlalpha;
+  double *tempsavemlalpha;
+  long tempbayesaccept;
+  long tempseqerrorcount;
+  long tempseqerrorratesnum;
+  long tempseqerrorallocnum;
+  long tempseqerrorsteps;
+  const long locus = tthis->locus;
+
+  if (!tthis->options->bayes_infer)
+    {
+      return;
+    }
+
+  tempparam0 = tthis->param0;
+  tthis->param0 = that->param0;
+  that->param0 = tempparam0;
+
+  tempparam00 = tthis->param00;
+  tthis->param00 = that->param00;
+  that->param00 = tempparam00;
+
+  tempparam_like = tthis->param_like;
+  tthis->param_like = that->param_like;
+  that->param_like = tempparam_like;
+
+  tempbayesaccept = tthis->bayesaccept;
+  tthis->bayesaccept = that->bayesaccept;
+  that->bayesaccept = tempbayesaccept;
+
+  if (tthis->bayes->mu)
+    {
+      temprate = tthis->options->mu_rates[locus];
+      tthis->options->mu_rates[locus] = that->options->mu_rates[locus];
+      that->options->mu_rates[locus] = temprate;
+
+      templrate = tthis->options->lmu_rates[locus];
+      tthis->options->lmu_rates[locus] = that->options->lmu_rates[locus];
+      that->options->lmu_rates[locus] = templrate;
+    }
+
+  if (tthis->species_model_size > 0)
+    {
+      tempspecies = tthis->species_model;
+      tthis->species_model = that->species_model;
+      that->species_model = tempspecies;
+    }
+
+  if (tthis->timeelements > 0)
+    {
+      temptimes = tthis->times;
+      tthis->times = that->times;
+      that->times = temptimes;
+      tthis->timek = tthis->times + tthis->timeelements;
+      that->timek = that->times + that->timeelements;
+    }
+
+  if (tthis->has_growth)
+    {
+      tempgrowth = tthis->growth;
+      tthis->growth = that->growth;
+      that->growth = tempgrowth;
+
+      tempsavegrowth = tthis->savegrowth;
+      tthis->savegrowth = that->savegrowth;
+      that->savegrowth = tempsavegrowth;
+    }
+
+  if (tthis->has_mlalpha && tthis->tri_mlalpha != FIXED)
+    {
+      tempmlalpha = tthis->mlalpha;
+      tthis->mlalpha = that->mlalpha;
+      that->mlalpha = tempmlalpha;
+
+      tempsavemlalpha = tthis->savemlalpha;
+      tthis->savemlalpha = that->savemlalpha;
+      that->savemlalpha = tempsavemlalpha;
+    }
+
+  if (tthis->recording_times != NULL && that->recording_times != NULL)
+    {
+      temprecord = tthis->recording_times[locus];
+      tthis->recording_times[locus] = that->recording_times[locus];
+      that->recording_times[locus] = temprecord;
+    }
+
+  if (tthis->has_estimateseqerror)
+    {
+      tempseqerrorcount = tthis->seqerrorcount[locus];
+      tthis->seqerrorcount[locus] = that->seqerrorcount[locus];
+      that->seqerrorcount[locus] = tempseqerrorcount;
+
+      tempseqerrorratesnum = tthis->seqerrorratesnum[locus];
+      tthis->seqerrorratesnum[locus] = that->seqerrorratesnum[locus];
+      that->seqerrorratesnum[locus] = tempseqerrorratesnum;
+
+      tempseqerrorallocnum = tthis->seqerrorallocnum[locus];
+      tthis->seqerrorallocnum[locus] = that->seqerrorallocnum[locus];
+      that->seqerrorallocnum[locus] = tempseqerrorallocnum;
+
+      tempseqerrorsteps = tthis->seqerrorsteps[locus];
+      tthis->seqerrorsteps[locus] = that->seqerrorsteps[locus];
+      that->seqerrorsteps[locus] = tempseqerrorsteps;
+
+      tempseqerrorrates = tthis->seqerrorrates[locus];
+      tthis->seqerrorrates[locus] = that->seqerrorrates[locus];
+      that->seqerrorrates[locus] = tempseqerrorrates;
+    }
+
+  // The live Bayesian state moved across chains, so any proposal tables derived
+  // from that state need to be rebuilt before the next update.
+  precalc_world(tthis);
+  precalc_world(that);
+}
+
 
 /// calculate the probability to swap two heated chains and swap them
-/// temperatures are only used for the tree and not for the parameters
-/// therefore no swapping on parameters.
+/// Bayesian heating swaps the full chain state, not just the genealogy.
 long
 chance_swap_tree (world_fmt * tthis, world_fmt * that)
 {
   MYREAL templike;
   MYREAL a, b, rr, quot;
+  boolean accepted;
   MYREAL ha = tthis->heat;
   MYREAL hb = that->heat;
+  MYREAL treelen;
+  long tempmigration_counts;
 #ifdef UEP
   MYREAL **tempuep;
   ueptime_fmt *tempueptime;
   long *tempanc;
-  MYREAL treelen;
 #endif
   timelist_fmt *templist;
 
-  a = tthis->likelihood[tthis->numlike - 1];
-  b = that->likelihood[that->numlike - 1];
+  a = heated_swap_score(tthis);
+  b = heated_swap_score(that);
 
   if(fabs(a-b) < DBL_EPSILON)
     return 0;
@@ -3640,7 +3877,11 @@ chance_swap_tree (world_fmt * tthis, world_fmt * that)
   //this prohibits the swapping.
   // ------------ end check section -------------------------------------------
   quot =  ((a * hb) + (b * ha)) -  ((a * ha) +  (b * hb));
-  if (rr < quot)
+  accepted = (rr < quot);
+#ifdef SWAP_DEBUG
+  print_swap_debug(tthis, that, a, b, ha, hb, quot, rr, accepted);
+#endif
+  if (accepted)
     {
       swap_tree (tthis, that);
 #ifdef DISPENSER
@@ -3648,14 +3889,21 @@ chance_swap_tree (world_fmt * tthis, world_fmt * that)
 #endif
       if (tthis->has_unassigned)
 	swap_unassigned_nodecollection(tthis,that);
-      //swap likelihood value that goes with tree
-      templike                              = tthis->likelihood[tthis->numlike - 1];
-      tthis->likelihood[tthis->numlike - 1] = that->likelihood[that->numlike - 1];
-      that->likelihood[that->numlike - 1]   = templike;
+      swap_bayes_chain_state(tthis, that);
+      // Swap the current data likelihood used by later accept/reject steps.
+      templike                       = tthis->likelihood[tthis->G];
+      tthis->likelihood[tthis->G]   = that->likelihood[that->G];
+      that->likelihood[that->G]     = templike;
       // swap timelist that goes with tree
       templist                              = tthis->treetimes;
       tthis->treetimes                      = that->treetimes;
       that->treetimes                        = templist;
+      tempmigration_counts                  = tthis->migration_counts;
+      tthis->migration_counts               = that->migration_counts;
+      that->migration_counts                = tempmigration_counts;
+      treelen                               = tthis->treelen;
+      tthis->treelen                        = that->treelen;
+      that->treelen                         = treelen;
 #ifdef UEP        
       if (tthis->options->uep)
         {
@@ -3667,13 +3915,18 @@ chance_swap_tree (world_fmt * tthis, world_fmt * that)
 	  that->ueptime = tempueptime;
 	  templike = tthis->ueplikelihood;
 	  tthis->ueplikelihood = that->ueplikelihood;
-	  tthis->ueplikelihood = templike;
+	  that->ueplikelihood = templike;
 	  tempanc = tthis->oldrootuep;
 	  tthis->oldrootuep = that->oldrootuep;
-	  tthis->oldrootuep = tempanc;
-	  treelen = tthis->treelen;
-	  tthis->treelen = that->treelen;
-	  that->treelen = treelen;
+	  that->oldrootuep = tempanc;
+        }
+#endif
+      sync_swap_state(tthis);
+      sync_swap_state(that);
+#ifdef SWAP_DEBUG
+      if (tthis->heatid == 1 && that->heatid == 0)
+        {
+          print_swap_debug_post(tthis, that);
         }
 #endif
       that->treeswapcount++;
