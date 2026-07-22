@@ -2322,7 +2322,7 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 		  s->baseref = (long*) myrealloc(s->baseref, BASEREF * sizeof(long));
 		}
 	      fprintf(stderr,"%i> baseref %s", myID, input);
-	      sscanf(input,"%li %li %li %li %li %li %li %li\n",
+	      sscanf(input,"%i %li %li %li %li %li %li %li\n",
 		     &s->baseref_used,
 		     &s->baseref[0],
 		     &s->baseref[1],

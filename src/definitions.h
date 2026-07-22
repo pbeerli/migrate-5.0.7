@@ -34,12 +34,10 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  
 *----------------------------------------------------------------
 */
-#ifndef MIGRATEVERSION
-#define MIGRATEVERSION "6.0.1 [Mittag (merged with main Oct 11 2025)]"
-#endif
-#ifndef MIGRATESUBVERSION
-#define MIGRATESUBVERSION "October-11-2025"
-#endif
+// force VERSIONS (in earlier versions this was defined in the Makefiles
+// it is cleaner to do here
+#define MIGRATEVERSION "6.0.2 [Mittag (merged with main Jul 22 2026)]"
+#define MIGRATESUBVERSION "July-22-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
 /* compiler directives */

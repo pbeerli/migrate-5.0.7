@@ -4788,7 +4788,7 @@ void bayes_combine_loci(world_fmt * world)
   // Not every locus is filling all bins in the posterior
   // counts keeps track of the number of loci that are used per bin
   fprintf(stderr,"@@ binsum: loci=%li, %li\n",world->loci, bayes->histogram[world->loci].binsum);
-  for(int ii=0;ii<world->loci;ii++)
+  for(long ii=0;ii<world->loci;ii++)
     fprintf(stderr,"@@ binsum: loci=%li, %li\n",ii, bayes->histogram[ii].binsum);
   counts = (long *) mycalloc(bayes->histogram[world->loci].binsum,sizeof(long));
   //
