@@ -1151,16 +1151,16 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
     pdf_new_page(options->title);
     pdf_master_title(options->title);//, &left_margin);
     pdf_print_options(world, options, data);
-	if(options->datatype!='g')
-    {
-      if (options->verbose)
-	{
-	  pdf_print_data_summary(world, options, data,  &page_height, &left_margin);
-	  pdf_print_data (world, options, data);
-	  if(options->murates_fromdata)
-            pdf_print_mutationrate_weights(options->mu_rates, options->segregs, options->wattersons, world->loci);
-	}
-    }
+    if(options->datatype!='g')
+      {
+	pdf_print_data_summary(world, options, data,  &page_height, &left_margin);
+	if (options->verbose)
+	  {
+	    pdf_print_data (world, options, data);
+	    if(options->murates_fromdata)
+	      pdf_print_mutationrate_weights(options->mu_rates, options->segregs, options->wattersons, world->loci);
+	  }
+      }
     ////////////////////////////////////
 }
 
@@ -4217,7 +4217,7 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	pdf_print_contents_at(left_margin, page_height,"Locus");
 	pdf_print_contents_at(left_margin+100, page_height,"Sites\n");
 	boolean print_siterates = FALSE;
-	if (data->loci > 500)
+	if (data->loci > TEN)
 	  compressed=TRUE;
 	if (compressed)
 	  {

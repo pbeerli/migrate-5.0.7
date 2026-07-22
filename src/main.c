@@ -964,15 +964,15 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
     {
   /* report to screen */
       print_menu_options (EARTH, options, data);
-      if (options->progress && options->verbose)
+      if (options->progress)
 	print_data_summary (stdout, EARTH, options, data);
       /* print to outfile */
       pdf_master_init(EARTH, options, data);
       *outfilepos = print_title (EARTH, options);
       print_options (EARTH->outfile, EARTH, options, data);
+      print_data_summary (EARTH->outfile, EARTH, options, data);
       if(options->verbose)
 	{
-	  print_data_summary (EARTH->outfile, EARTH, options, data);
 	  print_data (EARTH, options, data);
 	  print_spectra (EARTH, options, data);
 	}

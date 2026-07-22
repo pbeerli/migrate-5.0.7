@@ -109,7 +109,7 @@ int migrateb (proposal_fmt * proposal, node * up, char event, long from, long to
 //                    long *slider); this was replaced by beyond_last_node() in speciate.c
 
 boolean acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
-                    timelist_fmt * tyme, boolean assign);
+                    timelist_fmt * tymelist, boolean assign);
 MYREAL eventtime (proposal_fmt * proposal, long pop, vtlist * tentry,
                   char *event);
 node *showsister (node * theNode);
@@ -1817,6 +1817,11 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 	oldprobg =  probg_treetimes(world);
 	newprobg =  probg_treetimes_local(world, tymelist);
 	
+      }
+    else
+      {
+	// we need to handle probg_treetimes_local because it changes and will generate
+	// different values than the saved version
       }
     newp = proposal->likelihood + newprobg;
     oldp = oldlike + oldprobg;

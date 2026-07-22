@@ -762,11 +762,11 @@ MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
   else
     {
       //return oldparam / newparam;//test May 2024
-      double a = bayes->alphaparam[i];
-      double b = bayes->betaparam[i];
-      return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
-       	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
-      //return 0.;
+      //double a = bayes->alphaparam[i];
+      //double b = bayes->betaparam[i];
+      //return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
+      // 	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
+      return 0.;
     }
 }
 
