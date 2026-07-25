@@ -5691,7 +5691,8 @@ print_tree (world_fmt * world, long g, long *filepos)
     default:
       break;
     }
-  fflush(world->treefile);
+  if (myID == MASTER)
+    fflush(world->treefile);
   //myfree(tmp);
 }
 
