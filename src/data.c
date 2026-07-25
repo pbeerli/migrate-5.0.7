@@ -664,7 +664,7 @@ init_data_structure2 (data_fmt ** data, option_fmt * options, world_fmt *world, 
   //long startsite;
   //long endsite;
   long ind, locus;
-  long indalloc = -1;
+  long indalloc = 0;
   for(locus=0;locus<(*data)->loci;locus++)
     {
       if(indalloc < (*data)->numind[pop][locus])
