@@ -1849,15 +1849,6 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
     }
   else //undo all the changes because change was not accepted
     {
-      if(world->options->prioralone)
-	{
-	  *success = TRUE;
-#ifdef DEBUG
-	  if(verbose)
-	    print_bayes_verbose(which,world, newparam, *success);
-#endif
-	  return newval;
-	}
 #ifdef DEBUG
       if(verbose)
 	print_bayes_verbose(which,world, newparam, *success);

@@ -1823,8 +1823,19 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 	// we need to handle probg_treetimes_local because it changes and will generate
 	// different values than the saved version
       }
-    newp = proposal->likelihood + newprobg;
-    oldp = oldlike + oldprobg;
+    if (world->options->prioralone)
+      {
+        // NODATA=yes: exclude the sequence-likelihood term so acceptance
+        // is governed only by the coalescent-genealogy prior (probg_treetimes),
+        // not by the (still fully computed) data likelihood.
+        newp = newprobg;
+        oldp = oldprobg;
+      }
+    else
+      {
+        newp = proposal->likelihood + newprobg;
+        oldp = oldlike + oldprobg;
+      }
     if (oldp <= newp) //ratio is > 1
       {
         return TRUE;
@@ -1843,10 +1854,6 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
         {
             return TRUE;
         }
-    }
-    if(world->options->prioralone)
-    {
-        return TRUE;
     }
     //#ifdef DEBUG
     //if (world->heat < 0.1)
