@@ -3025,7 +3025,12 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 #endif
     FPRINTF(world->outfile,"\n\n\nBayesian estimates\n");
     FPRINTF(world->outfile,"==================\n\n");
-    FPRINTF(world->outfile,"Locus Parameter        2.5%%      25.0%%    mode     75.0%%   97.5%%     median   mean\n");
+    // These columns are HPD (highest posterior density) interval bounds from
+    // calc_hpd_credibility(), NOT percentiles: they are found by thresholding
+    // the density and walking outward from the mode. For skewed or multimodal
+    // posteriors the median can legitimately fall outside them, so labelling
+    // them 2.5%/25%/75%/97.5% was misleading.
+    FPRINTF(world->outfile,"Locus Parameter       HPD95lo  HPD50lo     mode  HPD50hi  HPD95hi   median     mean\n");
     FPRINTF(world->outfile,"-----------------------------------------------------------------------------------\n");
     for(locus=0; locus <= lozi; locus++)
     {
@@ -4602,7 +4607,13 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
             //bayes_smooth(results+numbins,bins[rpa], MAX(5.0,bins[rpa]/50.0),FALSE);
 	    //if(locus!=world->loci)
 	    //kernel_smooth(results+numbins, bins[rpa], results+numbins, bins[rpa], (long) (sqrt(world->options->lsteps)), mini[rpa], maxi[rpa]);
-	    bayes_smooth(results+numbins,bins[rpa], MAX(5.0,(long) (sqrt((double) bins[rpa]))),FALSE,FALSE);
+	    // boundary=TRUE mirrors the histogram at the lower prior bound before
+	    // smoothing. With boundary=FALSE the pad region of the work array is
+	    // left at zero (mycalloc), so the moving average blended real density
+	    // with zeros and dragged the histogram down over the first ~el bins --
+	    // an artificial ramp exactly where priors with mass at the lower bound
+	    // (uniform from 0, exponential) carry their density.
+	    bayes_smooth(results+numbins,bins[rpa], MAX(5.0,(long) (sqrt((double) bins[rpa]))),FALSE,TRUE);
 #ifdef DEBUG
 	  printf("%i> after bayes_smooth: bins[%li]=%li (%li)\n",myID, rpa,bins[rpa], (long) (sqrt(world->options->lsteps)));
 #endif
@@ -4630,7 +4641,12 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
             total += tmp;
 	    total22 += tmp2;
             parts[li][0] = delta/2.0 + mini[rpa] + li * delta;
-            if(tmp > biggestcolumn && li>1)
+            // NOTE: locmedian holds the MODE bin, not the median bin.
+            // The former "&& li>1" excluded bins 0 and 1 from ever being the
+            // mode, which misplaces the mode for any posterior that peaks at
+            // its lower boundary (e.g. an exponential prior on M, whose mode
+            // is 0) and then anchors the HPD walk below at the wrong bin.
+            if(tmp > biggestcolumn)
             {
                 biggestcolumn = tmp;
                 locmedian = li;

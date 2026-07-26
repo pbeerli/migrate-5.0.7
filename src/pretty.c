@@ -1626,11 +1626,12 @@ void pdf_print_bayestableheader(double mypage_height, double myleft_margin, doub
     
     pdf_print_line_element(lx, ly, offset[0], "Locus");
     pdf_print_line_element(lx, ly, offset[1], "Parameter");
-    pdf_print_line_element(lx, ly, offset[2], "2.5%");
-    pdf_print_line_element(lx, ly, offset[3], "25.0%");
+    // HPD interval bounds, not percentiles (see calc_hpd_credibility in bayes.c)
+    pdf_print_line_element(lx, ly, offset[2], "HPD95lo");
+    pdf_print_line_element(lx, ly, offset[3], "HPD50lo");
     pdf_print_line_element(lx, ly, offset[4], "Mode");
-    pdf_print_line_element(lx, ly, offset[5], "75.0%");
-    pdf_print_line_element(lx, ly, offset[6], "97.5%");
+    pdf_print_line_element(lx, ly, offset[5], "HPD50hi");
+    pdf_print_line_element(lx, ly, offset[6], "HPD95hi");
     pdf_print_line_element(lx, ly, offset[7], "Median");
     pdf_print_line_element(lx, ly, offset[8], "Mean");
 }
