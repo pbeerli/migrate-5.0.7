@@ -105,7 +105,7 @@ extern char * generator;
   "assign",\
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha"}
-#define NUMNUMBER 68
+#define NUMNUMBER 69
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -120,7 +120,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -146,6 +146,8 @@ static fpos_t thePos;   // used to track pposition in the parmfile
 ///* private functions */
 boolean booleancheck (option_fmt * options, char *var, char *value);
 void set_proposal_kind(option_fmt *options, long ptype, char *word);
+boolean set_updatefreq_by_name(option_fmt *options, char *name, double value);
+void parse_named_updatefreq(option_fmt *options, char *text);
 
 //long boolcheck (char ch);
 boolean numbercheck (option_fmt * options, char *var, char *value);
@@ -4509,10 +4511,18 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "                            optional list if populations to assign to");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                            can be supplied using :{pop1,pop2,...}");
     print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_comment(&bufsize, buffer, allocbufsize, "updatefreq= tree parameter haplotype timeparam assignment seqerror ml-alpha scaler");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler is the joint tree+parameter rescaling move (Theta*c, M/c, times*c);");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     it is 0 (off) by default and is skipped for tipdates/growth/skyline/speciation");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq=%f %f %f %f %f %f %f %f ",
+    print_parm_comment(&bufsize, buffer, allocbufsize, "updatefreq= name:weight ...   (relative weights, normalised internally)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     genealogy moves : tree, assignment");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter, timeparam, seqerror, mlalpha");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c; 0 (off) by default and");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped for tipdates/growth/skyline/speciation]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     names not listed keep their current value");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha [scaler]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f",
 		       options->tree_updatefreq,
 		       options->parameter_updatefreq,
 		       options->haplotype_updatefreq,
@@ -4521,6 +4531,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 		       options->seqerror_updatefreq,
 		       options->mlalpha_updatefreq,
 		       options->scaler_updatefreq);
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "scaler-delta=%f", options->scaler_delta);
     long count=0;
     long cc;
     //prior_fmt * p = options->bayes_priors;
@@ -5316,6 +5327,68 @@ booleancheck (option_fmt * options, char *var, char *value)
     return TRUE;
 }    /* booleancheck */
 
+
+/// Assign one named update weight. Names are the move kinds dispatched by
+/// updating() in world.c. Returns FALSE for an unknown name so the caller can
+/// warn instead of silently dropping a weight.
+boolean set_updatefreq_by_name(option_fmt *options, char *name, double value)
+{
+  if (!strcmp(name,"tree") || !strcmp(name,"genealogy"))
+    options->tree_updatefreq = value;
+  else if (!strcmp(name,"parameter") || !strcmp(name,"param"))
+    options->parameter_updatefreq = value;
+  else if (!strcmp(name,"haplotype"))
+    options->haplotype_updatefreq = value;
+  else if (!strcmp(name,"timeparam") || !strcmp(name,"skyline"))
+    options->timeparam_updatefreq = value;
+  else if (!strcmp(name,"assignment") || !strcmp(name,"assign"))
+    options->unassigned_updatefreq = value;
+  else if (!strcmp(name,"seqerror"))
+    options->seqerror_updatefreq = value;
+  else if (!strcmp(name,"mlalpha") || !strcmp(name,"ml-alpha"))
+    options->mlalpha_updatefreq = value;
+  else if (!strcmp(name,"scaler"))
+    options->scaler_updatefreq = value;
+  else
+    return FALSE;
+  return TRUE;
+}
+
+/// Parse the named form of updatefreq, e.g.
+///     updatefreq= tree:0.70 parameter:0.20 scaler:0.10
+/// Weights are relative and normalised later by set_updating_choices(); names
+/// not mentioned keep the value they already have, exactly as trailing values
+/// omitted from the positional form do. Hand-rolled rather than strtok_r()
+/// because that is not portable to all targets migrate is built for.
+void parse_named_updatefreq(option_fmt *options, char *text)
+{
+  char name[64];
+  char *p = text;
+  long i;
+  while (*p != '\0')
+    {
+      while (*p==' ' || *p=='\t' || *p==',' || *p==';')
+	p++;
+      if (*p == '\0')
+	break;
+      i = 0;
+      while (*p!='\0' && *p!=':' && *p!='=' && *p!=' ' && *p!='\t' && *p!=',' && i < 63)
+	name[i++] = (char) tolower((int) *p++);
+      name[i] = '\0';
+      if (*p==':' || *p=='=')
+	{
+	  p++;
+	  if (!set_updatefreq_by_name(options, name, atof(p)))
+	    warning("updatefreq: unknown update kind \"%s\" ignored\n", name);
+	  while (*p!='\0' && *p!=' ' && *p!='\t' && *p!=',' && *p!=';')
+	    p++;
+	}
+      else
+	{
+	  warning("updatefreq: \"%s\" has no value, expected name:value\n", name);
+	}
+    }
+}
 
 /// Set the proposal kind for one parameter group from a parmfile word.
 /// Understands SLICE, MULTIPLIER, and METROPOLIS (the default for anything
@@ -6134,8 +6207,20 @@ numbercheck (option_fmt * options, char *var, char *value)
 	// temp is a string containing maximal 4 values
         if (temp != NULL)
 	  {
-	    // an 8th value (scaler) is optional: sscanf leaves scaler_updatefreq at
-	    // its default when older parmfiles supply only seven numbers.
+	    // Two accepted forms. The named form is self-documenting:
+	    //   updatefreq= tree:0.70 parameter:0.20 scaler:0.10
+	    // The historical positional form is kept so that existing parmfiles
+	    // keep working unchanged:
+	    //   updatefreq= tree param haplotype timeparam assignment seqerror mlalpha [scaler]
+	    // Detection is on ':' or '=' inside the value, neither of which can
+	    // occur in the positional form. The 8th positional value (scaler) is
+	    // optional; sscanf leaves scaler_updatefreq at its default when older
+	    // parmfiles supply only seven numbers.
+	    if (strpbrk(temp,":=") != NULL)
+	      {
+		parse_named_updatefreq(options, temp);
+		break;
+	      }
 	    /*int elements =*/sscanf(temp,"%lf%lf%lf%lf%lf%lf%lf%lf", 
 				 &options->tree_updatefreq,
 				 &options->parameter_updatefreq,
@@ -6149,6 +6234,18 @@ numbercheck (option_fmt * options, char *var, char *value)
 
 	  }
         break;
+    case 68: /*scaler-delta: tuning of the joint rescaling move, b = 1 + delta*/
+      get_next_word(&value,":,; ",&tmp);
+      if(tmp != NULL)
+	{
+	  options->scaler_delta = atof(tmp);
+	  if(options->scaler_delta <= 0.0)
+	    {
+	      warning("scaler-delta must be > 0 (b = 1 + delta); using 0.2\n");
+	      options->scaler_delta = 0.2;
+	    }
+	}
+      break;
     case 49: /*bayes-posteriorbins*/    
       tbins = BAYESTHETABIN;
       mbins = BAYESNUMBIN;
