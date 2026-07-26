@@ -754,12 +754,13 @@ long chains is used */
 #define ASSIGNMENTUPDATE 4
 #define SEQUENCEERRORUPDATE 5
 #define MITTAGLEFFLERUPDATE 6
+#define SCALERUPDATE 7 /* joint tree+parameter rescaling (up-down) */
 /* Number of update kinds == size of worldoption_fmt.choices[].
    MUST be (highest update index + 1). choices[] used to be hard-sized to 6
    while MITTAGLEFFLERUPDATE was already 6, so an overrun of the selection
    loop in updating()/burnin_bayes() read past the end of the array.
    Grow this together with the defines above when adding a new move. */
-#define NUMBER_OF_UPDATES 7
+#define NUMBER_OF_UPDATES 8
 
 // smoothing setting for histogram generation and plotting
 // useind in options->smoothing[0] and [1]

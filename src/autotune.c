@@ -317,6 +317,9 @@ void burnin_bayes(world_fmt * world)
 	case 5:
 	  change_freq(world);
 	  break;
+	case SCALERUPDATE:
+	  success = (boolean) scaler_update(world);
+	  break;
 	default:
 	  error("failure in choosing among updates -- Bayes");
 	}

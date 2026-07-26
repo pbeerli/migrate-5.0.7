@@ -513,6 +513,8 @@ void init_options (option_fmt * options)
 #endif
     options->updateratio = HALF;
     options->tree_updatefreq = 0.2;
+    options->scaler_updatefreq = 0.0; // opt-in: the joint rescaling move is off by default
+    options->scaler_delta = 0.2;      // multiplier bound b = 1.2
     options->parameter_updatefreq =0.2;
     options->haplotype_updatefreq = 0.2;
     options->timeparam_updatefreq = 0.2;
@@ -4507,15 +4509,18 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "                            optional list if populations to assign to");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                            can be supplied using :{pop1,pop2,...}");
     print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_comment(&bufsize, buffer, allocbufsize, "updatefreq= tree parameter haplotype timeparam assignment seqerror, ml-alpha");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq=%f %f %f %f %f %f %f ",
+    print_parm_comment(&bufsize, buffer, allocbufsize, "updatefreq= tree parameter haplotype timeparam assignment seqerror ml-alpha scaler");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler is the joint tree+parameter rescaling move (Theta*c, M/c, times*c);");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     it is 0 (off) by default and is skipped for tipdates/growth/skyline/speciation");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq=%f %f %f %f %f %f %f %f ",
 		       options->tree_updatefreq,
 		       options->parameter_updatefreq,
 		       options->haplotype_updatefreq,
 		       options->timeparam_updatefreq,
 		       options->unassigned_updatefreq,
 		       options->seqerror_updatefreq,
-		       options->mlalpha_updatefreq);
+		       options->mlalpha_updatefreq,
+		       options->scaler_updatefreq);
     long count=0;
     long cc;
     //prior_fmt * p = options->bayes_priors;
@@ -6129,14 +6134,17 @@ numbercheck (option_fmt * options, char *var, char *value)
 	// temp is a string containing maximal 4 values
         if (temp != NULL)
 	  {
-	    /*int elements =*/sscanf(temp,"%lf%lf%lf%lf%lf%lf%lf", 
+	    // an 8th value (scaler) is optional: sscanf leaves scaler_updatefreq at
+	    // its default when older parmfiles supply only seven numbers.
+	    /*int elements =*/sscanf(temp,"%lf%lf%lf%lf%lf%lf%lf%lf", 
 				 &options->tree_updatefreq,
 				 &options->parameter_updatefreq,
 				 &options->haplotype_updatefreq,
 			         &options->timeparam_updatefreq,
 				 &options->unassigned_updatefreq,
 				 &options->seqerror_updatefreq,
-				 &options->mlalpha_updatefreq
+				 &options->mlalpha_updatefreq,
+				 &options->scaler_updatefreq
 				 );
 
 	  }
@@ -7680,6 +7688,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
   // overruns the array. The move stays disabled (weight 0) to keep the current
   // behaviour; enable by restoring the two lines below.
   choices[MITTAGLEFFLERUPDATE]=0.0;
+  if(options->scaler_updatefreq>0.0)
+    choices[SCALERUPDATE]=options->scaler_updatefreq;
+  else
+    choices[SCALERUPDATE]=0.0;
   //if(options->tri_mlalpha==ESTIMATE)
   //  choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
 

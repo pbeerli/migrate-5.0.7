@@ -454,6 +454,7 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->usem = options->usem;
     wopt->minmigsumstat = options->minmigsumstat;
     wopt->lambda = options->lambda;
+    wopt->scaler_delta = options->scaler_delta;
     set_updating_choices(wopt->choices, options, STANDARD);
     memcpy(wopt->slice_sampling,options->slice_sampling,sizeof(boolean) * PRIOR_SIZE);
     memcpy(wopt->multiplier_proposal,options->multiplier_proposal,sizeof(boolean) * PRIOR_SIZE);
@@ -4091,6 +4092,10 @@ boolean updating(world_fmt *world)
       break;
     case 6: /*MITTAGLEFFLERUPDATE*/
       change_mittag_leffler(world);
+      break;
+    case 7: /*SCALERUPDATE*/
+      // joint rescaling of the genealogy and the parameters
+      success = (boolean) scaler_update(world);
       break;
     default:
       printf("%li-->{%f %f %f %f %f}\n", choice, choices[0],choices[1],choices[2],choices[3],choices[4]);

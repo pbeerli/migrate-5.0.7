@@ -2056,6 +2056,149 @@ void recalc_timelist_1 (world_fmt * world, MYREAL new_old_ratio)
 }
 
 //
+// Joint tree+parameter rescaling move ("up-down" / scaler).
+//
+// Proposes c = exp(lambda*(u-0.5)), symmetric in log(c), and applies
+//
+//     every event time   t      ->  c * t
+//     every Theta_i             ->  c * Theta_i
+//     every M_ij                ->  M_ij / c
+//
+// p(G|Theta,M) is EXACTLY invariant under this map. Each of the (n-1)
+// coalescent factors carries a 1/Theta and each of the k_m migration factors
+// carries an M, so the density picks up c^-K for K scaled times, while the
+// Jacobian of the whole transformation is c^(K+P-Q). The c^K parts cancel and
+// what survives is
+//
+//     log(alpha) = (P-Q)*log(c) + [log prior' - log prior] + [log L' - log L]
+//
+// for P thetas scaled up and Q migration rates scaled down. In a symmetric
+// two-population model P == Q and the Jacobian term vanishes outright, so the
+// move is governed by the priors (and the data) alone.
+//
+// Why this move exists: tree_update() changes G at fixed (Theta,M) and
+// bayes_update() changes (Theta,M) at fixed G, so the sampler is a Gibbs
+// alternation. Given a fixed tree, p(Theta|G) has a relative width of about
+// 1/sqrt(n-1), which pins Theta to ~15% moves at n=44 no matter how it is
+// proposed -- a slice sampler included, since that draws exactly from that
+// same conditional. Only a move that rescales G and the parameters TOGETHER
+// can travel along the Theta*M = 4Nm ridge in one step.
+//
+// The invariance assumes the plain structured coalescent: any second time
+// scale breaks it. The guards below therefore refuse the move rather than
+// silently biasing the chain. Growth and skyline could be added later by
+// scaling their rates by 1/c and their times by c respectively, but each needs
+// its own Jacobian term, so they are excluded for now.
+long scaler_update(world_fmt *world)
+{
+  const long numpop  = world->numpop;
+  const long numpop2 = world->numpop2;
+  const long np      = world->numparam;
+  long i;
+  long P = 0;   // number of Theta scaled up
+  long Q = 0;   // number of M scaled down
+  MYREAL c;
+  MYREAL logc;
+  MYREAL r;
+  MYREAL *oldparam;
+  MYREAL oldlike;
+  MYREAL oldlogprior;
+  MYREAL newlogprior;
+  MYREAL newval;
+  MYREAL oldval;
+  MYREAL hastings;
+  boolean success;
+
+  // ---- guards: only the plain structured coalescent is exactly invariant ----
+  if (world->options->has_datefile)   // tip dates are fixed data; scaling moves them
+    return 0;
+  if (world->has_growth)              // growth adds a time scale (would need g -> g/c)
+    return 0;
+  if (world->has_mlalpha)             // Mittag-Leffler times do not scale linearly
+    return 0;
+  if (world->species_model_size > 0)  // divergence times would have to scale too
+    return 0;
+  if (world->timeelements > 1)        // skyline time slices would have to scale too
+    return 0;
+  if (world->bayes->mu)               // an estimated rate modifier rescales times as well
+    return 0;
+  // Constrained matrices ('m','s','c','0','d') make the number of INDEPENDENT
+  // scaled coordinates differ from the number of matrix entries, which would
+  // corrupt the (P-Q) Jacobian. Only the fully general model is handled.
+  for (i = 0; i < numpop2; i++)
+    {
+      if (world->options->custm2[i] != '*')
+	return 0;
+    }
+
+  world->scaler_trials += 1;
+
+  // symmetric in log(c): log(c) ~ U(-lambda/2, lambda/2), lambda = 2 ln(b)
+  r = UNIF_RANDUM();
+  logc = 2.0 * LOG(1.0 + world->options->scaler_delta) * (r - 0.5);
+  c = EXP(logc);
+
+  oldparam = (MYREAL *) mycalloc(np, sizeof(MYREAL));
+  memcpy(oldparam, world->param0, sizeof(MYREAL) * (size_t) np);
+  oldlike     = world->likelihood[world->G];
+  oldlogprior = calculate_prior(world);
+
+  // ---- scale the parameters ----
+  for (i = 0; i < numpop; i++)
+    {
+      world->param0[i] *= c;
+      P++;
+    }
+  for (i = numpop; i < numpop2; i++)
+    {
+      world->param0[i] /= c;
+      Q++;
+    }
+  precalc_world(world);   // rebuild the rate tables derived from param0
+
+  // ---- scale every event time by c; this also recomputes the tree likelihood ----
+  recalc_timelist(world, c, 1.0);
+
+  newlogprior = calculate_prior(world);
+
+  // p(G|Theta,M) cancels analytically (see above), so it is not evaluated here.
+  // Under NODATA the data term is dropped, exactly as in acceptlike().
+  if (world->options->prioralone)
+    {
+      newval = 0.0;
+      oldval = 0.0;
+    }
+  else
+    {
+      newval = world->likelihood[world->G];
+      oldval = oldlike;
+    }
+  hastings = ((MYREAL) (P - Q)) * logc + (newlogprior - oldlogprior);
+
+  success = bayes_accept(newval, oldval, world->heat, hastings);
+
+  if (success)
+    {
+      world->scaler_accept += 1;
+      world->logprior      = newlogprior;
+      world->bayes->oldval = probg_treetimes(world);
+      world->param_like    = world->bayes->oldval;
+      myfree(oldparam);
+      return 1;
+    }
+  // ---- reject: undo the time scaling and restore the parameters ----
+  memcpy(world->param0, oldparam, sizeof(MYREAL) * (size_t) np);
+  precalc_world(world);
+  recalc_timelist(world, 1.0, c);            // scale times back by 1/c
+  world->likelihood[world->G] = oldlike;     // restore the exact previous value
+  world->logprior             = oldlogprior;
+  world->bayes->oldval        = probg_treetimes(world);
+  world->param_like           = world->bayes->oldval;
+  myfree(oldparam);
+  return 0;
+}
+
+//
 // Update for parameters using Bayesian inference
 long
 bayes_update (world_fmt * world)
@@ -3351,6 +3494,14 @@ bayes_print_accept(FILE * file,  world_fmt *world)
     accept=world->accept_archive[npa];
     FPRINTF(file, "Genealogies           %8li/%-8li         %8.5f\n",
 	    accept, trials, (double) accept/trials);
+    // joint tree+parameter rescaling move; only printed when it was actually
+    // used, since it is off by default and is skipped for several models
+    if(world->scaler_trials > 0)
+      {
+	FPRINTF(file, "Scaler (Theta*c,M/c)  %8li/%-8li         %8.5f\n",
+		world->scaler_accept, world->scaler_trials,
+		(double) world->scaler_accept/world->scaler_trials);
+      }
     myfree(stemp);
 }
 

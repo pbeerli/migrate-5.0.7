@@ -882,6 +882,8 @@ typedef struct _option
   MYREAL *slice_sticksizes;
   MYREAL updateratio; //needs revision
   MYREAL tree_updatefreq;
+  MYREAL scaler_updatefreq; //joint tree+parameter rescaling move
+  MYREAL scaler_delta;     //multiplier bound is b = 1 + scaler_delta
   MYREAL parameter_updatefreq;
   MYREAL haplotype_updatefreq;
   MYREAL timeparam_updatefreq;
@@ -1326,6 +1328,7 @@ typedef struct _worldoption
   boolean multiplier_proposal[PRIOR_SIZE]; //multiplicative (log-scale) Metropolis proposal
   MYREAL *slice_sticksizes;
   //@@@@@@@  MYREAL updateratio;
+  MYREAL scaler_delta;     //multiplier bound is b = 1 + scaler_delta
   double choices[NUMBER_OF_UPDATES]; //cumulative update choices, indexed by TREEUPDATE..MITTAGLEFFLERUPDATE
   boolean has_bayesfile;
   boolean has_bayesmdimfile;
@@ -1657,6 +1660,8 @@ typedef struct _world
   boolean has_speciation;
   boolean has_migration;
   species_fmt *species_model;
+  long scaler_accept;   //acceptances of the joint rescaling move
+  long scaler_trials;   //attempts of the joint rescaling move
   long species_model_size;
   long species_model_dist;
   divtime_fmt *divtime;
