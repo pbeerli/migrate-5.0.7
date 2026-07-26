@@ -2022,7 +2022,18 @@ void run_chains (world_fmt ** universe,
   //const long locus = EARTH->locus;
   //long kind;
   //long pluschain = 0;
-  const MYREAL treeupdateratio = (options->bayes_infer ? options->updateratio : 1.0);
+  // treeupdateratio must reflect the actual per-step probability of a move that
+  // increments world->accept (TREEUPDATE and, if enabled, ASSIGNMENTUPDATE in
+  // updating(), world.c), i.e. the normalized weights from updatefreq= (options->choices),
+  // not the legacy options->updateratio scalar (which updatefreq= never updates and which
+  // is still used separately in run_updates() to throttle heated-chain swaps).
+  MYREAL treeupdateratio = 1.0;
+  if (options->bayes_infer)
+    {
+      treeupdateratio = EARTH->options->choices[TREEUPDATE];
+      if (options->has_unassigned)
+        treeupdateratio += EARTH->options->choices[ASSIGNMENTUPDATE] - EARTH->options->choices[SKYLINETIMEUPDATE];
+    }
 
   //for (chain = 0;
   //     chain < chains || (type == 'l' && chain >= chains
