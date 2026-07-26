@@ -456,6 +456,7 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->lambda = options->lambda;
     set_updating_choices(wopt->choices, options, STANDARD);
     memcpy(wopt->slice_sampling,options->slice_sampling,sizeof(boolean) * PRIOR_SIZE);
+    memcpy(wopt->multiplier_proposal,options->multiplier_proposal,sizeof(boolean) * PRIOR_SIZE);
     wopt->has_bayesfile = options->has_bayesfile;
     wopt->has_bayesmdimfile = options->has_bayesmdimfile;
     wopt->bayesmdiminterval = options->bayesmdiminterval;
@@ -4034,7 +4035,10 @@ boolean updating(world_fmt *world)
   const boolean has_mu = world->bayes->mu;
   const long np = world->numparam; //world->numpop2 + has_mu + world->species_model_size * 2 + world->grownum;
   double r = RANDUM();
-  while(r>choices[choice])
+  // bound the walk: choices[] holds NUMBER_OF_UPDATES cumulative values with
+  // the last forced to 1.0, so this normally stops well before the guard, but
+  // the guard makes an out-of-bounds read impossible.
+  while(choice < NUMBER_OF_UPDATES-1 && r>choices[choice])
     {
       choice++;
     }

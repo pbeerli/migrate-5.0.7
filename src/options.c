@@ -145,6 +145,8 @@ static fpos_t thePos;   // used to track pposition in the parmfile
 //void read_options_worker (char **buffer, option_fmt * options);
 ///* private functions */
 boolean booleancheck (option_fmt * options, char *var, char *value);
+void set_proposal_kind(option_fmt *options, long ptype, char *word);
+
 //long boolcheck (char ch);
 boolean numbercheck (option_fmt * options, char *var, char *value);
 //void reset_oneline (option_fmt * options, long position);
@@ -241,6 +243,7 @@ boolean  set_filename(char *value, char comparison[], char ** filename);
 void  set_filename_only(boolean check, char *value, char ** filename);
 void   set_parm_prior_values(prior_fmt * prior, char * mytext);
 char * show_proposaltype(boolean priorset);
+char * show_proposaltype2(boolean slice, boolean mult);
 char * show_parmpriortype(int priorset);
 void print_parm_proposal(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options);
 char * getpriortype(int kind);
@@ -402,7 +405,10 @@ void init_options (option_fmt * options)
     options->hyperprior=FALSE;
 
     for(i=0;i<PRIOR_SIZE;i++)
-      options->slice_sampling[i] = FALSE;// option for proposal setting
+      {
+	options->slice_sampling[i] = FALSE;// option for proposal setting
+	options->multiplier_proposal[i] = FALSE;
+      }
 #ifdef PRETTY
     options->bayespretty = PRETTY_P100;
 #endif
@@ -3605,6 +3611,18 @@ char * show_proposaltype(boolean priorset)
     }
 }
 
+/// three-way variant: slice, multiplicative Metropolis, or plain Metropolis.
+/// Takes the two flags rather than the options struct so that it can be used
+/// with both option_fmt and worldoption_fmt.
+char * show_proposaltype2(boolean slice, boolean mult)
+{
+  if(slice)
+    return "SLICE Sampler";
+  if(mult)
+    return "MULTIPLIER Sampler";
+  return "METROPOLIS-HASTINGS Sampler";
+}
+
 /// \brief returns priortype sting
 /// returns a string that shows what prior distribution is set
 char * show_parmpriortype(int priorset)
@@ -3626,30 +3644,30 @@ char * show_parmpriortype(int priorset)
 void print_parm_proposal(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options)
 {
   print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= THETA %s",
-		     show_proposaltype(options->slice_sampling[THETAPRIOR]));
+		     show_proposaltype2(options->slice_sampling[THETAPRIOR], options->multiplier_proposal[THETAPRIOR]));
 
   print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= MIG %s",
-		     show_proposaltype(options->slice_sampling[MIGPRIOR]));
+		     show_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
   print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= DIVERGENCE %s",
-		     show_proposaltype(options->slice_sampling[SPECIESTIMEPRIOR]));
+		     show_proposaltype2(options->slice_sampling[SPECIESTIMEPRIOR], options->multiplier_proposal[SPECIESTIMEPRIOR]));
 
   print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= DIVERGENCESTD %s",
-		     show_proposaltype(options->slice_sampling[SPECIESSTDPRIOR]));
+		     show_proposaltype2(options->slice_sampling[SPECIESSTDPRIOR], options->multiplier_proposal[SPECIESSTDPRIOR]));
 
   if(options->bayesmurates)
     {
       print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= RATE %s",
-			 show_proposaltype(options->slice_sampling[RATEPRIOR]));
+			 show_proposaltype2(options->slice_sampling[RATEPRIOR], options->multiplier_proposal[RATEPRIOR]));
     }
   if(options->growpops_numalloc>0)
     {
       print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= GROWTH %s",
-			 show_proposaltype(options->slice_sampling[GROWTHPRIOR]));
+			 show_proposaltype2(options->slice_sampling[GROWTHPRIOR], options->multiplier_proposal[GROWTHPRIOR]));
     }
   if(options->mlalphapops_numalloc>0)
     {
       print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-proposals= MLF %s",
-			 show_proposaltype(options->slice_sampling[MLFPRIOR]));
+			 show_proposaltype2(options->slice_sampling[MLFPRIOR], options->multiplier_proposal[MLFPRIOR]));
     }
 }
 
@@ -4449,11 +4467,12 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     //OLD    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-allfileinterval=INTERVAL");
     print_parm_comment(&bufsize, buffer, allocbufsize, "           INTERVAL is the interval at which all parameters are written to file\n");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    PROPOSAL:");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-proposals= THETA < SLICE | METROPOLIS >");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-proposals= MIG < SLICE | METROPOLIS >");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-proposals= THETA < SLICE | METROPOLIS | MULTIPLIER >");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-proposals= MIG < SLICE | METROPOLIS | MULTIPLIER >");
     //    print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-proposal= RATE < SLICE | METROPOLIS >");
     print_parm_comment(&bufsize, buffer, allocbufsize, "              SLICE uses the slice sampler to propose new parameter values");
     print_parm_comment(&bufsize, buffer, allocbufsize, "              METROPOLIS uses the Metropolis-Hastings sampler");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "              MULTIPLIER proposes on a log scale (good for scale parameters)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "              (this is done for each parameter group: THETA or MIGration)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    PRIORS:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       Priors can be set for each parameter");
@@ -5292,6 +5311,33 @@ booleancheck (option_fmt * options, char *var, char *value)
     return TRUE;
 }    /* booleancheck */
 
+
+/// Set the proposal kind for one parameter group from a parmfile word.
+/// Understands SLICE, MULTIPLIER, and METROPOLIS (the default for anything
+/// else). MULTIPLIER and METROPOLIS both begin with 'M', so the second
+/// character disambiguates them. A multiplicative proposal is a property of
+/// the proposal, not of the prior, so this is orthogonal to prior->kind and
+/// works with any strictly positive prior.
+void set_proposal_kind(option_fmt *options, long ptype, char *word)
+{
+  if (word == NULL)
+    return;
+  if (uppercase(word[0]) == 'S')
+    {
+      options->slice_sampling[ptype] = TRUE;
+      options->multiplier_proposal[ptype] = FALSE;
+    }
+  else if (uppercase(word[0]) == 'M' && uppercase(word[1]) == 'U')
+    {
+      options->slice_sampling[ptype] = FALSE;
+      options->multiplier_proposal[ptype] = TRUE;
+    }
+  else
+    {
+      options->slice_sampling[ptype] = FALSE;
+      options->multiplier_proposal[ptype] = FALSE;
+    }
+}
 
 boolean
 numbercheck (option_fmt * options, char *var, char *value)
@@ -6262,10 +6308,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    case 'T':       get_next_word(&value,":,; ",&tmp);
 	      if(tmp != NULL)
 		{
-		  if(uppercase(tmp[0])=='S')
-		    options->slice_sampling[THETAPRIOR] = TRUE;
-		  else
-		    options->slice_sampling[THETAPRIOR] = FALSE;
+		  set_proposal_kind(options, THETAPRIOR, tmp);
 		}
 	      break;
 	    case 'M':
@@ -6274,10 +6317,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  get_next_word(&value,":,; ",&tmp);
 		  if(tmp != NULL)
 		    {
-		      if(uppercase(tmp[0])=='S')
-			options->slice_sampling[MIGPRIOR] = TRUE;
-		      else
-			options->slice_sampling[MIGPRIOR] = FALSE;
+		      set_proposal_kind(options, MIGPRIOR, tmp);
 		    }
 		}
 	      else
@@ -6285,10 +6325,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  get_next_word(&value,":,; ",&tmp);
 		  if(tmp != NULL)
 		    {
-		      if(uppercase(tmp[0])=='S')
-			options->slice_sampling[MLFPRIOR] = TRUE;
-		      else
-			options->slice_sampling[MLFPRIOR] = FALSE;
+		      set_proposal_kind(options, MLFPRIOR, tmp);
 		    }
 		}
 	      break;
@@ -6298,10 +6335,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  get_next_word(&value,":,; ",&tmp);
 		  if(tmp != NULL)
 		    {
-		      if(uppercase(tmp[0])=='S')
-			options->slice_sampling[SPECIESTIMEPRIOR] = TRUE;
-		      else
-			options->slice_sampling[SPECIESTIMEPRIOR] = FALSE;
+		      set_proposal_kind(options, SPECIESTIMEPRIOR, tmp);
 		    }
 		}
 	      else
@@ -6309,29 +6343,20 @@ numbercheck (option_fmt * options, char *var, char *value)
 		  get_next_word(&value,":,; ",&tmp);
 		  if(tmp != NULL)
 		    {
-		      if(uppercase(tmp[0])=='S')
-			options->slice_sampling[SPECIESSTDPRIOR] = TRUE;
-		      else
-			options->slice_sampling[SPECIESSTDPRIOR] = FALSE;
+		      set_proposal_kind(options, SPECIESSTDPRIOR, tmp);
 		    }
 		}	      		  
 	      break;
 	    case 'R':       get_next_word(&value,":,; ",&tmp);
 	      if(tmp != NULL)
 		{
-		  if(uppercase(tmp[0])=='S')
-		    options->slice_sampling[RATEPRIOR] = TRUE;
-		  else
-		    options->slice_sampling[RATEPRIOR] = FALSE;
+		  set_proposal_kind(options, RATEPRIOR, tmp);
 		}
 	      break;
 	    case 'G':       get_next_word(&value,":,; ",&tmp);
 	      if(tmp != NULL)
 		{
-		  if(uppercase(tmp[0])=='S')
-		    options->slice_sampling[GROWTHPRIOR] = TRUE;
-		  else
-		    options->slice_sampling[GROWTHPRIOR] = FALSE;
+		  set_proposal_kind(options, GROWTHPRIOR, tmp);
 		}
 	      break;
 	    }
@@ -7651,10 +7676,12 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
   else
     choices[SEQUENCEERRORUPDATE]=0;
 
+  // choices[] is now NUMBER_OF_UPDATES long, so MITTAGLEFFLERUPDATE no longer
+  // overruns the array. The move stays disabled (weight 0) to keep the current
+  // behaviour; enable by restoring the two lines below.
+  choices[MITTAGLEFFLERUPDATE]=0.0;
   //if(options->tri_mlalpha==ESTIMATE)
   //  choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
-  //else
-  //  choices[MITTAGLEFFLERUPDATE]=0;
 
   switch(flag)
     {
@@ -7669,18 +7696,23 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
       break;
     }
 
-  double denom = choices[TREEUPDATE] + choices[PARAMETERUPDATE] + choices[HAPLOTYPEUPDATE] +
-    choices[SKYLINETIMEUPDATE] + choices[ASSIGNMENTUPDATE] + choices[SEQUENCEERRORUPDATE];// + choices[MITTAGLEFFLERUPDATE];
+  long ci;
+  double denom = 0.0;
+  for (ci = 0; ci < NUMBER_OF_UPDATES; ci++)
+    denom += choices[ci];
 
   if(denom>0.0)
     {
+      // turn the weights into a cumulative distribution
       choices[0] = choices[0] / denom;
-      choices[1] = choices[0] + choices[1] / denom;
-      choices[2] = choices[1] + choices[2] / denom;
-      choices[3] = choices[2] + choices[3] / denom;
-      choices[4] = choices[3] + choices[4] / denom;
-      choices[5] = choices[4] + choices[5] / denom;
-      //    choices[6] = choices[5] + choices[6] / denom;
+      for (ci = 1; ci < NUMBER_OF_UPDATES; ci++)
+	choices[ci] = choices[ci-1] + choices[ci] / denom;
+      // Force the last entry to exactly 1.0: RANDUM() returns [0,1), so the
+      // selection loops in updating() and burnin_bayes() can then never walk
+      // past the end of the array through accumulated rounding error.
+      // Disabled moves keep weight 0, so their cumulative equals the previous
+      // entry and they are stepped over rather than selected.
+      choices[NUMBER_OF_UPDATES-1] = 1.0;
     }
   else
     {

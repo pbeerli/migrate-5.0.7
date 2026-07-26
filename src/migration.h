@@ -878,6 +878,7 @@ typedef struct _option
   boolean integrated_like;
   /* slice sampling*/
   boolean slice_sampling[PRIOR_SIZE];
+  boolean multiplier_proposal[PRIOR_SIZE]; //multiplicative (log-scale) Metropolis proposal
   MYREAL *slice_sticksizes;
   MYREAL updateratio; //needs revision
   MYREAL tree_updatefreq;
@@ -1322,9 +1323,10 @@ typedef struct _worldoption
     boolean fastlike;
     boolean bayes_infer;
   boolean slice_sampling[PRIOR_SIZE];
+  boolean multiplier_proposal[PRIOR_SIZE]; //multiplicative (log-scale) Metropolis proposal
   MYREAL *slice_sticksizes;
   //@@@@@@@  MYREAL updateratio;
-  double choices[6]; //updating choices: tree, param, ...
+  double choices[NUMBER_OF_UPDATES]; //cumulative update choices, indexed by TREEUPDATE..MITTAGLEFFLERUPDATE
   boolean has_bayesfile;
   boolean has_bayesmdimfile;
   long bayesmdiminterval;
