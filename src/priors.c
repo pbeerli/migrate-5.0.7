@@ -1093,19 +1093,23 @@ propose_mult_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
 /// first derivatives
 MYREAL hastings_ratio_mult(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
 {
-    // q(x|x')     1/(lambda(1/m))    | dx'/dx       dx'/du  |
-    // ------------      -----------------------------    |                      |   =
-    // q(x'|x)     1/(lambda m)       | du'/dx       du'/du  |
+    // The multiplier move is a symmetric random walk in u=log(x): propose
+    // u' = u + log(m) with log(m) ~ U(-lambda/2,lambda/2). Reflection off the
+    // upper bound in propose_mult_newparam() (np = maxparam^2/np) is also
+    // symmetric in u, so the proposal ratio in u-space is 1 and the whole
+    // correction is the Jacobian of x=exp(u), i.e. dx/du = x:
     //
-    //          |  dmx/dx       dmx/dm     |
-    // = m^2    |                          | = m^2  |(m (-1/m^2) - x zero| = m^2 m/m^2 = m
-    //          |  d(1/m)/dx    d(1/m)/dm  |
-  (void) newparam;
-  (void) oldparam;
+    //     log(hastings) = log(x_new) - log(x_old)
+    //
+    // This equals log(m) ONLY when no reflection occurred; after a reflection
+    // x_new = maxparam^2/(m*x_old), so returning log(m) (the old behaviour)
+    // used the wrong Jacobian for every reflected proposal. Using the
+    // parameters directly is correct in both cases.
   (void) delta;
+  (void) r;
   (void) bayes;
   (void) whichparam;
-  return log(r); // rate multiplier
+  return log(newparam) - log(oldparam);
 }
 
 
