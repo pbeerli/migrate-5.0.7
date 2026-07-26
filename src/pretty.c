@@ -3813,7 +3813,38 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_print_tableline(width2, "%s %s", "Genealogy",
 			"Metropolis-Hastings");
     pdf_advance(&page_height);
-    pdf_advance(&page_height);    
+    pdf_advance(&page_height);
+    // effective per-move update frequencies: choices[] is cumulative, so each
+    // move's probability is the difference to the previous entry. A move given
+    // a weight in the parmfile but shown as 0.00000 here is switched off.
+    {
+      double *cch = world->options->choices;
+      double pch[NUMBER_OF_UPDATES];
+      long ci;
+      char mytextf[LINESIZE];
+      const char *chnames[NUMBER_OF_UPDATES] = {
+	"Genealogy (tree rearrangement)", "Parameters (Theta, M, ...)",
+	"Haplotypes", "Time parameters (skyline)", "Assignment of individuals",
+	"Sequencing error", "Mittag-Leffler alpha", "Scaler (Theta*c, M/c, times*c)"};
+      pch[0] = cch[0];
+      for (ci = 1; ci < NUMBER_OF_UPDATES; ci++)
+	pch[ci] = cch[ci] - cch[ci-1];
+      pdf_print_contents_at(left_margin, page_height,"Update frequencies (effective probability per step)");
+      pdf_advance(&page_height);
+      for (ci = 0; ci < NUMBER_OF_UPDATES; ci++)
+	{
+	  mysnprintf(mytextf, LINESIZE, "%.5f", pch[ci]);
+	  pdf_print_tableline(width2, "%s %s", chnames[ci], mytextf);
+	  pdf_advance(&page_height);
+	}
+      if (pch[SCALERUPDATE] > 0.0)
+	{
+	  mysnprintf(mytextf, LINESIZE, "%.5f", 1.0 + world->options->scaler_delta);
+	  pdf_print_tableline(width2, "%s %s", "  scaler multiplier bound b = 1 + delta", mytextf);
+	  pdf_advance(&page_height);
+	}
+      pdf_advance(&page_height);
+    }
     pdf_print_contents_at(left_margin, page_height,"Prior distribution for parameter");
     pdf_advance(&page_height);
     pdf_print_tableline(width, "%s %s %s %s %s %s %s %s %s %s %s", "Parameter", " ", " ", " ", "Prior", "Minimum",  "Mean*",  "Maximum", "Delta", "Bins","UpdateFreq");

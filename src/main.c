@@ -966,6 +966,8 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
       print_menu_options (EARTH, options, data);
       if (options->progress)
 	print_data_summary (stdout, EARTH, options, data);
+      if (options->progress)
+	print_update_frequencies (stdout, EARTH);
       /* print to outfile */
       pdf_master_init(EARTH, options, data);
       *outfilepos = print_title (EARTH, options);

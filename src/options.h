@@ -91,6 +91,7 @@ extern long save_mu_rates_buffer (char **buffer, long *allocbufsize, option_fmt 
 extern long save_parmfile (option_fmt * options, world_fmt * world, data_fmt *data);
 extern void print_menu_options (world_fmt * world, option_fmt * options, data_fmt * data);
 extern void print_options (FILE * file, world_fmt * world, option_fmt * options, data_fmt * data);
+extern void print_update_frequencies (FILE * file, world_fmt * world);
 
 //
 // prints the value of minimum value of the prior distribution

@@ -146,6 +146,7 @@ static fpos_t thePos;   // used to track pposition in the parmfile
 ///* private functions */
 boolean booleancheck (option_fmt * options, char *var, char *value);
 void set_proposal_kind(option_fmt *options, long ptype, char *word);
+void print_update_frequencies (FILE * file, world_fmt * world);
 boolean set_updatefreq_by_name(option_fmt *options, char *name, double value);
 void parse_named_updatefreq(option_fmt *options, char *text);
 
@@ -1116,7 +1117,9 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     
     fprintf (file, "Genealogy               %20s\n", 
 	     "Metropolis-Hastings");    
-    fprintf(file,"\n\n");
+    fprintf(file,"\n");
+    print_update_frequencies (file, world);
+    fprintf(file,"\n");
     if(world->options->has_autotune)
       fprintf (file, "Prior distribution (Proposal-delta will be tuned to acceptance frequency %f):\n",world->options->autotune);
     else
@@ -5388,6 +5391,40 @@ void parse_named_updatefreq(option_fmt *options, char *text)
 	  warning("updatefreq: \"%s\" has no value, expected name:value\n", name);
 	}
     }
+}
+
+/// Report the effective per-move update frequencies.
+/// world->options->choices[] is a CUMULATIVE distribution, so each move's
+/// probability is its difference to the previous entry. These are the
+/// probabilities actually used by updating(), i.e. after normalisation and
+/// after moves whose feature is switched off have been zeroed. A weight set in
+/// the parmfile but shown as 0.00000 here therefore means the move is disabled
+/// (haplotype without haplotyping, assignment without unassigned individuals,
+/// and so on) -- which is exactly the case the bare positional updatefreq list
+/// used to hide.
+void print_update_frequencies (FILE * file, world_fmt * world)
+{
+  double *c = world->options->choices;
+  double p[NUMBER_OF_UPDATES];
+  long i;
+  p[0] = c[0];
+  for (i = 1; i < NUMBER_OF_UPDATES; i++)
+    p[i] = c[i] - c[i-1];
+  fprintf (file, "\nUpdate frequencies (effective probability per step):\n");
+  fprintf (file, "Move                                    Frequency\n");
+  fprintf (file, "--------------------------------------  ---------\n");
+  fprintf (file, "Genealogy (tree rearrangement)           %9.5f\n", p[TREEUPDATE]);
+  fprintf (file, "Parameters (Theta, M, ...)               %9.5f\n", p[PARAMETERUPDATE]);
+  fprintf (file, "Haplotypes                               %9.5f\n", p[HAPLOTYPEUPDATE]);
+  fprintf (file, "Time parameters (skyline)                %9.5f\n", p[SKYLINETIMEUPDATE]);
+  fprintf (file, "Assignment of individuals                %9.5f\n", p[ASSIGNMENTUPDATE]);
+  fprintf (file, "Sequencing error                         %9.5f\n", p[SEQUENCEERRORUPDATE]);
+  fprintf (file, "Mittag-Leffler alpha                     %9.5f\n", p[MITTAGLEFFLERUPDATE]);
+  fprintf (file, "Scaler (Theta*c, M/c, all times*c)       %9.5f\n", p[SCALERUPDATE]);
+  if (p[SCALERUPDATE] > 0.0)
+    fprintf (file, "   scaler multiplier bound b = 1 + delta  %9.5f\n",
+	     1.0 + world->options->scaler_delta);
+  fprintf (file, "\n");
 }
 
 /// Set the proposal kind for one parameter group from a parmfile word.
