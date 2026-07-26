@@ -3617,7 +3617,10 @@ clone_polish (world_fmt * original, world_fmt * kopie)
 static MYREAL
 heated_swap_score(world_fmt *world)
 {
-  MYREAL score = world->likelihood[world->G];
+  // NODATA=yes: exclude the sequence-likelihood term so that heated-chain swap
+  // acceptance is governed only by the coalescent-genealogy prior, matching
+  // acceptlike() in mcmc1.c (which already excludes it from tree-move acceptance).
+  MYREAL score = world->options->prioralone ? 0.0 : world->likelihood[world->G];
 
   if (world->options->bayes_infer)
     {
@@ -3854,6 +3857,7 @@ chance_swap_tree (world_fmt * tthis, world_fmt * that)
   MYREAL hb = that->heat;
   MYREAL treelen;
   long tempmigration_counts;
+  worlddata_fmt *tempdata;
 #ifdef UEP
   MYREAL **tempuep;
   ueptime_fmt *tempueptime;
@@ -3884,6 +3888,17 @@ chance_swap_tree (world_fmt * tthis, world_fmt * that)
   if (accepted)
     {
       swap_tree (tthis, that);
+      // Haplotyping keeps chain-specific phase state (and node-pointer bindings
+      // into that chain's own tree, see link_individual_node()/swap_haplotypes()
+      // in haplotype.c) in world->data. Since the tree just moved (swap_tree()
+      // above), data must move with it, or data->individuals[]->nodep[] would be
+      // left pointing at the tree that used to belong to this chain slot.
+      if (tthis->data->haplotyping)
+        {
+          tempdata = tthis->data;
+          tthis->data = that->data;
+          that->data = tempdata;
+        }
 #ifdef DISPENSER
       swap_node_collection(tthis,that);
 #endif
