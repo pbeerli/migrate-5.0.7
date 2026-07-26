@@ -1058,7 +1058,11 @@ propose_mult_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
     const MYREAL delta = world->bayes->delta[which];
     const MYREAL maxparam = world->bayes->maxparam[which];
     MYREAL multiplier;  // minmult < multiplier < maxmult
-    MYREAL maxmult = delta;
+    // delta is a STEP SIZE, as it is for the window proposals, and the
+    // multiplier bound is b = 1 + delta. This keeps b > 1 (b <= 1 would give
+    // lambda <= 0 and, at b == 1, a frozen parameter) and keeps the tuning
+    // direction the same as for a window: larger delta == larger moves.
+    MYREAL maxmult = 1.0 + delta;
     //MYREAL minmult = 1/maxmult;
     MYREAL lambda = 2. * log(maxmult); // tuning parameter \lambda = 2 ln(b)
     MYREAL np;

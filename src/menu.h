@@ -69,4 +69,5 @@ extern long  is_priortype(prior_fmt *p, long pnum, int priortype);
 /// \param proposalset {is a boolean to specify whether this is SPLICE or MH sampling scheme}
 /// \returns {a string with the name of the proposal method}
 char * is_proposaltype(boolean proposalset);
+extern char * is_proposaltype2(boolean slice, boolean mult);
 #endif /*MENU_INCLUDE */

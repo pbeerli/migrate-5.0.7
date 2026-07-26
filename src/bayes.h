@@ -54,6 +54,7 @@ extern void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt *wor
 extern boolean bayes_accept (MYREAL newval, MYREAL oldval, MYREAL heat, MYREAL hastingsratio);
 extern void bayes_print_accept(FILE * outfile, world_fmt * world);
 extern void bayes_print_hyperprior(FILE * file,  world_fmt *world);
+extern long prior_group_of(world_fmt *world, long which);
 extern MYREAL probg_treetimes(world_fmt *world);
 extern void recalc_timelist (world_fmt * world, MYREAL new_ratio, MYREAL old_ratio);
 extern void bayes_smooth(double *x, long xelem, long el, boolean lastfirst, boolean boundary);

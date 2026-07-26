@@ -2224,6 +2224,16 @@ char * is_proposaltype(boolean proposalset)
     }
 }
 
+/// three-way variant: slice, multiplicative Metropolis, or plain Metropolis
+char * is_proposaltype2(boolean slice, boolean mult)
+{
+  if(slice)
+    return "Slice sampling";
+  if(mult)
+    return "Multiplier sampling";
+  return "Metropolis sampling";
+}
+
 
 /// \brief Menu to set all prior distributions
 /// menu to set proposal distribution, returns TRUE when standard course of action
@@ -2642,14 +2652,14 @@ void menuProposal(option_fmt * options) {
     {
       input[0] = '\0';
       printf ("  Proposal distribution setting [You still need to set the PRIOR distribution!]:\n");
-      printf("  1   Set proposal distribution for Theta?          %11s\n",is_proposaltype(options->slice_sampling[THETAPRIOR]));
-      printf("  2   Set proposal distribution for Migration?      %11s\n",is_proposaltype(options->slice_sampling[MIGPRIOR]));
-      printf("  3   Set proposal distribution for Divergence?     %11s\n",is_proposaltype(options->slice_sampling[SPECIESTIMEPRIOR]));
-      printf("  4   Set proposal distribution for Div. Spread?    %11s\n",is_proposaltype(options->slice_sampling[SPECIESSTDPRIOR]));
+      printf("  1   Set proposal distribution for Theta?          %11s\n",is_proposaltype2(options->slice_sampling[THETAPRIOR], options->multiplier_proposal[THETAPRIOR]));
+      printf("  2   Set proposal distribution for Migration?      %11s\n",is_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
+      printf("  3   Set proposal distribution for Divergence?     %11s\n",is_proposaltype2(options->slice_sampling[SPECIESTIMEPRIOR], options->multiplier_proposal[SPECIESTIMEPRIOR]));
+      printf("  4   Set proposal distribution for Div. Spread?    %11s\n",is_proposaltype2(options->slice_sampling[SPECIESSTDPRIOR], options->multiplier_proposal[SPECIESSTDPRIOR]));
       if(options->bayesmurates)
 	{      
 	  printf("  5   Set mutation rate modifier prior distribution?%11s\n",
-	     is_proposaltype(options->slice_sampling[RATEPRIOR]));
+	     is_proposaltype2(options->slice_sampling[RATEPRIOR], options->multiplier_proposal[RATEPRIOR]));
 	  if(options->has_autotune)
 	      printf("  6   Autotuning of the acceptance ratio        %7s %.2f\n","YES",options->autotune);
 	  else

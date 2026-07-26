@@ -210,6 +210,29 @@ void destroy_global_function_arrays()
   myfree(hastings_ratio);
 }
 
+/// Map a parameter index to its prior GROUP (THETAPRIOR, MIGPRIOR, ...).
+/// This mirrors the mapping done inline in bayes_update(); it is factored out
+/// so that which_prior() and autotune_proposal() classify parameters the same
+/// way. Note this is the parameter group, not the distribution kind.
+long prior_group_of(world_fmt *world, long which)
+{
+  const long numpop  = world->numpop;
+  const long numpop2 = world->numpop2;
+  const long npx = world->numparamcumvec[SPLITSTDPRIOR];
+  const long npg = world->numparamcumvec[GROWTHPRIOR];
+  if (which < numpop)
+    return THETAPRIOR;
+  if (which < numpop2)
+    return MIGPRIOR;
+  if (world->bayes != NULL && world->bayes->mu && which == numpop2)
+    return RATEPRIOR;
+  if (which < npx)
+    return SPECIESTIMEPRIOR;
+  if (which < npg)
+    return GROWTHPRIOR;
+  return MLFPRIOR;
+}
+
 /// \brief Decide which prior distribution for the THETA parameter to use
 /// Decide which prior distribution to use for THETA: the functionpointers propose_newparam_x will hold
 /// either the Exponential prior distribution or a Uniform prior distribution or .. other priors ..
@@ -282,6 +305,16 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
                 error("Prior distribution hookup failed");
                 //break;
         }
+        // A multiplicative (log-scale) proposal is a property of the PROPOSAL,
+        // not of the prior, so only the proposal and its Jacobian are swapped;
+        // log_prior_ratio/log_prior stay those of the chosen prior. This is
+        // what MULTPRIOR got wrong: it replaced the prior ratio with the
+        // Jacobian as well, so the Jacobian was counted twice.
+        if (world->options->multiplier_proposal[prior_group_of(world, i)])
+          {
+            propose_new[i] = (MYREAL (*) (MYREAL, long, world_fmt *, MYREAL *)) propose_mult_newparam;
+            hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_mult;
+          }
     }
 }
 

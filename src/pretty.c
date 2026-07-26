@@ -3780,34 +3780,34 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_print_tableline(width2, "%s %s", "Parameter", "Proposal");
     pdf_advance(&page_height);
     pdf_print_tableline(width2, "%s %s", "Theta",
-			is_proposaltype(options->slice_sampling[THETAPRIOR]));
+			is_proposaltype2(options->slice_sampling[THETAPRIOR], options->multiplier_proposal[THETAPRIOR]));
     pdf_advance(&page_height);
     if (world->has_migration)
       {
 	pdf_advance(&page_height);
 	pdf_print_tableline(width2, "%s %s", options->usem ? "M" : "xNm",
-			    is_proposaltype(options->slice_sampling[MIGPRIOR]));
+			    is_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
       }
     if (world->has_speciation)
       {
 	pdf_advance(&page_height);
 	pdf_print_tableline(width2, "%s %s", "Divergence",
-			    is_proposaltype(options->slice_sampling[SPLITPRIOR]));
+			    is_proposaltype2(options->slice_sampling[SPLITPRIOR], options->multiplier_proposal[SPLITPRIOR]));
 	pdf_advance(&page_height);
 	pdf_print_tableline(width2, "%s %s", "Divergence Spread",
-			    is_proposaltype(options->slice_sampling[SPLITSTDPRIOR]));
+			    is_proposaltype2(options->slice_sampling[SPLITSTDPRIOR], options->multiplier_proposal[SPLITSTDPRIOR]));
       }
     if (world->has_growth)
       {
 	pdf_advance(&page_height);
 	pdf_print_tableline(width2, "%s %s", "Growth",
-			    is_proposaltype(options->slice_sampling[GROWTHPRIOR]));
+			    is_proposaltype2(options->slice_sampling[GROWTHPRIOR], options->multiplier_proposal[GROWTHPRIOR]));
       }
     if(options->bayesmurates)
       {
 	pdf_advance(&page_height);
 	pdf_print_tableline(width2, "%s %s", "Rate",
-			    is_proposaltype(options->slice_sampling[RATEPRIOR]));
+			    is_proposaltype2(options->slice_sampling[RATEPRIOR], options->multiplier_proposal[RATEPRIOR]));
       }
     pdf_advance(&page_height);
     pdf_print_tableline(width2, "%s %s", "Genealogy",
