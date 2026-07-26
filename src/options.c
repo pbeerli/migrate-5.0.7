@@ -1088,26 +1088,26 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
     fprintf (file, "Parameter group          Proposal type\n");
     fprintf (file, "-----------------------  -------------------\n");
     fprintf (file, "Population size (Theta) %20s\n", 
-	     is_proposaltype(options->slice_sampling[THETAPRIOR]));
+	     is_proposaltype2(options->slice_sampling[THETAPRIOR], options->multiplier_proposal[THETAPRIOR]));
     if(numpop > 1)
       {
 	fprintf (file, "Migration rate  %7.7s %20s\n",
 		 options->usem ? "(M)" : "(xNm)",
-		 is_proposaltype(options->slice_sampling[MIGPRIOR]));
+		 is_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
 	fprintf (file, "Divergence Time (D) %20s\n", 
-		 is_proposaltype(options->slice_sampling[SPECIESTIMEPRIOR]));
+		 is_proposaltype2(options->slice_sampling[SPECIESTIMEPRIOR], options->multiplier_proposal[SPECIESTIMEPRIOR]));
     fprintf (file, "Divergence time spread (STD) %14s\n", 
-	     is_proposaltype(options->slice_sampling[SPECIESSTDPRIOR]));
+	     is_proposaltype2(options->slice_sampling[SPECIESSTDPRIOR], options->multiplier_proposal[SPECIESSTDPRIOR]));
       }
     if(world->bayes->mu)
       {
 	fprintf (file, "Mutation rate modifier  %20s\n",
-		 is_proposaltype(options->slice_sampling[RATEPRIOR]));
+		 is_proposaltype2(options->slice_sampling[RATEPRIOR], options->multiplier_proposal[RATEPRIOR]));
       }
     if(world->has_growth)
       {
 	fprintf (file, "Population growth  %20s\n",
-		 is_proposaltype(options->slice_sampling[GROWTHPRIOR]));
+		 is_proposaltype2(options->slice_sampling[GROWTHPRIOR], options->multiplier_proposal[GROWTHPRIOR]));
       }
     
     fprintf (file, "Genealogy               %20s\n", 
