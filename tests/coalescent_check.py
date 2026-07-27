@@ -27,7 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
-MIGRATE = sys.argv[1] if len(sys.argv) > 1 else str(Path.home() / "bin/migrate-n")
+# resolved to an absolute path: migrate is run from a temporary directory
+MIGRATE = str(Path(sys.argv[1]).resolve()) if len(sys.argv) > 1 else str(Path.home() / "bin/migrate-n")
 NTIPS = int(sys.argv[2]) if len(sys.argv) > 2 else 6
 THETA = 0.05
 SITES = 50
