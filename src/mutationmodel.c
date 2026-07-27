@@ -344,6 +344,29 @@ void calc_seq_basefreq(mutationmodel_fmt *s, option_fmt *options, data_fmt *data
 	    }
 	}
     }
+  if (total <= 0.0)
+    {
+      // every site is missing ('?', '-' or '0'), so the data carry no
+      // information about the base composition. Without this guard
+      // total=1./0. is +infinity and total*freq is 0*infinity = NaN, which
+      // then poisons every conditional likelihood: acceptlike() compares
+      // against NaN, every comparison is false and nothing is ever accepted
+      // (the acceptance ratio is reported as 0.00 instead of 1.00).
+      // this is called once per locus per heated chain, so report only the
+      // first few times to avoid flooding the log on many-loci runs
+      static long allmissing_warnings = 0;
+      if (allmissing_warnings < 5)
+	{
+	  allmissing_warnings++;
+	  warning("Locus %li sublocus %li has only missing data, using uniform base frequencies%s\n",
+		  locus, sublocus, allmissing_warnings == 5 ? " (further such warnings suppressed)" : "");
+	}
+      s->basefreqs[NUC_A] = 0.25;
+      s->basefreqs[NUC_C] = 0.25;
+      s->basefreqs[NUC_G] = 0.25;
+      s->basefreqs[NUC_T] = 0.25;
+      return;
+    }
   total = 1./total;
   s->basefreqs[NUC_A] = total*freqa;
   s->basefreqs[NUC_C] = total*freqc;
