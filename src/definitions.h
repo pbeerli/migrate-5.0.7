@@ -310,6 +310,10 @@ typedef int boolean;
 #define ALLELETYPES   "amb" /*a=infinite allele,m=stepwise, b=brownian */
 #define MSATTYPES   "mb" /*m=stepwise, b=brownian */
 #define CRLF "\r\n"
+/* survey of variable sites in the data summary (see survey_variable_sites) */
+#define VARSITE_MISSING_HIGH     0.5 /*variable site with >50% missing calls*/
+#define VARSITE_MISSING_VERYHIGH 0.9 /*variable site with >90% missing calls*/
+#define VARSITE_MAXPRINT         100 /*loci listed individually in the table*/
 
 #ifdef COMPAQ
 #define EXP(a)  (((a)< -100) ? 0.0 : exp ((a)))

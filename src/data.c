@@ -2862,6 +2862,156 @@ print_ratetbl (FILE * outfile, world_fmt * world, option_fmt * options,
     }
 }
 
+/// counts the polymorphic columns of one locus and how many of them are
+/// poorly covered. Only A,C,G,T are treated as calls; '?', '-', '0', 'N',
+/// 'X' and the ambiguity codes are treated as missing, so a site is called
+/// variable when two or more different nucleotides are actually observed.
+/// Poorly covered variable sites are the ones where more than
+/// VARSITE_MISSING_HIGH (resp. VARSITE_MISSING_VERYHIGH) of the sampled
+/// gene copies carry no call: such columns produce a polymorphism that
+/// rests on a handful of sequences and is a common alignment/mapping
+/// artifact in AT-rich, repeat-rich genomes.
+void
+survey_variable_sites (world_fmt * world, option_fmt * options, data_fmt * data,
+		       long locus, variable_sites_fmt * result)
+{
+  long sublocus;
+  const long sublocistart = world->sublocistarts[locus];
+  const long sublociend   = world->sublocistarts[locus+1];
+  long genecopies = 0;
+  long pop;
+  memset (result, 0, sizeof (variable_sites_fmt));
+  for (pop = 0; pop < data->numpop; pop++)
+    genecopies += max_shuffled_individuals (options, data, pop, locus);
+  result->genecopies = genecopies;
+  if (genecopies == 0)
+    return;
+  for (sublocus = sublocistart; sublocus < sublociend; sublocus++)
+    {
+      mutationmodel_fmt *s = &world->mutationmodels[sublocus];
+      long xsite;
+      result->sites += s->numsites;
+      for (xsite = 0; xsite < s->numsites; xsite++)
+	{
+	  long counts[4] = { 0, 0, 0, 0 };
+	  long called = 0;
+	  long states = 0;
+	  long i;
+	  double missfrac;
+	  for (pop = 0; pop < data->numpop; pop++)
+	    {
+	      long top = max_shuffled_individuals (options, data, pop, locus);
+	      long ii;
+	      for (ii = 0; ii < top; ii++)
+		{
+		  long ind = data->shuffled[pop][locus][ii];
+		  char site = data->yy[pop][ind][sublocus][0][xsite][0];
+		  switch (site)
+		    {
+		    case 'A': counts[0] += 1; called++; break;
+		    case 'C': counts[1] += 1; called++; break;
+		    case 'G': counts[2] += 1; called++; break;
+		    case 'U':
+		    case 'T': counts[3] += 1; called++; break;
+		    default: /* ?, -, 0, N, X and ambiguity codes: no call */
+		      break;
+		    }
+		}
+	    }
+	  result->missing += genecopies - called;
+	  for (i = 0; i < 4; i++)
+	    {
+	      if (counts[i] > 0)
+		states++;
+	    }
+	  if (called == 0)
+	    result->emptysites += 1;
+	  if (states < 2)
+	    continue;
+	  result->variable += 1;
+	  missfrac = (double) (genecopies - called) / (double) genecopies;
+	  if (missfrac > VARSITE_MISSING_HIGH)
+	    result->variable_highmissing += 1;
+	  if (missfrac > VARSITE_MISSING_VERYHIGH)
+	    result->variable_veryhighmissing += 1;
+	}
+    }
+}
+
+/// prints the per locus survey of polymorphic columns produced by
+/// survey_variable_sites(). This complements the "Sites per locus" table:
+/// the number of sites says how large a locus is, this says how much of it
+/// carries signal and how trustworthy that signal is.
+void
+print_variable_sites_summary (FILE * file, world_fmt * world,
+			      option_fmt * options, data_fmt * data)
+{
+  long locus;
+  long printloci = data->loci;
+  variable_sites_fmt r;
+  variable_sites_fmt all;
+  if (!strchr (SEQUENCETYPES, options->datatype))
+    return;
+  memset (&all, 0, sizeof (variable_sites_fmt));
+  fprintf (file, "Variable sites per locus\n");
+  fprintf (file, "------------------------\n");
+  fprintf (file, "A site counts as variable when two or more of A,C,G,T are observed;\n");
+  fprintf (file, "'?', '-', '0', 'N', 'X' and ambiguity codes count as missing data.\n");
+  fprintf (file, "The last two columns show how many of the variable sites rest on\n");
+  fprintf (file, "poorly covered columns (more than %.0f%% resp. %.0f%% of the gene copies\n",
+	   100.0 * VARSITE_MISSING_HIGH, 100.0 * VARSITE_MISSING_VERYHIGH);
+  fprintf (file, "have no call at that site); these are often alignment artifacts.\n\n");
+  fprintf (file, "                                                 Variable sites with\n");
+  fprintf (file, "                                Gene            missing data above\n");
+  fprintf (file, "Locus      Sites  Missing[%%]   copies  Variable      %2.0f%%      %2.0f%%\n",
+	   100.0 * VARSITE_MISSING_HIGH, 100.0 * VARSITE_MISSING_VERYHIGH);
+  fprintf (file, "---------------------------------------------------------------------\n");
+  if (printloci > VARSITE_MAXPRINT)
+    printloci = VARSITE_MAXPRINT;
+  for (locus = 0; locus < data->loci; locus++)
+    {
+      double missperc;
+      if (data->skiploci[locus])
+	continue;
+      survey_variable_sites (world, options, data, locus, &r);
+      all.sites += r.sites;
+      all.missing += r.missing;
+      all.emptysites += r.emptysites;
+      all.variable += r.variable;
+      all.variable_highmissing += r.variable_highmissing;
+      all.variable_veryhighmissing += r.variable_veryhighmissing;
+      all.genecopies = r.genecopies;
+      if (locus >= printloci)
+	continue;
+      missperc = (r.sites * r.genecopies > 0) ?
+	100.0 * (double) r.missing / ((double) r.sites * (double) r.genecopies) : 0.0;
+      fprintf (file, "%5li %10li     %7.2f  %7li  %8li  %8li  %8li\n",
+	       locus + 1, r.sites, missperc, r.genecopies, r.variable,
+	       r.variable_highmissing, r.variable_veryhighmissing);
+    }
+  if (data->loci > printloci)
+    fprintf (file, "[only the first %li loci are shown]\n", printloci);
+  fprintf (file, "---------------------------------------------------------------------\n");
+  {
+    double missperc = (all.sites * all.genecopies > 0) ?
+      100.0 * (double) all.missing / ((double) all.sites * (double) all.genecopies) : 0.0;
+    fprintf (file, "%5.5s %10li     %7.2f  %7li  %8li  %8li  %8li\n",
+	     "All", all.sites, missperc, all.genecopies, all.variable,
+	     all.variable_highmissing, all.variable_veryhighmissing);
+  }
+  if (all.emptysites > 0)
+    fprintf (file, "%li sites have no call at all in any sampled gene copy.\n",
+	     all.emptysites);
+  if (all.variable > 0)
+    {
+      fprintf (file, "%.1f%% of all variable sites are poorly covered (>%.0f%% missing).\n",
+	       100.0 * (double) all.variable_highmissing / (double) all.variable,
+	       100.0 * VARSITE_MISSING_HIGH);
+    }
+  fprintf (file, "\n");
+  fflush (file);
+}
+
 void
 print_categtbl (FILE * outfile, world_fmt * world, option_fmt * options,
            long locus, char header)
@@ -3155,6 +3305,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 	  }
       }
     fprintf(file,"\n");
+    print_variable_sites_summary (file, world, options, data);
     myfree(total);
     myfree(totalmiss);
     fflush (file);

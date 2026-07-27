@@ -64,6 +64,11 @@ extern void print_data (world_fmt * world, option_fmt * options,
 extern void print_spectra(world_fmt * world, option_fmt * options,data_fmt * data);
 extern void print_data_summary (FILE * file, world_fmt * world,
                              option_fmt * options, data_fmt * data);
+extern void survey_variable_sites (world_fmt * world, option_fmt * options,
+				   data_fmt * data, long locus,
+				   variable_sites_fmt * result);
+extern void print_variable_sites_summary (FILE * file, world_fmt * world,
+					  option_fmt * options, data_fmt * data);
 extern long find_missing(data_fmt *data, long pop, long locus);
 extern short findAllele (data_fmt * data, char s[], long locus);
 extern void free_datapart (data_fmt * data, world_fmt *world,long locus);

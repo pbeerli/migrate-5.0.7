@@ -4117,6 +4117,106 @@ void pdf_print_ratetbl (world_fmt * world, option_fmt * options, long locus, cha
 }
 
 
+///
+/// PDF version of print_variable_sites_summary() in data.c: how many columns
+/// of each locus are polymorphic, and how many of those polymorphisms rest on
+/// columns that are mostly missing data.
+void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, data_fmt * data)
+{
+  long locus;
+  long printloci = data->loci;
+  variable_sites_fmt r;
+  variable_sites_fmt all;
+  double c1 = left_margin + 90;   //sites
+  double c2 = left_margin + 160;  //missing[%]
+  double c3 = left_margin + 230;  //gene copies
+  double c4 = left_margin + 300;  //variable
+  double c5 = left_margin + 380;  //variable with high missing
+  double c6 = left_margin + 450;  //variable with very high missing
+  if (!strchr (SEQUENCETYPES, options->datatype))
+    return;
+  memset (&all, 0, sizeof (variable_sites_fmt));
+  pdf_advance(&page_height);
+  pdf_print_contents_at(left_margin, page_height,"Variable sites per locus");
+  pdf_advance(&page_height);
+  pdf_printf(left_margin, page_height,'L',
+	     "A site counts as variable when two or more of A,C,G,T are observed; '?', '-', '0',");
+  pdf_advance(&page_height);
+  pdf_printf(left_margin, page_height,'L',
+	     "'N', 'X' and ambiguity codes count as missing data. The last two columns give the");
+  pdf_advance(&page_height);
+  pdf_printf(left_margin, page_height,'L',
+	     "number of variable sites where more than %.0f%% resp. %.0f%% of the gene copies have no call.",
+	     100.0 * VARSITE_MISSING_HIGH, 100.0 * VARSITE_MISSING_VERYHIGH);
+  pdf_advance(&page_height);
+  pdf_advance(&page_height);
+  pdf_print_contents_at(left_margin, page_height,"Locus");
+  pdf_printf_ralign(c1, page_height,"Sites");
+  pdf_printf_ralign(c2, page_height,"Missing[%%]");
+  pdf_printf_ralign(c3, page_height,"Gene copies");
+  pdf_printf_ralign(c4, page_height,"Variable");
+  pdf_printf_ralign(c5, page_height,">%.0f%% ?", 100.0 * VARSITE_MISSING_HIGH);
+  pdf_printf_ralign(c6, page_height,">%.0f%% ?", 100.0 * VARSITE_MISSING_VERYHIGH);
+  pdf_advance(&page_height);
+  if (options->tersepdf && printloci > TEN)
+    printloci = TEN;
+  if (printloci > VARSITE_MAXPRINT)
+    printloci = VARSITE_MAXPRINT;
+  for (locus = 0; locus < data->loci; locus++)
+    {
+      double missperc;
+      if (data->skiploci[locus])
+	continue;
+      survey_variable_sites (world, options, data, locus, &r);
+      all.sites += r.sites;
+      all.missing += r.missing;
+      all.emptysites += r.emptysites;
+      all.variable += r.variable;
+      all.variable_highmissing += r.variable_highmissing;
+      all.variable_veryhighmissing += r.variable_veryhighmissing;
+      all.genecopies = r.genecopies;
+      if (locus >= printloci)
+	continue;
+      missperc = (r.sites * r.genecopies > 0) ?
+	100.0 * (double) r.missing / ((double) r.sites * (double) r.genecopies) : 0.0;
+      pdf_printf(left_margin, page_height,'L',"%li", locus+1);
+      pdf_printf_ralign(c1, page_height,"%li", r.sites);
+      pdf_printf_ralign(c2, page_height,"%.2f", missperc);
+      pdf_printf_ralign(c3, page_height,"%li", r.genecopies);
+      pdf_printf_ralign(c4, page_height,"%li", r.variable);
+      pdf_printf_ralign(c5, page_height,"%li", r.variable_highmissing);
+      pdf_printf_ralign(c6, page_height,"%li", r.variable_veryhighmissing);
+      pdf_advance(&page_height);
+    }
+  if (data->loci > printloci)
+    {
+      pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+      pdf_advance(&page_height);
+    }
+  {
+    double missperc = (all.sites * all.genecopies > 0) ?
+      100.0 * (double) all.missing / ((double) all.sites * (double) all.genecopies) : 0.0;
+    pdf_printf(left_margin, page_height,'L',"All");
+    pdf_printf_ralign(c1, page_height,"%li", all.sites);
+    pdf_printf_ralign(c2, page_height,"%.2f", missperc);
+    pdf_printf_ralign(c3, page_height,"%li", all.genecopies);
+    pdf_printf_ralign(c4, page_height,"%li", all.variable);
+    pdf_printf_ralign(c5, page_height,"%li", all.variable_highmissing);
+    pdf_printf_ralign(c6, page_height,"%li", all.variable_veryhighmissing);
+    pdf_advance(&page_height);
+  }
+  if (all.variable > 0)
+    {
+      pdf_printf(left_margin, page_height,'L',
+		 "%.1f%% of all variable sites are poorly covered (>%.0f%% missing).",
+		 100.0 * (double) all.variable_highmissing / (double) all.variable,
+		 100.0 * VARSITE_MISSING_HIGH);
+      pdf_advance(&page_height);
+    }
+  pdf_advance(&page_height);
+}
+
+
 void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * data,
                             double *orig_page_height, double *orig_left_margin)
 {
@@ -4400,6 +4500,8 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
             pdf_advance(&page_height);
         }
     }
+    pdf_advance(&page_height);
+    pdf_print_variable_sites_summary(world, options, data);
     myfree(total);
     myfree(totalmiss);
     *orig_page_height = page_height;

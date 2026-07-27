@@ -547,6 +547,19 @@ typedef struct _data
 data_fmt;
 
 
+/// per locus survey of polymorphic columns and their coverage,
+/// filled by survey_variable_sites() in data.c
+typedef struct _variable_sites
+{
+  long sites;                     //!< sites in the locus (sum over subloci)
+  long genecopies;                //!< sampled gene copies over all populations
+  long missing;                   //!< uncalled cells (sites x genecopies)
+  long emptysites;                //!< sites without a single call
+  long variable;                  //!< sites with two or more of A,C,G,T
+  long variable_highmissing;      //!< variable sites above VARSITE_MISSING_HIGH
+  long variable_veryhighmissing;  //!< variable sites above VARSITE_MISSING_VERYHIGH
+} variable_sites_fmt;
+
 
 /// holds histogram and associated statistics for each locus
 typedef struct _bayeshistogram 
