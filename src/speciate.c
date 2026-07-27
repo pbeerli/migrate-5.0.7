@@ -2148,8 +2148,16 @@ int beyond_last_node(proposal_fmt* proposal, vtlist *tentry, long gte, long *sli
       popto2= pmc2 > 0 ? proposal->migr_table2[pmc2 - 1].to : proposal->realtarget->actualpop;
       to1 = pop1;
       to2 = pop2;
+      // Only ONE coalescence clock may run for the pair: the two lineages form a
+      // single pair, which coalesces at rate 2/Theta. Passing same=TRUE to both
+      // calls and taking the minimum below ran two independent Exp(2/Theta)
+      // clocks, so the pair coalesced at 4/Theta -- twice too fast. That
+      // truncated the deepest interval and made genealogies too short and too
+      // shallow (migrate 3.7 drew a single time with denom = 2*mm + 2/Theta and
+      // then picked the event type). Migration and speciation clocks are still
+      // per-lineage and must be drawn for both lines.
       calc_time_per_line(proposal, type1, popto1, pop1 == pop2, &time1, &event1, &to1, &from1);
-      calc_time_per_line(proposal, type2, popto2, pop1 == pop2, &time2, &event2, &to2, &from2);
+      calc_time_per_line(proposal, type2, popto2, FALSE,        &time2, &event2, &to2, &from2);
       //printf("%i> _both() interval line1: (%f,%c) line 2: (%f, %c) \n",myID,time1 - proposal->time, event1,time2 - proposal->time, event2);
       if (time1 < time2)
 	{
