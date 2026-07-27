@@ -80,26 +80,10 @@ void autotune_proposal(world_fmt *world, long which)
 		{
 		  delta *= 0.990;
 		}
-	      // Clamp in units that match the proposal. For a window proposal delta
-	      // is a width, so the prior range is the natural scale. For a
-	      // multiplicative proposal delta sets the multiplier bound b = 1+delta,
-	      // which is unitless; clamping that to the prior range would permit
-	      // absurd multipliers (b up to maxparam, i.e. 20001 for an M prior
-	      // whose maximum is 20000).
-	      if(wopt->multiplier_proposal[prior_group_of(world,which)])
-		{
-		  if(delta > 10.0)      /* b <= 11     */
-		    delta = 10.0;
-		  if(delta < 0.0001)    /* b >= 1.0001 */
-		    delta = 0.0001;
-		}
-	      else
-		{
-		  if(delta > ma)
-		    delta = ma;
-		  if(delta < mindelta)
-		    delta = mindelta;
-		}
+	      if(delta > ma)
+		delta = ma;
+	      if(delta < mindelta)
+		delta = mindelta;
 	      bayes->delta[which] = delta;
 	    }
 	}

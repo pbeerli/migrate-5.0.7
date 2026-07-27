@@ -1056,13 +1056,27 @@ MYREAL
 propose_mult_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
 {
     const MYREAL delta = world->bayes->delta[which];
+    const MYREAL minparam = world->bayes->minparam[which];
     const MYREAL maxparam = world->bayes->maxparam[which];
     MYREAL multiplier;  // minmult < multiplier < maxmult
-    // delta is a STEP SIZE, as it is for the window proposals, and the
-    // multiplier bound is b = 1 + delta. This keeps b > 1 (b <= 1 would give
-    // lambda <= 0 and, at b == 1, a frozen parameter) and keeps the tuning
-    // direction the same as for a window: larger delta == larger moves.
-    MYREAL maxmult = 1.0 + delta;
+    // delta is a WINDOW WIDTH in the units of the parameter, but a multiplier
+    // bound has to be DIMENSIONLESS. Using b = 1 + delta directly conflated the
+    // two and produced b = 1.05 for Theta (uniform 0..0.1, delta 0.05) but
+    // b = 2001 for M (exponential, default delta = (max+min)/10 = 2000) -- far
+    // too timid and far too wild respectively. Multipliers of ~2000 drive the
+    // migration rate in time_to_coalmig() so high that migration events pile up
+    // at indistinguishable times and collide with internal node times.
+    // Expressing delta as a FRACTION of the prior range makes it dimensionless
+    // while keeping the tuning direction (larger delta == larger moves):
+    //     b = 1 + delta/(max-min),  so b in (1,2] for delta within the range.
+    MYREAL span = maxparam - minparam;
+    MYREAL relative = (span > 0.0) ? (delta / span) : 0.5;
+    MYREAL maxmult;
+    if (relative > 1.0)
+      relative = 1.0;
+    if (relative < 0.0001)
+      relative = 0.0001;   // b == 1 would freeze the parameter
+    maxmult = 1.0 + relative;
     //MYREAL minmult = 1/maxmult;
     MYREAL lambda = 2. * log(maxmult); // tuning parameter \lambda = 2 ln(b)
     MYREAL np;
