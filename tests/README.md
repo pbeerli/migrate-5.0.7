@@ -118,6 +118,32 @@ mean of log(M21/M12) is +0.010 (t = 0.04, p = 0.97), so there is no systematic
 direction bias, just chains stuck on one side. At prior scale 100 and 1000 the
 same statistic gives 0/16 locked and a range of 0.48-0.52. Trapping, measured.
 
+## exchangeability_check.py
+
+Do exchangeable migration parameters behave exchangeably?
+
+    python tests/exchangeability_check.py src/migrate-n [prior_scale] [n_seeds]
+
+In the symmetric 4+4 model M_2->1 and M_1->2 are exchangeable, so (1) neither may
+be favoured across chains, and (2) the within-chain fraction of samples with
+M21 > M12 must concentrate at 0.5. Test 1 catches indexing bugs; **test 2 is the
+trapping diagnostic**, and it is the one that settled the "M below its prior"
+question — a between-start test could not, because all starts fall into a trap
+basin quickly and then agree.
+
+Defaults to prior scale 100, where it passes in seconds. At scale 20000 it fails:
+pooled/target 0.456 and chains locked on one side.
+
+    prior scale      100      1000     20000
+    pooled/target  1.0023    0.9990    0.4767
+    chains locked    0/16      0/16     11/40
+    frac range   .482-.523 .389-.565 .006-1.000
+
+Use **at least ~40 seeds** before believing test 1 in the trapping regime: locked
+chains give correlated per-seed values, and 8 seeds at scale 20000 gave mean
+log(M21/M12) = +0.95, p = 0.014, against +0.010, p = 0.97 at 40 seeds. Test 2 is
+reliable at small seed counts; test 1 is not.
+
 ## probg_conditional_check.py
 
 Does the M the chain holds match the conditional `probg_treetimes` scores?
