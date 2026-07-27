@@ -446,13 +446,37 @@ MYREAL probg_treetimes(world_fmt* world)
     double mlalpha;// = world->mlalpha;
     // DIAGNOSTIC (remove after finding bug)
 #ifdef DEBUGMIG
+    // Per-migration-parameter sufficient statistics for the conditional
+    //     p(M_p | G)  ~  M_p^n_p * exp(-L_p * M_p) * prior(M_p)
+    // which is a (truncated) Gamma with shape n_p+1 and rate L_p + 1/scale.
+    // L_p is the PURE migration opportunity, sum over intervals of
+    // (k_pop/mu_rate) * geo * dt, with NO factor of M in it -- that is what
+    // makes it usable as the Gamma rate. The older version folded M into the
+    // weight and could only report n/(L*M), which cannot be compared against a
+    // sampled M.
+#define DEBUGMIG_MAXPAR 64
     static long _diagcnt = 0;
+    static long _diagevery = -1;
     double _total_wmig = 0.0;
     double _total_mig_ep = 0.0;
     long   _n_mig = 0;
-    // per-direction: index 0 = M21 direction (param0[2]), index 1 = M12 direction (param0[3])
-    long   _n_mig_dir[2] = {0, 0};
-    double _wmig_pop[2] = {0.0, 0.0}; // waiting-time weight per population
+    double _opp[DEBUGMIG_MAXPAR];      // pure opportunity L_p per parameter
+    long   _nmig_par[DEBUGMIG_MAXPAR]; // migration events n_p per parameter
+    {
+      long _z;
+      for (_z = 0; _z < DEBUGMIG_MAXPAR; _z++)
+	{
+	  _opp[_z] = 0.0;
+	  _nmig_par[_z] = 0;
+	}
+    }
+    if (_diagevery < 0)
+      {
+	const char *_e = getenv("MIGRATE_PROBG_EVERY");
+	_diagevery = (_e != NULL) ? atol(_e) : 5000;
+	if (_diagevery < 0)
+	  _diagevery = 0;
+      }
 #endif
     //double mlinheritance = world->mlinheritance;
     //assert(mlinheritance==2.0);
@@ -544,22 +568,28 @@ MYREAL probg_treetimes(world_fmt* world)
 		  for (pop2 = msta; pop2 < msto; pop2++)
 		    {
 		      pk = param0[pop2] * geo[pop2];
-		      sum += kpopmurate * pk; 
+		      sum += kpopmurate * pk;
+#ifdef DEBUGMIG
+		      /* opportunity WITHOUT the parameter: the coefficient of
+		         M_pop2 in -waitprobmig, usable directly as a Gamma rate */
+		      if (pop2 < DEBUGMIG_MAXPAR)
+			_opp[pop2] += kpopmurate * geo[pop2] * deltatime2;
+#endif
 		    }
 		}
 	      else
 		{
 		  for (pop2 = msta; pop2 < msto; pop2++)
 		    {
-		      pk = param0[pop2] / param0[pop]; 
+		      pk = param0[pop2] / param0[pop];
 		      sum += kpopmurate * geo[pop2] * pk;
+#ifdef DEBUGMIG
+		      if (pop2 < DEBUGMIG_MAXPAR)
+			_opp[pop2] += kpopmurate * geo[pop2] * deltatime2 / param0[pop];
+#endif
 		    }
 		}
 	      waitprobmig += sum;
-#ifdef DEBUGMIG
-	      if (numpop==2)
-		_wmig_pop[pop] += sum * deltatime;
-#endif
 	    }
 	  waitprobmig *= deltatime;
 #ifdef DEBUGMIG
@@ -622,12 +652,12 @@ MYREAL probg_treetimes(world_fmt* world)
 #ifdef DEBUGMIG
 	      _n_mig++;
 	      _total_mig_ep += eventprob;
-	      if (numpop==2)
-		{
-		  long _midx = m2mmm(tli->eventnode->pop, tli->eventnode->actualpop, (long)numpop);
-		  if (_midx == numpop) _n_mig_dir[0]++;       // M21 direction (param0[2])
-		  else if (_midx == numpop+1) _n_mig_dir[1]++; // M12 direction (param0[3])
-		}
+	      {
+		long _midx = m2mmm(tli->eventnode->pop,
+				   tli->eventnode->actualpop, (long)numpop);
+		if (_midx >= 0 && _midx < DEBUGMIG_MAXPAR)
+		  _nmig_par[_midx]++;
+	      }
 #endif	      
 	      break;
 	    case 'd':
@@ -685,24 +715,25 @@ MYREAL probg_treetimes(world_fmt* world)
     }
     assert(!isnan(sumprob));
 #ifdef DEBUGMIG
-    // DIAGNOSTIC: print every 5000th call
-    if((_diagcnt++ % 5000) == 0)
+    /* Machine-readable dump of the sufficient statistics of the conditional
+         p(M_p | G)  ~  Gamma(shape n_p + 1, rate L_p + 1/prior_scale)
+       one line per migration parameter, next to the M_p being scored. If the
+       sampler is self-consistent the PIT values F(M_p; n_p+1, L_p) are
+       Uniform(0,1) -- see tests/probg_conditional_check.py.
+       Interval from MIGRATE_PROBG_EVERY (default 5000, 0 disables). */
+    _diagcnt++;
+    if (_diagevery > 0 && (_diagcnt % _diagevery) == 0)
       {
 	long _p;
-	fprintf(stderr,"DIAG[%li] locus=%li nmig=%li total_wmig=%.4g total_mig_ep=%.4g Mhat=%.2f M=",
-		_diagcnt, world->locus, _n_mig, _total_wmig, _total_mig_ep,
-		(_total_wmig < -1e-30 && _n_mig > 0) ? _n_mig / (-_total_wmig) : -1.0);
-	for(_p = world->numpop; _p < world->numpop + world->numpop*(world->numpop-1); _p++)
-	  fprintf(stderr,"%.2f ", param0[_p]);
-	if(numpop==2)
+	const long _mlo = world->numpop;
+	const long _mhi = world->numpop + world->numpop * (world->numpop - 1);
+	for (_p = _mlo; _p < _mhi && _p < DEBUGMIG_MAXPAR; _p++)
 	  {
-	    double mhat21 = (_wmig_pop[0]<-1e-30 && _n_mig_dir[0]>0) ? _n_mig_dir[0]/(-_wmig_pop[0]) : -1.0;
-	    double mhat12 = (_wmig_pop[1]<-1e-30 && _n_mig_dir[1]>0) ? _n_mig_dir[1]/(-_wmig_pop[1]) : -1.0;
-	    fprintf(stderr,"n21=%li wt0=%.4g Mhat21=%.3f | n12=%li wt1=%.4g Mhat12=%.3f",
-		    _n_mig_dir[0], _wmig_pop[0], mhat21,
-		    _n_mig_dir[1], _wmig_pop[1], mhat12);
+	    fprintf(stderr,
+		    "PROBG\t%li\t%li\t%g\t%li\t%li\t%.10g\t%.10g\t%.10g\n",
+		    _diagcnt, world->locus, (double) world->heat, _p,
+		    _nmig_par[_p], _opp[_p], param0[_p], sumprob);
 	  }
-	fprintf(stderr," sumprob=%.4g like=%.4g\n", sumprob, like);
       }
 #endif
     return sumprob; //+ like;

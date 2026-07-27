@@ -31,6 +31,7 @@ stamp-h1
 # Binaries
 migrate-n
 migrate-n-mpi
+migrate-n-debugmig
 
 # Libharu and SFMT compiled artifacts
 lib/haru/src/build/
