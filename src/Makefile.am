@@ -15,7 +15,7 @@ COMMON_SOURCES = \
     savitzky_golay.c \
     sighandler.c skyline.c skyparam.c slice.c sort.c speciate.c tools.c \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
-    mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c
+    mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c
 
 # Shared flags (common defines + local includes)
 COMMON_CPPFLAGS = \

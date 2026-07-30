@@ -105,7 +105,7 @@ extern char * generator;
   "assign",\
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha"}
-#define NUMNUMBER 69
+#define NUMNUMBER 71
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -120,7 +120,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -518,6 +518,9 @@ void init_options (option_fmt * options)
     options->tree_updatefreq = 0.2;
     options->scaler_updatefreq = 0.0; // opt-in: the joint rescaling move is off by default
     options->scaler_delta = 0.2;      // multiplier bound b = 1.2
+    options->window_updatefreq = 0.0; // opt-in: the windowed joint local-M move is off by default
+    options->window_delta = 0.03;     // local-M lognormal-RW step sd
+    options->window_size = 4;         // branches jointly resampled per move
     options->parameter_updatefreq =0.2;
     options->haplotype_updatefreq = 0.2;
     options->timeparam_updatefreq = 0.2;
@@ -4520,12 +4523,17 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c; 0 (off) by default and");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped for tipdates/growth/skyline/speciation]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     names not listed keep their current value");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha [scaler]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f",
+    print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  local-M lognormal-RW step sd for the window move");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "window-size=VALUE   branches jointly resampled per window move");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f window:%f",
 		       options->tree_updatefreq,
 		       options->parameter_updatefreq,
 		       options->haplotype_updatefreq,
@@ -4533,8 +4541,11 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 		       options->unassigned_updatefreq,
 		       options->seqerror_updatefreq,
 		       options->mlalpha_updatefreq,
-		       options->scaler_updatefreq);
+		       options->scaler_updatefreq,
+		       options->window_updatefreq);
     print_parm_mutable(&bufsize, buffer, allocbufsize, "scaler-delta=%f", options->scaler_delta);
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "window-delta=%f", options->window_delta);
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "window-size=%li", options->window_size);
     long count=0;
     long cc;
     //prior_fmt * p = options->bayes_priors;
@@ -5352,6 +5363,8 @@ boolean set_updatefreq_by_name(option_fmt *options, char *name, double value)
     options->mlalpha_updatefreq = value;
   else if (!strcmp(name,"scaler"))
     options->scaler_updatefreq = value;
+  else if (!strcmp(name,"window"))
+    options->window_updatefreq = value;
   else
     return FALSE;
   return TRUE;
@@ -5424,6 +5437,10 @@ void print_update_frequencies (FILE * file, world_fmt * world)
   if (p[SCALERUPDATE] > 0.0)
     fprintf (file, "   scaler multiplier bound b = 1 + delta  %9.5f\n",
 	     1.0 + world->options->scaler_delta);
+  fprintf (file, "Window (local-M + windowed history)      %9.5f\n", p[WINDOWUPDATE]);
+  if (p[WINDOWUPDATE] > 0.0)
+    fprintf (file, "   window step sd / branches per move     %9.5f / %li\n",
+	     world->options->window_delta, world->options->window_size);
   fprintf (file, "\n");
 }
 
@@ -6280,6 +6297,30 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    {
 	      warning("scaler-delta must be > 0 (b = 1 + delta); using 0.2\n");
 	      options->scaler_delta = 0.2;
+	    }
+	}
+      break;
+    case 69: /*window-delta: local-M lognormal-RW step sd for the windowed move*/
+      get_next_word(&value,":,; ",&tmp);
+      if(tmp != NULL)
+	{
+	  options->window_delta = atof(tmp);
+	  if(options->window_delta <= 0.0)
+	    {
+	      warning("window-delta must be > 0; using 0.03\n");
+	      options->window_delta = 0.03;
+	    }
+	}
+      break;
+    case 70: /*window-size: number of branches jointly resampled per windowed move*/
+      get_next_word(&value,":,; ",&tmp);
+      if(tmp != NULL)
+	{
+	  options->window_size = atol(tmp);
+	  if(options->window_size <= 0)
+	    {
+	      warning("window-size must be > 0; using 4\n");
+	      options->window_size = 4;
 	    }
 	}
       break;
@@ -7826,6 +7867,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     choices[SCALERUPDATE]=options->scaler_updatefreq;
   else
     choices[SCALERUPDATE]=0.0;
+  if(options->window_updatefreq>0.0)
+    choices[WINDOWUPDATE]=options->window_updatefreq;
+  else
+    choices[WINDOWUPDATE]=0.0;
   //if(options->tri_mlalpha==ESTIMATE)
   //  choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
 

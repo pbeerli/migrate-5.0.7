@@ -2143,13 +2143,33 @@ long scaler_update(world_fmt *world)
   // ---- guards: only the plain structured coalescent is exactly invariant ----
   if (world->options->has_datefile)   // tip dates are fixed data; scaling moves them
     return 0;
+  // TODO(scaler_update, growth): NOT fundamentally incompatible, just not yet
+  // implemented. The growth-adjusted coalescent rate uses exp(g*t) directly
+  // (bayes.c probWait, ~line 544-549), which is invariant under the COMBINED
+  // transform t->c*t, Theta->c*Theta, g->g/c (since exp((g/c)*(c*t))=exp(g*t)
+  // exactly cancels), but this move currently only rescales world->param0
+  // (Theta/M), never world->growth[]. Adding growth support means: (1) also
+  // scale growth[] by 1/c here, (2) add growth's own P/Q-style term to the
+  // Jacobian in the `hastings` line below. Until both are done, allowing this
+  // guard through would silently compute an INCOMPLETE Hastings ratio (the
+  // "p(G|Theta,M) cancels analytically" assumption a few lines below would no
+  // longer hold), not just a less-efficient move -- a real bias, not
+  // inefficiency.
   if (world->has_growth)              // growth adds a time scale (would need g -> g/c)
+    return 0;
+  // TODO(scaler_update, skyline): same shape as growth, not fundamentally
+  // incompatible. Skyline intervals are binned by options->eventbinsize, a
+  // FIXED ABSOLUTE bin width (set once from the skyline= option, see
+  // options.c ~line 4194), not a proportion of tree height. Rescaling every
+  // event time by c without also rescaling the bin width (and adding its own
+  // Jacobian term) would silently reassign events to different skyline
+  // slices than before, corrupting the per-slice sufficient statistics --
+  // independent of whether Theta is directly re-estimated per slice.
+  if (world->timeelements > 1)        // skyline time slices would have to scale too
     return 0;
   if (world->has_mlalpha)             // Mittag-Leffler times do not scale linearly
     return 0;
   if (world->species_model_size > 0)  // divergence times would have to scale too
-    return 0;
-  if (world->timeelements > 1)        // skyline time slices would have to scale too
     return 0;
   if (world->bayes->mu)               // an estimated rate modifier rescales times as well
     return 0;
@@ -2228,6 +2248,12 @@ long scaler_update(world_fmt *world)
   myfree(oldparam);
   return 0;
 }
+
+// windowed_joint_update() (joint local-M + windowed migration-history move)
+// lives in windowupdate.c/.h, not here -- see that file for the design
+// rationale. It is substantial new numerical code (a CTMC bridge sampler, a
+// mean-field forward pass, windowed FFBS) with no existing counterpart
+// elsewhere in migrate, not an extension of anything in this file.
 
 //
 // Update for parameters using Bayesian inference

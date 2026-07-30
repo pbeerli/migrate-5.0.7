@@ -897,6 +897,9 @@ typedef struct _option
   MYREAL tree_updatefreq;
   MYREAL scaler_updatefreq; //joint tree+parameter rescaling move
   MYREAL scaler_delta;     //multiplier bound is b = 1 + scaler_delta
+  MYREAL window_updatefreq; //joint local-M + windowed migration-history move
+  MYREAL window_delta;      //local-M lognormal-RW step sd
+  long   window_size;       //number of branches jointly resampled per move
   MYREAL parameter_updatefreq;
   MYREAL haplotype_updatefreq;
   MYREAL timeparam_updatefreq;
@@ -1342,7 +1345,9 @@ typedef struct _worldoption
   MYREAL *slice_sticksizes;
   //@@@@@@@  MYREAL updateratio;
   MYREAL scaler_delta;     //multiplier bound is b = 1 + scaler_delta
-  double choices[NUMBER_OF_UPDATES]; //cumulative update choices, indexed by TREEUPDATE..MITTAGLEFFLERUPDATE
+  MYREAL window_delta;      //local-M lognormal-RW step sd
+  long   window_size;       //number of branches jointly resampled per move
+  double choices[NUMBER_OF_UPDATES]; //cumulative update choices, indexed by TREEUPDATE..WINDOWUPDATE
   boolean has_bayesfile;
   boolean has_bayesmdimfile;
   long bayesmdiminterval;
@@ -1675,6 +1680,8 @@ typedef struct _world
   species_fmt *species_model;
   long scaler_accept;   //acceptances of the joint rescaling move
   long scaler_trials;   //attempts of the joint rescaling move
+  long window_accept;   //acceptances of the windowed joint local-M move
+  long window_trials;   //attempts of the windowed joint local-M move
   long species_model_size;
   long species_model_dist;
   divtime_fmt *divtime;

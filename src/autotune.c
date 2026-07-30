@@ -27,6 +27,7 @@
 #include "migrate_mpi.h"
 #include "random.h"
 #include "bayes.h"
+#include "windowupdate.h"
 #include "mcmc.h"
 #include "reporter.h"
 #include "seqerror.h"
@@ -303,6 +304,9 @@ void burnin_bayes(world_fmt * world)
 	  break;
 	case SCALERUPDATE:
 	  success = (boolean) scaler_update(world);
+	  break;
+	case WINDOWUPDATE:
+	  success = (boolean) windowed_joint_update(world);
 	  break;
 	default:
 	  error("failure in choosing among updates -- Bayes");
