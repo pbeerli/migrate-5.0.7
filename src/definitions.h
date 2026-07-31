@@ -509,7 +509,7 @@ long chains is used */
 #define RANDOMPRIOR 100
 #define VERBOSE  (boolean) 1 
 /* prior kind */
-#define NUMPRIORKIND 8
+#define NUMPRIORKIND 10
 #define PRIORKINDLENGTH 15
 #define TUNIFORMPRIOR "Uniform      "
 #define TEXPPRIOR     "Exponential  "
@@ -519,6 +519,7 @@ long chains is used */
 #define TNORMALPRIOR  "Trunc. Normal"
 #define TBETAPRIOR    "Trunc. Beta  "
 #define TOTHER        "-            "
+#define TWGAMMAPRIOR  "Wind. Gamma  "
 #define UNIFORMPRIOR 0
 #define EXPPRIOR     1
 #define WEXPPRIOR    2
@@ -527,6 +528,11 @@ long chains is used */
 #define NORMALPRIOR  5
 #define BETAPRIOR    6
 #define SLICE        7
+#define WGAMMAPRIOR  8
+/* WEXPPRIOR/WGAMMAPRIOR ("W" = windowed) draw a local Metropolis move
+   param + (U-0.5)*delta reflected at [min,max], unlike the plain
+   EXPPRIOR/GAMMAPRIOR independence samplers that redraw from the whole
+   [min,max] range every step. See propose_windowed_gamma_newparam(). */
 /* prior type*/
 #define THETAPRIOR 0
 #define MIGPRIOR   1

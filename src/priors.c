@@ -62,6 +62,8 @@ MYREAL propose_mult_newparam (MYREAL param,long which, world_fmt *world, MYREAL 
 MYREAL propose_normal_newparam (MYREAL param,long which, world_fmt *world, MYREAL *r);
 MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 MYREAL propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+MYREAL propose_wgamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+MYREAL propose_reflect_window(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta);
 
 MYREAL log_prior_ratio_uni  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 MYREAL log_prior_ratio_exp  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
@@ -710,6 +712,34 @@ MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREA
 }
 
 ///
+/// Windowed counterpart of propose_gamma_newparam(): instead of an independence
+/// draw over the whole [min,max] range, propose a local reflected-window
+/// Metropolis move (see propose_reflect_window()). Because the proposal is no
+/// longer the target distribution itself, log_prior_ratio_wexp()/
+/// log_prior_ratio_wgamma() must (and do) compute the real truncated-gamma
+/// density ratio between old and new instead of relying on the
+/// independence-sampler cancellation that EXPPRIOR/GAMMAPRIOR use.
+/// Still runs the hyperprior alpha/beta update so hyperpriors keep working
+/// for the windowed (W-prefixed) prior kinds too.
+static MYREAL propose_windowed_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  bayes_fmt *bayes = world->bayes;
+  const MYREAL lower = bayes->minparam[which];
+  const MYREAL upper = bayes->maxparam[which];
+  if (bayes->hyperprior && bayes->hyperp[which].count++ % bayes->hyperinterval == 0)
+    {
+      MYREAL alpha = bayes->alphaparam[which];
+      MYREAL beta = bayes->betaparam[which];
+      const MYREAL mean = bayes->meanparam[which];
+      hyper_gamma(&alpha, &beta, mean, bayes->alphaorigparam[which], lower, upper,bayes->hyperfactormean,bayes->hyperfactoralpha);
+      bayes->alphaparam[which] = alpha;
+      bayes->betaparam[which] = beta;
+      hyper_gamma_record(alpha,beta, &bayes->hyperp[which]);
+    }
+  return propose_reflect_window(param, lower, upper, r, bayes->delta[which]);
+}
+
+///
 /// Beta prior retrieve a new value from a truncated beta between lower and upper
 /// currently does not use the old parameter 
 MYREAL
@@ -921,11 +951,15 @@ MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val)
 
 
 ///////////////////////////////////////////////////////////////////////
-// uniform prior
+// generic reflected-window move
 ///
-/// Uniform flat prior, coding based on Rasmus Nielsen, veryfied with mathematica
-/// the correlation among values is dependent on delta
-MYREAL propose_uniform(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta)
+/// Symmetric local Metropolis step: new = param + (U-0.5)*delta, reflected
+/// back into [minparam,maxparam] if it overshoots. This is purely a
+/// PROPOSAL mechanic -- it says nothing about the target distribution's
+/// shape, so it is valid as the proposal for any prior kind as long as the
+/// acceptance step (log_prior_ratio_*) supplies the correct target-density
+/// ratio. Coding based on Rasmus Nielsen, verified with mathematica.
+MYREAL propose_reflect_window(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta)
 {
   MYREAL thisdelta;
   MYREAL rr;
@@ -946,6 +980,16 @@ MYREAL propose_uniform(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r
 	}
     }
   return np;
+}
+
+///
+/// Uniform flat prior: the reflected-window move IS the correct proposal
+/// here because the target is flat, so no separate density-ratio
+/// correction is needed (see log_prior_ratio_uni()).
+/// the correlation among values is dependent on delta
+MYREAL propose_uniform(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta)
+{
+  return propose_reflect_window(param, minparam, maxparam, r, delta);
 }
 
 MYREAL
@@ -1013,24 +1057,45 @@ MYREAL hastings_ratio_exp(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL
 
 
 ///
-/// uses an exponential prior with boundaries minparm and maxparm and uses also a window around the old parameter
-/// the window is of arbitrary size
-/// (see propose_exp_newparam() for details)
+/// Windowed exponential prior: proposes a local reflected-window move around
+/// the old parameter (see propose_windowed_gamma_newparam()), instead of
+/// redrawing from the whole [min,max] range like propose_exp_newparam() does.
 MYREAL
 propose_expb_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
 {
-  MYREAL rr = propose_gamma_newparam (param, which, world, r);
-  //while (!rule_check(rr,which, world))
-  //  {
-  //    *r = UNIF_RANDUM();
-  //    rr = propose_gamma_newparam (param, which, world, r);
-  //  }
-  return rr;
+  return propose_windowed_gamma_newparam (param, which, world, r);
 }
 
 ///
-/// Hastings ratio calculator for exponential distribution
+/// Hastings ratio calculator for the windowed exponential proposal: the
+/// reflected-window move is symmetric (q(old|new) == q(new|old)), so the
+/// Hastings term is 0 regardless of the (now non-flat) target -- the target
+/// shape is accounted for separately in log_prior_ratio_wexp().
 MYREAL hastings_ratio_expb(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
+{
+  (void) newparam;
+  (void) oldparam;
+  (void) delta;
+  (void) r;
+  (void) bayes;
+  (void) whichparam;
+
+    return 0.;
+}
+
+///
+/// Windowed gamma prior: same reflected-window proposal as propose_expb_newparam()
+/// but for an arbitrary (not fixed alpha=1) truncated gamma target.
+MYREAL
+propose_wgamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  return propose_windowed_gamma_newparam (param, which, world, r);
+}
+
+///
+/// Hastings ratio calculator for the windowed gamma proposal: symmetric
+/// reflected-window move, so 0 as with hastings_ratio_expb() -- see there.
+MYREAL hastings_ratio_wgamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
 {
   (void) newparam;
   (void) oldparam;
@@ -1242,7 +1307,10 @@ void set_option_prior(prior_fmt **p, int type, MYREAL mini, MYREAL maxi, MYREAL 
 
 void is_priorkind(prior_fmt *p, char *priorkind)
 {
-  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER};
+  // index must track the prior kind values in definitions.h: 0..6 are the
+  // direct kinds, 7 (SLICE) intentionally falls back to TOTHER, 8 is
+  // WGAMMAPRIOR's own text, 9 is the final catch-all for anything else.
+  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER, TWGAMMAPRIOR, TOTHER};
   //const int numkind = NUMPRIORKIND;
   if (p->kind < NUMPRIORKIND)
     strncpy(priorkind,text[p->kind],PRIORKINDLENGTH);

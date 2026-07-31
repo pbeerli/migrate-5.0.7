@@ -301,6 +301,13 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
                 propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_normal_newparam;
                 hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_normal;
                 break;
+            case WGAMMAPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_wgamma;
+                log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_wgamma;
+                log_prior_1[i] = (MYREAL (*) (world_fmt *,  long, MYREAL)) log_prior_wgamma1;
+                propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_wgamma_newparam;
+                hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_wgamma;
+                break;
             default:
                 error("Prior distribution hookup failed");
                 //break;
@@ -1504,25 +1511,31 @@ MYREAL log_prior_exp1(world_fmt *world, long numparam, MYREAL value)
 
 
 //
-// Log Prior distribution ratios between old and new parameter:
-// EXPONENTIAL
-// $$p[x] = Integrate[Exp[-u/mean]/mean, {u, a, x}]/-Exp[-b/mean] + Exp[-a/mean] $$
-// the ratio between old and new parameter prior will be then
-// $$
-//\frac{e^{-\frac{a}{\text{mean}}}-e^{-\frac{x}{\text{mean}}
-//}}{e^{-\frac{a}{\text{mean}}}-e^{-\frac{\text{x0}}{\tex
-//						     t{mean}}}}
-// $$
-// see under log_prior_ratio_exp(), this needs more careful checking as here we
-// depend on current theta and almost certainly the hastings ratio is different from the
-// one with the exp proposal.
-MYREAL log_prior_ratio_wexp(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+// Log Prior distribution ratios between old and new parameter, for the
+// WINDOWED gamma-family priors (WEXPPRIOR, WGAMMAPRIOR): unlike
+// EXPPRIOR/GAMMAPRIOR, the proposal (propose_windowed_gamma_newparam(), a
+// symmetric reflected-window move) is NOT the target distribution itself, so
+// this ratio can't just cancel to 0/-HUGE -- it has to be the real
+// truncated-gamma log-density ratio between newparam and oldparam. Uses the
+// same logpdf_truncgamma() that log_prior_gamma()/log_prior_gamma1() use, so
+// this is consistent with the density reported for heating.
+MYREAL log_prior_ratio_wgamma(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
 {
-  (void) oldparam;
     if((newparam > bayes->maxparam[which]) || (newparam < bayes->minparam[which]))
       return (double) -HUGE;
     else
-        return 0.;
+      {
+        MYREAL a = bayes->alphaparam[which];
+        MYREAL b = bayes->betaparam[which];
+        MYREAL minp = bayes->minparam[which];
+        MYREAL maxp = bayes->maxparam[which];
+        return logpdf_truncgamma(a,b,minp,maxp,newparam) - logpdf_truncgamma(a,b,minp,maxp,oldparam);
+      }
+}
+
+MYREAL log_prior_ratio_wexp(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+{
+    return log_prior_ratio_wgamma(newparam, oldparam, bayes, which);
 }
 
 MYREAL log_prior_wexp(world_fmt *world, long numparam)
@@ -1533,6 +1546,16 @@ MYREAL log_prior_wexp(world_fmt *world, long numparam)
 MYREAL log_prior_wexp1(world_fmt *world, long numparam, MYREAL value)
 {
     return log_prior_exp1(world, numparam, value);
+}
+
+MYREAL log_prior_wgamma(world_fmt *world, long numparam)
+{
+    return log_prior_gamma(world, numparam);
+}
+
+MYREAL log_prior_wgamma1(world_fmt *world, long numparam, MYREAL value)
+{
+    return log_prior_gamma1(world, numparam, value);
 }
 //
 // Log Prior distribution ratios between old and new parameter:
@@ -3057,6 +3080,7 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
 	    bayes->betaparam[i] = (a - a*m)/m; 
 	    break;
         case GAMMAPRIOR:
+        case WGAMMAPRIOR:
             bayes->priormean[i] = prior->mean;
             bayes->alphaparam[i] = prior->alpha;
             bayes->alphaorigparam[i] = prior->alpha;

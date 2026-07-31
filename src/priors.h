@@ -38,6 +38,7 @@ priors.h supplies definitions of prior distributions specified in priors.c
 */
 #include "migration.h"
 extern void is_priorkind(prior_fmt *p, char *priorkind);
+extern MYREAL propose_reflect_window(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta);
 extern MYREAL propose_uniform(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta);
 extern MYREAL propose_uni_newparam (MYREAL param, long which, world_fmt * world, MYREAL *r);
 extern MYREAL propose_exp_newparam (MYREAL param, long which, world_fmt * world, MYREAL *r);
@@ -46,6 +47,7 @@ extern MYREAL propose_mult_newparam (MYREAL param,long which, world_fmt * world,
 extern MYREAL propose_normal_newparam (MYREAL param,long which, world_fmt * world, MYREAL *r);
 extern MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt * world, MYREAL *r);
 extern MYREAL propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+extern MYREAL propose_wgamma_newparam (MYREAL param, long which, world_fmt * world, MYREAL *r);
 
 extern MYREAL log_prior_ratio_uni  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 extern MYREAL log_prior_ratio_exp  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
@@ -54,6 +56,7 @@ extern MYREAL log_prior_ratio_mult (MYREAL newparam, MYREAL oldparam, bayes_fmt 
 extern MYREAL log_prior_ratio_normal (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
 extern MYREAL log_prior_ratio_gamma(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which);
 extern MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which);
+extern MYREAL log_prior_ratio_wgamma(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which);
 
 extern MYREAL log_prior_uni  (world_fmt * world, long numparam);//for heating
 extern MYREAL log_prior_exp  (world_fmt * world, long numparam);//for heating
@@ -62,6 +65,7 @@ extern MYREAL log_prior_mult (world_fmt * world, long numparam);//for heating
 extern MYREAL log_prior_normal (world_fmt * world, long numparam);//for heating
 extern MYREAL log_prior_gamma(world_fmt *world, long numparam);
 extern MYREAL log_prior_beta(world_fmt *world, long numparam);
+extern MYREAL log_prior_wgamma(world_fmt *world, long numparam);
 
 extern MYREAL log_prior_uni1  (world_fmt * world, long numparam, MYREAL);
 extern MYREAL log_prior_exp1  (world_fmt * world, long numparam, MYREAL);
@@ -70,12 +74,17 @@ extern MYREAL log_prior_mult1 (world_fmt * world, long numparam, MYREAL);
 extern MYREAL log_prior_normal1 (world_fmt * world, long numparam, MYREAL);
 extern MYREAL log_prior_gamma1(world_fmt *world, long numparam, MYREAL val);
 extern MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val);
+extern MYREAL log_prior_wgamma1(world_fmt *world, long numparam, MYREAL val);
+
+extern MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL xmin, MYREAL xmax, MYREAL x);
 
 extern MYREAL hastings_ratio_uni(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
 				 bayes_fmt * bayes, long whichparam);
 extern MYREAL hastings_ratio_exp(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
 				 bayes_fmt * bayes, long whichparam);
 extern MYREAL hastings_ratio_expb(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
+				  bayes_fmt * bayes, long whichparam);
+extern MYREAL hastings_ratio_wgamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
 				  bayes_fmt * bayes, long whichparam);
 extern MYREAL hastings_ratio_mult(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
 				  bayes_fmt * bayes, long whichparam);
