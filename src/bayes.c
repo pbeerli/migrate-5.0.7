@@ -308,6 +308,20 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
                 propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_wgamma_newparam;
                 hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_wgamma;
                 break;
+            case WBETAPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_wbeta;
+                log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_wbeta;
+                log_prior_1[i] = (MYREAL (*) (world_fmt *,  long, MYREAL)) log_prior_wbeta1;
+                propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_wbeta_newparam;
+                hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_wbeta;
+                break;
+            case WNORMALPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_wnormal;
+                log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_wnormal;
+                log_prior_1[i] = (MYREAL (*) (world_fmt *,  long, MYREAL)) log_prior_wnormal1;
+                propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_wnormal_newparam;
+                hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_wnormal;
+                break;
             default:
                 error("Prior distribution hookup failed");
                 //break;
@@ -1556,6 +1570,58 @@ MYREAL log_prior_wgamma(world_fmt *world, long numparam)
 MYREAL log_prior_wgamma1(world_fmt *world, long numparam, MYREAL value)
 {
     return log_prior_gamma1(world, numparam, value);
+}
+
+//
+// Log Prior distribution ratio for the WINDOWED beta prior (WBETAPRIOR):
+// same reasoning as log_prior_ratio_wgamma() above -- the reflected-window
+// proposal is not an independence draw from the target, so this needs the
+// real truncated-beta log-density ratio. This is (not coincidentally) the
+// same formula log_prior_ratio_beta() already computes; it is reused here
+// unchanged since it is exactly what a symmetric-proposal acceptance step
+// needs, regardless of which prior kind's proposal it is attached to.
+MYREAL log_prior_ratio_wbeta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+{
+    return log_prior_ratio_beta(newparam, oldparam, bayes, which);
+}
+
+MYREAL log_prior_wbeta(world_fmt *world, long numparam)
+{
+    return log_prior_beta(world, numparam);
+}
+
+MYREAL log_prior_wbeta1(world_fmt *world, long numparam, MYREAL value)
+{
+    return log_prior_beta1(world, numparam, value);
+}
+
+//
+// Log Prior distribution ratio for the WINDOWED normal prior (WNORMALPRIOR).
+// log_prior_normal1() uses a fixed standard-normal kernel (std=1, see there),
+// so the ratio is the difference of squared deviations from the mean; the
+// truncation normalizer is identical for newparam/oldparam (same [min,max])
+// and cancels.
+MYREAL log_prior_ratio_wnormal(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+{
+    if((newparam > bayes->maxparam[which]) || (newparam < bayes->minparam[which]))
+      return (double) -HUGE;
+    else
+      {
+        MYREAL mean = bayes->meanparam[which];
+        MYREAL xn = newparam - mean;
+        MYREAL xo = oldparam - mean;
+        return (xo*xo - xn*xn) / 2.0;
+      }
+}
+
+MYREAL log_prior_wnormal(world_fmt *world, long numparam)
+{
+    return log_prior_normal(world, numparam);
+}
+
+MYREAL log_prior_wnormal1(world_fmt *world, long numparam, MYREAL value)
+{
+    return log_prior_normal1(world, numparam, value);
 }
 //
 // Log Prior distribution ratios between old and new parameter:
@@ -3071,13 +3137,14 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
             bayes->delta[i] =  prior->delta; //(prior->max - prior->min)/(10.); // 1/10 of the max span
             break;
         case BETAPRIOR:
+        case WBETAPRIOR:
             bayes->priormean[i] = prior->mean;
             bayes->alphaparam[i] = prior->alpha;
             bayes->alphaorigparam[i] = prior->alpha;
             bayes->delta[i] =  prior->delta; //(prior->min + prior->max)/(20.); // 1/10 of the max span
 	    a = prior->alpha;
 	    m = prior->mean ;/// (bayes->maxparam[i] - bayes->minparam[i]);
-	    bayes->betaparam[i] = (a - a*m)/m; 
+	    bayes->betaparam[i] = (a - a*m)/m;
 	    break;
         case GAMMAPRIOR:
         case WGAMMAPRIOR:
@@ -3088,6 +3155,7 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
             bayes->betaparam[i] = find_beta_truncgamma(prior->mean, prior->alpha, bayes->minparam[i],bayes->maxparam[i]);
 	    break;
         case NORMALPRIOR:
+        case WNORMALPRIOR:
             bayes->priormean[i] = prior->mean;
             bayes->alphaparam[i] = prior->alpha; //check why wrote this: prior->std;
             bayes->alphaorigparam[i] = prior->alpha;

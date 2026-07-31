@@ -63,6 +63,8 @@ MYREAL propose_normal_newparam (MYREAL param,long which, world_fmt *world, MYREA
 MYREAL propose_gamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 MYREAL propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 MYREAL propose_wgamma_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+MYREAL propose_wbeta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+MYREAL propose_wnormal_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
 MYREAL propose_reflect_window(MYREAL param, MYREAL minparam, MYREAL maxparam, MYREAL *r, MYREAL delta);
 
 MYREAL log_prior_ratio_uni  (MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
@@ -100,6 +102,8 @@ MYREAL hastings_ratio_expb(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
 MYREAL hastings_ratio_mult(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_normal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_gamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
+MYREAL hastings_ratio_wbeta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
+MYREAL hastings_ratio_wnormal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 
 void init_hyperpriorrecord(hyper_fmt ** hyperp,long numparam);
@@ -759,6 +763,32 @@ propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
 }
 
 ///
+/// Windowed beta prior: local reflected-window move instead of an
+/// independence draw from the truncated beta (see propose_beta_newparam()
+/// and propose_reflect_window()). log_prior_ratio_wbeta() supplies the real
+/// beta density ratio needed because the proposal is no longer the target.
+MYREAL
+propose_wbeta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  bayes_fmt *bayes = world->bayes;
+  const MYREAL lower = bayes->minparam[which];
+  const MYREAL upper = bayes->maxparam[which];
+  return propose_reflect_window(param, lower, upper, r, bayes->delta[which]);
+}
+
+///
+/// Windowed normal prior: local reflected-window move instead of an
+/// independence draw from normal_rand() (see propose_normal_newparam()).
+MYREAL
+propose_wnormal_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  bayes_fmt *bayes = world->bayes;
+  const MYREAL lower = bayes->minparam[which];
+  const MYREAL upper = bayes->maxparam[which];
+  return propose_reflect_window(param, lower, upper, r, bayes->delta[which]);
+}
+
+///
 /// Hastings ratio calculator for gamma distribution
 /// P(new -> old)    P(old)
 /// ------------- = -------
@@ -798,6 +828,33 @@ MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
       // 	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
       return 0.;
     }
+}
+
+///
+/// Hastings ratio calculator for the windowed beta/normal proposals: the
+/// reflected-window move is symmetric (q(old|new) == q(new|old)), so the
+/// Hastings term is 0 -- the target shape is accounted for separately in
+/// log_prior_ratio_wbeta()/log_prior_ratio_wnormal().
+MYREAL hastings_ratio_wbeta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
+{
+  (void) newparam;
+  (void) oldparam;
+  (void) delta;
+  (void) r;
+  (void) bayes;
+  (void) whichparam;
+    return 0.;
+}
+
+MYREAL hastings_ratio_wnormal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
+{
+  (void) newparam;
+  (void) oldparam;
+  (void) delta;
+  (void) r;
+  (void) bayes;
+  (void) whichparam;
+    return 0.;
 }
 
 /// Log Prior gamma distribution ratios between old and new parameter:
@@ -1308,9 +1365,10 @@ void set_option_prior(prior_fmt **p, int type, MYREAL mini, MYREAL maxi, MYREAL 
 void is_priorkind(prior_fmt *p, char *priorkind)
 {
   // index must track the prior kind values in definitions.h: 0..6 are the
-  // direct kinds, 7 (SLICE) intentionally falls back to TOTHER, 8 is
-  // WGAMMAPRIOR's own text, 9 is the final catch-all for anything else.
-  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER, TWGAMMAPRIOR, TOTHER};
+  // direct kinds, 7 (SLICE) intentionally falls back to TOTHER, 8..10 are
+  // WGAMMAPRIOR/WBETAPRIOR/WNORMALPRIOR's own text, 11 is the final
+  // catch-all for anything else.
+  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER, TWGAMMAPRIOR, TWBETAPRIOR, TWNORMALPRIOR, TOTHER};
   //const int numkind = NUMPRIORKIND;
   if (p->kind < NUMPRIORKIND)
     strncpy(priorkind,text[p->kind],PRIORKINDLENGTH);

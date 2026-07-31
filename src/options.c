@@ -3590,6 +3590,7 @@ void   set_parm_prior_values(prior_fmt * prior, char * mytext)
       strcat(mytext,tmp4);
       break;
     case WGAMMAPRIOR:
+    case WBETAPRIOR:
       show_priormean(tmp2, prior);
       show_priormax(tmp3, prior);
       show_prioralpha(tmp4, prior);
@@ -3603,9 +3604,19 @@ void   set_parm_prior_values(prior_fmt * prior, char * mytext)
       show_priormean(tmp2, prior);
       show_priormax(tmp3, prior);
       show_prioralpha(tmp4, prior);
-      strcat(mytext,tmp2);	  
+      strcat(mytext,tmp2);
       strcat(mytext,tmp3);
       strcat(mytext,tmp4);
+      break;
+    case WNORMALPRIOR:
+      show_priormean(tmp2, prior);
+      show_priormax(tmp3, prior);
+      show_prioralpha(tmp4, prior);
+      show_priordelta(tmp5, prior);
+      strcat(mytext,tmp2);
+      strcat(mytext,tmp3);
+      strcat(mytext,tmp4);
+      strcat(mytext,tmp5);
       break;
     case UNIFORMPRIOR:
     default:	  
@@ -3655,8 +3666,11 @@ char * show_parmpriortype(int priorset)
     case WEXPPRIOR: return "WEXPPRIOR";
     case GAMMAPRIOR: return "GAMMAPRIOR";
     case WGAMMAPRIOR: return "WGAMMAPRIOR";
+    case BETAPRIOR: return "BETAPRIOR";
+    case WBETAPRIOR: return "WBETAPRIOR";
     case UNIFORMPRIOR: return "UNIFORMPRIOR";
     case NORMALPRIOR: return "NORMALPRIOR";
+    case WNORMALPRIOR: return "WNORMALPRIOR";
     default: return "UNIFORMPRIOR";
     }
 }
@@ -3707,10 +3721,14 @@ char * getpriortype(int kind)
       return "GAMMAPRIOR";
     case WGAMMAPRIOR:
       return "WGAMMAPRIOR";
+    case WBETAPRIOR:
+      return "WBETAPRIOR";
     case UNIFORMPRIOR:
       return "UNIFORMPRIOR";
     case NORMALPRIOR:
       return "NORMALPRIOR";
+    case WNORMALPRIOR:
+      return "WNORMALPRIOR";
     }
   return "";
 }
@@ -4511,17 +4529,21 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "              RATE is used for evolutionary rate differences (use only with date samples)");    
     print_parm_comment(&bufsize, buffer, allocbufsize, "              SPLIT is used for mean of the normal distributed population divergence");    
     print_parm_comment(&bufsize, buffer, allocbufsize, "              SPLITSTD is used for the standard deviation of the population divergence");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       PRIORdistribution is one of UNIFORMPRIOR, EXPPRIOR, WEXPPRIOR, GAMMAPRIOR, WGAMMAPRIOR, NORMALPRIOR");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       PRIORdistribution is one of UNIFORMPRIOR, EXPPRIOR, WEXPPRIOR, GAMMAPRIOR, WGAMMAPRIOR,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                            BETAPRIOR, WBETAPRIOR, NORMALPRIOR, WNORMALPRIOR");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               unipriorvalues: min max delta");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               exppriorvalues: min mean max");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               wexppriorvalues: min mean max delta");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               gammapriorvalues: min mean max alpha");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               wgammapriorvalues: min mean max alpha delta");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               betapriorvalues: min mean max alpha");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               wbetapriorvalues: min mean max alpha delta");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               normalpriorvalues: min mean max std");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       W-prefixed priors (WEXPPRIOR, WGAMMAPRIOR) use a local windowed");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       Metropolis move of width delta around the current value instead");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       of redrawing from the whole [min,max] range each step; use for");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       DELTA about 1/10 of the min-max range");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               wnormalpriorvalues: min mean max std delta");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       W-prefixed priors (WEXPPRIOR, WGAMMAPRIOR, WBETAPRIOR, WNORMALPRIOR) use a local");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       windowed Metropolis move of width delta around the current value instead of");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       redrawing from the whole [min,max] range each step; use for DELTA about 1/10");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       of the min-max range");
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Search OPTIONS");    
     print_parm_comment(&bufsize, buffer, allocbufsize, "       long-inc=VALUE      VALUE is the number of updates that are not recorded");
@@ -4885,7 +4907,7 @@ void set_bayes_options(char *value, option_fmt *options)
 	prior->delta = (MYREAL) (prior->max + prior->min) / 10.;
 	prior->kind = EXPPRIOR;
 	break;
-      case 'W'/*windowed priors: wexpprior, wgammaprior -- disambiguate on 2nd letter*/:
+      case 'W'/*windowed priors: wexpprior, wgammaprior, wbetaprior, wnormalprior -- disambiguate on 2nd letter*/:
 	switch(uppercase(priortype[1]))
 	  {
 	  case 'G'/*wgammaprior */:
@@ -4896,6 +4918,24 @@ void set_bayes_options(char *value, option_fmt *options)
 	    prior->alpha = (MYREAL) alpha;
 	    prior->delta = (MYREAL) delta;
 	    prior->kind = WGAMMAPRIOR;
+	    break;
+	  case 'B'/*wbetaprior  */:
+	    sscanf(valueptr,"%s%f%f%f%f%f", priortype, &mini,&meani, &maxi, &alpha, &delta);
+	    prior->min = (MYREAL) mini;
+	    prior->mean = (MYREAL) meani;
+	    prior->max = (MYREAL) maxi;
+	    prior->alpha = (MYREAL) alpha;
+	    prior->delta = (MYREAL) delta;
+	    prior->kind = WBETAPRIOR;
+	    break;
+	  case 'N'/*wnormalprior*/:
+	    sscanf(valueptr,"%s%f%f%f%f%f", priortype, &mini,&meani, &maxi, &std, &delta);
+	    prior->min = (MYREAL) mini;
+	    prior->mean = (MYREAL) meani;
+	    prior->max = (MYREAL) maxi;
+	    prior->alpha = (MYREAL) std;
+	    prior->delta = (MYREAL) delta;
+	    prior->kind = WNORMALPRIOR;
 	    break;
 	  case 'E'/*wexpprior   */:
 	  default:
