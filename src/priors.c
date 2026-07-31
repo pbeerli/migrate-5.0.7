@@ -810,10 +810,16 @@ MYREAL hastings_ratio_gamma(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYRE
 /// P(new -> old)    P(old)
 /// ------------- = -------
 /// P(old -> new)    P(new)
-/// cancels with log_prior_beta -> 0.0
+/// propose_beta_newparam() is an independence sampler that draws directly
+/// from the truncated Beta(alpha,beta) target, so this must return the real
+/// P(old)/P(new) ratio -- it needs to cancel log_prior_ratio_beta()'s real
+/// P(new)/P(old) ratio so the combined acceptance-ratio contribution is 1
+/// (log 0), same as any independence sampler. This was previously hardcoded
+/// to 0 (leaving the dead code below uncommented as a "test"), which left
+/// log_prior_ratio_beta()'s density ratio uncancelled: BETAPRIOR's
+/// acceptance step was effectively counting the prior ratio an extra time.
 MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
 {
-  (void) oldparam;
   (void) delta;
   (void) r;
   long i = whichparam;
@@ -821,12 +827,10 @@ MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
     return (double) -HUGE;
   else
     {
-      //return oldparam / newparam;//test May 2024
-      //double a = bayes->alphaparam[i];
-      //double b = bayes->betaparam[i];
-      //return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
-      // 	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
-      return 0.;
+      double a = bayes->alphaparam[i];
+      double b = bayes->betaparam[i];
+      return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
+      	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
     }
 }
 
