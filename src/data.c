@@ -2966,7 +2966,7 @@ print_variable_sites_summary (FILE * file, world_fmt * world,
   fprintf (file, "Locus      Sites  Missing[%%]   copies  Variable      %2.0f%%      %2.0f%%\n",
 	   100.0 * VARSITE_MISSING_HIGH, 100.0 * VARSITE_MISSING_VERYHIGH);
   fprintf (file, "---------------------------------------------------------------------\n");
-  if (printloci > VARSITE_MAXPRINT)
+  if (!options->printallvarsites && printloci > VARSITE_MAXPRINT)
     printloci = VARSITE_MAXPRINT;
   for (locus = 0; locus < data->loci; locus++)
     {
@@ -3127,26 +3127,86 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
     }
   fprintf (file, "Number of loci:                         %20li\nMutationmodel:\n",
 	   data->loci);
-  
+
   fprintf(file," Locus  Sublocus  Mutationmodel   Mutationmodel parameter\n");
   fprintf(file,"-----------------------------------------------------------------\n");
-  long printloci = data->loci;
-  if(terse)
-    {
-      printloci = TEN;
-      fprintf(file,"Only the first 10 loci are shown\n");
-    }
-  for (locus=0; locus < printloci; locus++)
-    {
-      long   sublocus;
-      long   sublocistart = world->sublocistarts[locus];
-      long   sublociend = world->sublocistarts[locus+1];
-      for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
-	{	  
-	  get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
-	  fprintf(file,"%6li  %8li %-15.15s %s\n",locus+1,sublocus-sublocistart+1,modelname,modelparam);
-	}
-    }
+  {
+    char modelname0[LINESIZE];
+    char modelparam0[LINESIZE];
+    long sublocistart0 = world->sublocistarts[0];
+    long sublociend0 = world->sublocistarts[1];
+    long sublocus;
+    boolean print_siterates = FALSE;
+    boolean same_for_all_loci = TRUE;
+    for(sublocus=sublocistart0; sublocus<sublociend0; sublocus++)
+      {
+	if (world->mutationmodels[sublocus].numsiterates > 1)
+	  print_siterates = TRUE;
+      }
+    for (locus=1; locus < data->loci; locus++)
+      {
+	long   sublocistart = world->sublocistarts[locus];
+	long   sublociend = world->sublocistarts[locus+1];
+	if (sublociend - sublocistart != sublociend0 - sublocistart0)
+	  same_for_all_loci = FALSE;
+	for(sublocus=sublocistart; sublocus<sublociend; sublocus++)
+	  {
+	    if (world->mutationmodels[sublocus].numsiterates > 1)
+	      print_siterates = TRUE;
+	    if (same_for_all_loci)
+	      {
+		long sublocus0 = sublocistart0 + (sublocus - sublocistart);
+		get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+		get_mutationmodel_nameparam(modelname0,modelparam0, &world->mutationmodels[sublocus0]);
+		if (strcmp(modelname,modelname0)!=0 || strcmp(modelparam,modelparam0)!=0)
+		  same_for_all_loci = FALSE;
+	      }
+	  }
+      }
+    if (same_for_all_loci)
+      {
+	for(sublocus=sublocistart0; sublocus<sublociend0; sublocus++)
+	  {
+	    get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+	    fprintf(file,"%6s  %8li %-15.15s %s\n","all",sublocus-sublocistart0+1,modelname,modelparam);
+	  }
+	fprintf(file,"[same mutation model for all %li loci]\n", data->loci);
+      }
+    else
+      {
+	long printloci = data->loci;
+	if(terse)
+	  {
+	    printloci = TEN;
+	    fprintf(file,"Only the first 10 loci are shown\n");
+	  }
+	for (locus=0; locus < printloci; locus++)
+	  {
+	    long   sublocistart = world->sublocistarts[locus];
+	    long   sublociend = world->sublocistarts[locus+1];
+	    for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
+	      {
+		get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+		fprintf(file,"%6li  %8li %-15.15s %s\n",locus+1,sublocus-sublocistart+1,modelname,modelparam);
+	      }
+	  }
+	if (data->loci > printloci)
+	  fprintf(file, "[only the first %li loci are shown]\n", printloci);
+      }
+    if (print_siterates)
+      {
+	boolean ratecompressed = (data->loci > TEN);
+	fprintf(file,"\n");
+	fprintf (file,"Site Rate variation per locus\n");
+	fprintf (file,"-----------------------------\n");
+	print_ratetbl (file, world, options,0, ratecompressed ? 'C' : 'A');
+	for(locus=1; locus< data->loci; locus++)
+	  {
+	    print_ratetbl (file, world, options,locus, ratecompressed ? 'G' : 'F');
+	  }
+	fprintf(file,"\n");
+      }
+  }
   if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
     {
       long invar = 0;
@@ -3173,96 +3233,68 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 
 
 
-    //print used sites per locus
+    //print gene copies per population and locus
     if (!(!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@'))
       {
-	boolean compressed = FALSE;
-	boolean print_siterates = FALSE;
-	fprintf (file,"Sites per locus\n");
-	fprintf (file,"---------------\n");
-	if (data->loci > TEN)
-	  compressed=TRUE;
-	if (compressed)
+	if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@')
 	  {
-	    long mini = MAXLONG;
-	    long maxi = 0;
-	    for(locus=0; locus< data->loci; locus++)
-	      {
-		long   m = 0;
-		long   sublocus;
-		long   sublocistart = world->sublocistarts[locus];
-		long   sublociend = world->sublocistarts[locus+1];
-		for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
-		  {
-		    m = world->mutationmodels[sublocus].numsites;
-		    if (world->mutationmodels[sublocus].numsiterates > 1)
-		      print_siterates = TRUE;
-		    if (m<mini)
-		      mini = m;
-		    if (m > maxi)
-		      maxi = m;
-		  }
-	      }
-	    fprintf(file,"%li loci with minimal of %li sites and maximal number of %li sites per sublocus\n",
-		    data->loci, mini, maxi);
-
-	    if (print_siterates)
-	      {
-		fprintf(file,"\n");
-		fprintf (file,"Site Rate variation per locus\n");
-		fprintf (file,"-----------------------------\n");
-		print_ratetbl (file, world, options,0,'C');
-		for(locus=1; locus< data->loci; locus++)
-		  {
-		    print_ratetbl (file, world, options,locus,'G');//followup but compressed
-		  }
-	      }
-	    fprintf(file,"\n");
-
+	    fprintf (file,"%-*.*s     Locus   Gene copies    \n",maxlength,maxlength,"Population");
+	    fprintf (file,"%-*.*s             ---------------\n",maxlength, maxlength, " ");
+	    fprintf (file,"%-*.*s             data  (missing)\n",maxlength, maxlength, " ");
 	  }
 	else
 	  {
-	    fprintf (file,"Locus    Sites\n");
+	    fprintf (file,"%-*.*s     Locus   Gene copies    \n",maxlength,maxlength,"Population");
+	  }
+	fprintf (file,"----%-*.*s------------------------\n",maxlength,maxlength,"------------------------------------------------------------------");
+	for (pop = 0; pop < data->numpop; pop++)
+	  {
+	    boolean pop_homogeneous = TRUE;
+	    long pop_numind = -1;
+	    long pop_nummiss = -1;
 	    for(locus=0; locus< data->loci; locus++)
 	      {
-		fprintf(file,"%6li    ",locus+1);
 		long   sublocus;
 		long   sublocistart = world->sublocistarts[locus];
 		long   sublociend = world->sublocistarts[locus+1];
 		for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
 		  {
-		    if (world->mutationmodels[sublocus].numsiterates > 1)
-		      print_siterates = TRUE;
-		    fprintf(file," %li",world->mutationmodels[sublocus].numsites);
+		    if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@')
+		      {
+			nummiss = find_missing(data,pop,sublocus);
+			numind = data->numalleles[pop][sublocus] - nummiss;
+		      }
+		    else
+		      {
+			nummiss = 0;
+			numind = data->numind[pop][locus];
+		      }
+		    if (pop_numind == -1)
+		      {
+			pop_numind = numind;
+			pop_nummiss = nummiss;
+		      }
+		    else if (numind != pop_numind || nummiss != pop_nummiss)
+		      {
+			pop_homogeneous = FALSE;
+		      }
+		    total[locus] += numind;
+		    totalmiss[locus] += nummiss;
 		  }
-		fprintf(file,"\n");
 	      }
-	    if (print_siterates)
+	    if (pop_homogeneous)
 	      {
-		fprintf(file,"\n");
-		fprintf (file,"Site Rate variation per locus\n");
-		fprintf (file,"-----------------------------\n");
-		print_ratetbl (file, world, options,0,'C');//was A
-		for(locus=1; locus< data->loci; locus++)
-		  {
-		    print_ratetbl (file, world, options,locus,'G');//was F
-		  }
-	      }
-	    fprintf(file,"\n");
-	    if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@')
-	      {
-		fprintf (file,"%-*.*s     Locus   Gene copies    \n",maxlength,maxlength,"Population");
-		fprintf (file,"%-*.*s             ---------------\n",maxlength, maxlength, " ");
-		fprintf (file,"%-*.*s             data  (missing)\n",maxlength, maxlength, " ");
+		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@')
+		  fprintf (file, "%3li %-*.*s %5s %6li (%li)  [same for all %li loci]\n", options->newpops[pop], maxlength,maxlength,data->popnames[pop], "all", pop_numind, pop_nummiss, data->loci);
+		else
+		  fprintf (file, "%3li %-*.*s %5s    %6li  [same for all %li loci]\n", options->newpops[pop], maxlength,maxlength,data->popnames[pop], "all", pop_numind, data->loci);
 	      }
 	    else
 	      {
-		fprintf (file,"%-*.*s     Locus   Gene copies    \n",maxlength,maxlength,"Population");
-	      }
-	    fprintf (file,"----%-*.*s------------------------\n",maxlength,maxlength,"------------------------------------------------------------------");
-	    for (pop = 0; pop < data->numpop; pop++)
-	      {
-		for(locus=0; locus< data->loci; locus++)
+		long printloci = data->loci;
+		if (terse)
+		  printloci = TEN;
+		for(locus=0; locus< printloci; locus++)
 		  {
 		    long   sublocus;
 		    long   sublocistart = world->sublocistarts[locus];
@@ -3281,28 +3313,51 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 			    numind = data->numind[pop][locus];
 			    fprintf (file, "%3li %-*.*s %5li    %6li\n", options->newpops[pop], maxlength,maxlength,(locus==0 ? data->popnames[pop] : " "), locus+1 , numind);
 			  }
-			total[locus] += numind;
-			totalmiss[locus] += nummiss;
 		      }
 		  }
+		if (data->loci > printloci)
+		  fprintf(file, "    %-*.*s [only the first %li loci are shown]\n", maxlength,maxlength," ", printloci);
 	      }
-	    if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype != '@')
-	      {
-		for(locus=0; locus< data->loci; locus++)
-		  {
-		    fprintf (file,"    %-*.*s %5li %6li (%li)\n",maxlength,maxlength, 
-			     (locus == 0 ? "Total of all populations" : " "), locus+1, total[locus], totalmiss[locus]);
-		  }
-	      }
-	    else
-	      {
-		for(locus=0; locus< data->loci; locus++)
-		  {
-		    fprintf (file,"    %-*.*s %5li    %6li\n",maxlength,maxlength, 
-			     (locus == 0 ? "Total of all populations" : " "), locus+1, total[locus]);
-		  }
-	      }    
 	  }
+	{
+	  boolean total_homogeneous = TRUE;
+	  long printloci = data->loci;
+	  for(locus=1; locus< data->loci; locus++)
+	    {
+	      if (total[locus] != total[0] || totalmiss[locus] != totalmiss[0])
+		total_homogeneous = FALSE;
+	    }
+	  if (total_homogeneous)
+	    {
+	      if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype != '@')
+		fprintf (file,"    %-*.*s %5s %6li (%li)  [same for all %li loci]\n",maxlength,maxlength,"Total of all populations","all", total[0], totalmiss[0], data->loci);
+	      else
+		fprintf (file,"    %-*.*s %5s    %6li  [same for all %li loci]\n",maxlength,maxlength,"Total of all populations","all", total[0], data->loci);
+	    }
+	  else
+	    {
+	      if (terse)
+		printloci = TEN;
+	      if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype != '@')
+		{
+		  for(locus=0; locus< printloci; locus++)
+		    {
+		      fprintf (file,"    %-*.*s %5li %6li (%li)\n",maxlength,maxlength,
+			       (locus == 0 ? "Total of all populations" : " "), locus+1, total[locus], totalmiss[locus]);
+		    }
+		}
+	      else
+		{
+		  for(locus=0; locus< printloci; locus++)
+		    {
+		      fprintf (file,"    %-*.*s %5li    %6li\n",maxlength,maxlength,
+			       (locus == 0 ? "Total of all populations" : " "), locus+1, total[locus]);
+		    }
+		}
+	      if (data->loci > printloci)
+		fprintf(file, "    %-*.*s [only the first %li loci are shown]\n", maxlength,maxlength," ", printloci);
+	    }
+	}
       }
     fprintf(file,"\n");
     print_variable_sites_summary (file, world, options, data);

@@ -332,7 +332,9 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 		  bfsum += world->data->locusweight[locus] * world->bf[locus * hc + t];
 		  ssum += log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t];
 		}
-	      fprintf(world->outfile,"%5li %10.5f          %10.5f  %10.5f\n",t+1,universe[t]->heat, bfsum/nloc, ssum/nloc);
+	      // universe[t]->heat is the inverse temperature (beta=1/T); averageheat
+	      // is always kept in true-temperature units, so print that instead.
+	      fprintf(world->outfile,"%5li %10.5f          %10.5f  %10.5f\n",t+1,universe[t]->averageheat, bfsum/nloc, ssum/nloc);
 	    }
 	  pdf_print_averageheat(universe,options);
 	}

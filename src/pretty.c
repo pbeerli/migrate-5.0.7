@@ -4133,11 +4133,11 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
   double c4 = left_margin + 300;  //variable
   double c5 = left_margin + 380;  //variable with high missing
   double c6 = left_margin + 450;  //variable with very high missing
+  double page_width;
   if (!strchr (SEQUENCETYPES, options->datatype))
     return;
   memset (&all, 0, sizeof (variable_sites_fmt));
-  pdf_advance(&page_height);
-  pdf_print_contents_at(left_margin, page_height,"Variable sites per locus");
+  pdf_print_section_title(&page_width, &page_height, "Variable sites per locus");
   pdf_advance(&page_height);
   pdf_printf(left_margin, page_height,'L',
 	     "A site counts as variable when two or more of A,C,G,T are observed; '?', '-', '0',");
@@ -4160,7 +4160,7 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
   pdf_advance(&page_height);
   if (options->tersepdf && printloci > TEN)
     printloci = TEN;
-  if (printloci > VARSITE_MAXPRINT)
+  if (!options->printallvarsites && printloci > VARSITE_MAXPRINT)
     printloci = VARSITE_MAXPRINT;
   for (locus = 0; locus < data->loci; locus++)
     {
@@ -4303,25 +4303,95 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     pdf_print_contents_at(left_margin+200, page_height,"Mutationmodel parameters");
     pdf_advance(&page_height);
     boolean terse = options->tersepdf;
-    long printloci = data->loci;
-    if(terse)
-      {
-	printloci = TEN;
-	pdf_advance(&page_height);
-	pdf_printf(left_margin, page_height,'L', "Only the first 10 loci are shown\n");
-      }
-    for (locus=0; locus < printloci; locus++)
-      {
-	long   sublocus;
-	long   sublocistart = world->sublocistarts[locus];
-	long   sublociend = world->sublocistarts[locus+1];
-	for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
-	  {	  
-	    get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
-	    pdf_advance(&page_height);
-	    pdf_printf(left_margin, page_height,'L', "%6li     %8li           %-15.15s          %s\n",locus+1,sublocus-sublocistart+1,modelname,modelparam);
-	  }
-      }
+    {
+      char modelname0[LINESIZE];
+      char modelparam0[LINESIZE];
+      long sublocistart0 = world->sublocistarts[0];
+      long sublociend0 = world->sublocistarts[1];
+      long sublocus;
+      boolean print_siterates = FALSE;
+      boolean same_for_all_loci = TRUE;
+      for(sublocus=sublocistart0; sublocus<sublociend0; sublocus++)
+	{
+	  if (world->mutationmodels[sublocus].numsiterates > 1)
+	    print_siterates = TRUE;
+	}
+      for (locus=1; locus < data->loci; locus++)
+	{
+	  long   sublocistart = world->sublocistarts[locus];
+	  long   sublociend = world->sublocistarts[locus+1];
+	  if (sublociend - sublocistart != sublociend0 - sublocistart0)
+	    same_for_all_loci = FALSE;
+	  for(sublocus=sublocistart; sublocus<sublociend; sublocus++)
+	    {
+	      if (world->mutationmodels[sublocus].numsiterates > 1)
+		print_siterates = TRUE;
+	      if (same_for_all_loci)
+		{
+		  long sublocus0 = sublocistart0 + (sublocus - sublocistart);
+		  get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+		  get_mutationmodel_nameparam(modelname0,modelparam0, &world->mutationmodels[sublocus0]);
+		  if (strcmp(modelname,modelname0)!=0 || strcmp(modelparam,modelparam0)!=0)
+		    same_for_all_loci = FALSE;
+		}
+	    }
+	}
+      if (same_for_all_loci)
+	{
+	  for(sublocus=sublocistart0; sublocus<sublociend0; sublocus++)
+	    {
+	      get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+	      pdf_advance(&page_height);
+	      pdf_printf(left_margin, page_height,'L', "%6s     %8li           %-15.15s          %s\n","all",sublocus-sublocistart0+1,modelname,modelparam);
+	    }
+	  pdf_advance(&page_height);
+	  pdf_printf(left_margin, page_height,'L', "[same mutation model for all %li loci]\n", data->loci);
+	}
+      else
+	{
+	  long printloci = data->loci;
+	  if(terse)
+	    {
+	      printloci = TEN;
+	      pdf_advance(&page_height);
+	      pdf_printf(left_margin, page_height,'L', "Only the first 10 loci are shown\n");
+	    }
+	  for (locus=0; locus < printloci; locus++)
+	    {
+	      long   sublocistart = world->sublocistarts[locus];
+	      long   sublociend = world->sublocistarts[locus+1];
+	      for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
+		{
+		  get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
+		  pdf_advance(&page_height);
+		  pdf_printf(left_margin, page_height,'L', "%6li     %8li           %-15.15s          %s\n",locus+1,sublocus-sublocistart+1,modelname,modelparam);
+		}
+	    }
+	  if (data->loci > printloci)
+	    {
+	      pdf_advance(&page_height);
+	      pdf_printf(left_margin, page_height,'L', "[only the first %li loci are shown]\n", printloci);
+	    }
+	}
+      if (print_siterates)
+	{
+	  compressed = (data->loci > TEN);
+	  pdf_advance(&page_height);
+	  pdf_advance(&page_height);
+	  if(compressed)
+	    pdf_print_ratetbl (world, options, 0, 'C');
+	  else
+	    pdf_print_ratetbl (world, options, 0, 'A');
+	  for(locus=1; locus< data->loci; locus++)
+	    {
+	      if(compressed)
+		pdf_print_ratetbl (world, options, locus, 'G');
+	      else
+		pdf_print_ratetbl (world, options, locus, 'F');
+	    }
+	  pdf_advance(&page_height);
+	}
+    }
     pdf_advance(&page_height);
     if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
       {
@@ -4340,166 +4410,160 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
       pdf_printf_right_next(left_margin, &page_height,"%li", options->randomsubset);
     }
     pdf_advance(&page_height);
-    //print used sites per locus
+    //print gene copies per population and locus
     if (!(!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@'))
       {
+	pdf_print_contents_at(left_margin, page_height,"Population");
+	pdf_print_contents_at(col1, page_height,"Locus");
+	pdf_print_contents_at(col3, page_height, "Gene copies");
 	pdf_advance(&page_height);
-	pdf_print_contents_at(left_margin, page_height,"Sites per locus");
-	pdf_advance(&page_height);
-	pdf_print_contents_at(left_margin, page_height,"Locus");
-	pdf_print_contents_at(left_margin+100, page_height,"Sites\n");
-	boolean print_siterates = FALSE;
-	if (data->loci > TEN)
-	  compressed=TRUE;
-	if (compressed)
+	if (!strchr (SEQUENCETYPES, options->datatype))
 	  {
-	    long mini = 10000000;
-	    long maxi = 0;
+	    pdf_print_contents_at(col3, page_height,"data");
+	    pdf_printf_right_next(left_margin, &page_height,"(missing)");
+	  }
+
+	for (pop = 0; pop < data->numpop; pop++)
+	  {
+	    boolean pop_homogeneous = TRUE;
+	    long pop_numind = -1;
+	    long pop_nummiss = -1;
 	    for(locus=0; locus< data->loci; locus++)
 	      {
-		long   m = 0;
-		long   sublocus;
-		long   sublocistart = world->sublocistarts[locus];
-		long   sublociend = world->sublocistarts[locus+1];
-		for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
+		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
 		  {
-		    m = world->mutationmodels[sublocus].numsites;
-		    if (world->mutationmodels[sublocus].numsiterates > 1)
-		      print_siterates = TRUE;
-		    if (m<mini)
-		      mini = m;
-		    if (m > maxi)
-		      maxi = m;
+		    nummiss = find_missing(data,pop,locus);
+		    numind = data->numalleles[pop][locus] - nummiss;
+		  }
+		else
+		  {
+		    nummiss = 0;
+		    numind = data->numind[pop][locus];
+		  }
+		if (pop_numind == -1)
+		  {
+		    pop_numind = numind;
+		    pop_nummiss = nummiss;
+		  }
+		else if (numind != pop_numind || nummiss != pop_nummiss)
+		  {
+		    pop_homogeneous = FALSE;
+		  }
+		total[locus] += numind;
+		totalmiss[locus] += nummiss;
+	      }
+	    if (pop_homogeneous)
+	      {
+		pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
+		pdf_printf_ralign(col2, page_height,"all");
+		pdf_printf_ralign(col3, page_height,"%li", pop_numind);
+		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
+		  pdf_printf_right_next(left_margin+10, &page_height,"(%li)", pop_nummiss);
+		else
+		  pdf_advance(&page_height);
+		pdf_printf(left_margin, page_height, 'L', "    [same for all %li loci]", data->loci);
+		pdf_advance(&page_height);
+	      }
+	    else
+	      {
+		long printloci = data->loci;
+		if (terse)
+		  printloci = TEN;
+		pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
+		pdf_printf_ralign(col2, page_height,"1");
+		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
+		  {
+		    nummiss = find_missing(data,pop,0);
+		    numind = data->numalleles[pop][0] - nummiss;
+		    pdf_printf_ralign(col3, page_height,"%li",numind);
+		    pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
+		  }
+		else
+		  {
+		    numind = data->numind[pop][0];
+		    pdf_printf_ralign(col3, page_height,"%li", numind);
+		    pdf_advance(&page_height);
+		  }
+		for(locus=1; locus< printloci; locus++)
+		  {
+		    if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
+		      {
+			nummiss = find_missing(data,pop,locus);
+			numind = data->numalleles[pop][locus] - nummiss;
+			pdf_printf_ralign(col2, page_height,"%li",locus+1);
+			pdf_printf_ralign(col3, page_height,"%li",numind);
+			pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
+		      }
+		    else
+		      {
+			numind = data->numind[pop][locus];
+			pdf_printf_ralign(col2, page_height,"%li",locus+1);
+			pdf_printf_ralign(col3, page_height,"%li",numind);
+			pdf_advance(&page_height);
+		      }
+		  }
+		if (data->loci > printloci)
+		  {
+		    pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+		    pdf_advance(&page_height);
 		  }
 	      }
-	    pdf_printf(left_margin,page_height,'L',"%li loci with minimal %li and maximal %li subloci\n",
-		    data->loci, mini, maxi);
 	  }
-	else
-	  {
-	    for(locus=0; locus< data->loci; locus++)
-	      {
+	{
+	  boolean total_homogeneous = TRUE;
+	  long printloci = data->loci;
+	  for(locus=1; locus< data->loci; locus++)
+	    {
+	      if (total[locus] != total[0] || totalmiss[locus] != totalmiss[0])
+		total_homogeneous = FALSE;
+	    }
+	  if (total_homogeneous)
+	    {
+	      pdf_printf(left_margin, page_height, 'L', "Total of all populations");
+	      pdf_printf_ralign(col2, page_height,"all");
+	      pdf_printf_ralign(col3, page_height,"%li",total[0]);
+	      if (!strchr (SEQUENCETYPES, options->datatype))
+		pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[0]);
+	      else
 		pdf_advance(&page_height);
-		pdf_printf(left_margin, page_height,'L', "%6li",locus+1);
-		long z=0;
-		long   sublocus;
-		long   sublocistart = world->sublocistarts[locus];
-		long   sublociend = world->sublocistarts[locus+1];
-		for(sublocus=sublocistart;sublocus<sublociend;sublocus++)
-		  {
-		    if(left_margin+100+(sublocus-sublocistart)*50 > page_width)
-		      {
-			pdf_advance(&page_height);
-			z=0;
-		      }
-		    if(world->mutationmodels[sublocus].numsiterates>0)
-		      print_siterates = TRUE;
-		    pdf_printf_ralign(left_margin+100+z*50, page_height, "%li",
-				      world->mutationmodels[sublocus].numsites);
-		    z++;
-		  }	  
-	      }
-	    pdf_advance(&page_height);
-	  }
-	if (print_siterates)
-	  {
-	    pdf_advance(&page_height);
-	    if(compressed)
-	      pdf_print_ratetbl (world, options, 0, 'C');
-	    else
-	      pdf_print_ratetbl (world, options, 0, 'A');
-	    for(locus=1; locus< data->loci; locus++)
-	      {
-		if(compressed)
-		  pdf_print_ratetbl (world, options, locus, 'G');
-		else
-		  pdf_print_ratetbl (world, options, locus, 'F');
-	      }
-	    pdf_advance(&page_height);
-	    pdf_advance(&page_height);
-	  }
+	      pdf_printf(left_margin, page_height, 'L', "    [same for all %li loci]", data->loci);
+	      pdf_advance(&page_height);
+	    }
+	  else
+	    {
+	      if (terse)
+		printloci = TEN;
+	      pdf_printf(left_margin, page_height, 'L', "Total of all populations");
+	      pdf_printf_ralign(col2, page_height,"1");
+	      pdf_printf_ralign(col3, page_height,"%li",total[0]);
+	      if (!strchr (SEQUENCETYPES, options->datatype))
+		{
+		  pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[0]);
+		  for(locus=1; locus< printloci; locus++)
+		    {
+		      pdf_printf_ralign(col2, page_height,"%li",locus+1);
+		      pdf_printf_ralign(col3, page_height,"%li",total[locus]);
+		      pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[locus]);
+		    }
+		}
+	      else
+		{
+		  pdf_advance(&page_height);
+		  for(locus=1; locus< printloci; locus++)
+		    {
+		      pdf_printf_ralign(col2, page_height,"%li",locus+1);
+		      pdf_printf_ralign(col3, page_height,"%li",total[locus]);
+		      pdf_advance(&page_height);
+		    }
+		}
+	      if (data->loci > printloci)
+		{
+		  pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+		  pdf_advance(&page_height);
+		}
+	    }
+	}
       }
-    pdf_advance(&page_height);
-    pdf_print_contents_at(left_margin, page_height,"Population");
-    pdf_print_contents_at(col1, page_height,"Locus");
-    pdf_print_contents_at(col3, page_height, "Gene copies");
-    pdf_advance(&page_height);
-    if (!strchr (SEQUENCETYPES, options->datatype))
-    {
-        pdf_print_contents_at(col3, page_height,"data");
-        pdf_printf_right_next(left_margin, &page_height,"(missing)");
-    }
-    
-    for (pop = 0; pop < data->numpop; pop++)
-    {
-        if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
-        {
-            nummiss = find_missing(data,pop,0);
-            numind = data->numalleles[pop][0] - nummiss;
-            pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
-            pdf_printf_ralign(col2, page_height,"1");
-            pdf_printf_ralign(col3, page_height,"%li",numind);
-            pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
-        }
-        else
-        {
-            nummiss = 0;
-            numind =  data->numind[pop][0];
-            //(options->randomsubset > 0 && options->randomsubset < data->numind[pop][0]) ? options->randomsubset : data->numind[pop][0];
-            pdf_printf(left_margin, page_height, 'L', "%li %s",options->newpops[pop], data->popnames[pop]);
-            pdf_printf_ralign(col2, page_height,"1");
-            pdf_printf_ralign(col3, page_height,"%li", numind);
-            pdf_advance(&page_height);
-        }
-        total[0] += numind;
-        totalmiss[0] += nummiss;
-        
-        for(locus=1; locus< data->loci; locus++)
-        {
-            if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
-            {
-                nummiss = find_missing(data,pop,locus);
-                numind = data->numalleles[pop][locus] - nummiss;
-                pdf_printf_ralign(col2, page_height,"%li",locus+1);
-                pdf_printf_ralign(col3, page_height,"%li",numind);
-                pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
-            }
-            else
-            {
-                nummiss=0;
-                numind = data->numind[pop][locus];
-                pdf_printf_ralign(col2, page_height,"%li",locus+1);
-                pdf_printf_ralign(col3, page_height,"%li",numind);
-                pdf_advance(&page_height);
-            }
-            total[locus] += numind;
-            totalmiss[locus] += nummiss;
-        }
-    }
-    pdf_printf(left_margin, page_height, 'L',
-               "Total of all populations");
-    pdf_printf_ralign(col2, page_height,"1");
-    pdf_printf_ralign(col3, page_height,"%li",total[0]);
-    if (!strchr (SEQUENCETYPES, options->datatype))
-    {
-        pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[0]);
-        for(locus=1; locus< data->loci; locus++)
-        {
-            pdf_printf_ralign(col2, page_height,"%li",locus+1);
-            pdf_printf_ralign(col3, page_height,"%li",total[locus]);
-            pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[locus]);
-        }
-    }
-    else
-    {
-        pdf_advance(&page_height);
-        for(locus=1; locus< data->loci; locus++)
-        {
-            pdf_printf_ralign(col2, page_height,"%li",locus+1);
-            pdf_printf_ralign(col3, page_height,"%li",total[locus]);
-            pdf_advance(&page_height);
-        }
-    }
     pdf_advance(&page_height);
     pdf_print_variable_sites_summary(world, options, data);
     myfree(total);
@@ -6602,10 +6666,11 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 	}      
       //--------
       mysnprintf(elements[t][0],LINESIZE,"%5li ",t+1);
-      if (options->adaptiveheat == STANDARD)
-	mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->averageheat);
-      else
-	  mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->heat);
+      // universe[t]->heat is the inverse temperature (beta=1/T) used in the
+      // MCMCMC acceptance ratio; averageheat is always kept in true-temperature
+      // units (it equals 1/heat for static heating, and is a running average
+      // of 1/heat for adaptive heating), so it is what belongs in this column.
+      mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->averageheat);
       mysnprintf(elements[t][2],LINESIZE,"%10.5f ", bfsum/nloc);
       mysnprintf(elements[t][3],LINESIZE,"%10.5f ", ssum/nloc);
     }

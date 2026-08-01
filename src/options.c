@@ -68,7 +68,7 @@ extern char * generator;
 
 /* parmfile parameter specifications and keywords */
 //#define LONGLINESIZE 10000
-#define NUMBOOL 36
+#define NUMBOOL 37
 #define BOOLTOKENS {\
 "menu", /*0*/					\
 "recover",\
@@ -104,7 +104,8 @@ extern char * generator;
   "auto-tune" /*31*/,				\
   "assign",\
   "bayes-hyperpriors",\
-  "inheritance-scalars", "mittag-leffler-alpha"}
+  "inheritance-scalars", "mittag-leffler-alpha",\
+  "print-all-variable-sites" /*36*/}
 #define NUMNUMBER 71
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
@@ -427,6 +428,7 @@ void init_options (option_fmt * options)
     options->lratio->data[0].connect =
         (char *) mycalloc (1, sizeof (char) * LONGLINESIZE);
     options->tersepdf = FALSE;
+    options->printallvarsites = FALSE;
     options->profile = ALL;
     //options->profilemethod = 'p';
     options->df = 1;
@@ -4160,7 +4162,15 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax pdf-terse=<NO|YES>");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "pdf-terse=%s", options->tersepdf ? "YES" : "NO");
     print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);	
+    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
+    print_parm_br(&bufsize, buffer, allocbufsize);
+
+    print_parm_comment(&bufsize, buffer, allocbufsize, "The \"Variable sites per locus\" report normally lists only the first");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "100 loci; set this to YES to list all loci instead [default is NO]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax print-all-variable-sites=<NO|YES>");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "print-all-variable-sites=%s", options->printallvarsites ? "YES" : "NO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
 
 #endif
@@ -5409,6 +5419,9 @@ booleancheck (option_fmt * options, char *var, char *value)
 	    }
 	}
       break;
+    case 36: /*print-all-variable-sites=yes/no */
+        options->printallvarsites = (boolean) check;
+        break;
     default:
         return FALSE;
     }
