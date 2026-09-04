@@ -692,6 +692,16 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	{
 	  world->bayes = (bayes_fmt *) mycalloc(1, sizeof(bayes_fmt));
 	  world->bayes->count=0;
+	  /* BUG FIX: world->bayes->mu is otherwise not set until bayes_init()
+	     runs a few lines below, but set_numparam() (called just below, before
+	     bayes_init()) reads world->bayes->mu to size numparamvec[RATEPRIOR].
+	     Since world->bayes was just mycalloc'd, that read was always FALSE,
+	     silently disabling mutation=ESTIMATE (bayesmurates) -- the rate
+	     modifier was parsed and given one static initial value but never
+	     actually proposed/updated by the MCMC. Set it here, before
+	     set_numparam() runs; bayes_init()'s own later assignment of the
+	     same value becomes a harmless no-op re-write. */
+	  world->bayes->mu = options->bayesmurates;
 	  world->has_speciation = options->has_speciation;
 	  world->has_migration = options->has_migration;
 	  init_speciesvector(world, options);

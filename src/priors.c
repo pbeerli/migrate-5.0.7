@@ -1352,6 +1352,14 @@ void set_option_prior(prior_fmt **p, int type, MYREAL mini, MYREAL maxi, MYREAL 
       strcpy((*p)->ptypename,"RATE"); break;
     case GROWTHPRIOR:
       strcpy((*p)->ptypename,"GROWTH"); break;
+    case MLFPRIOR:
+      /* BUG FIX: this case was missing entirely -- find_prior()'s own
+         default-fill switch (below in this file) DOES call
+         set_option_prior(&result, MLFPRIOR, ...) whenever ML-alpha
+         Bayesian estimation is on and no explicit bayes-priors= override
+         for MLF exists, which fell through to the "default: error(...)"
+         case here and aborted the run. */
+      strcpy((*p)->ptypename,"MLF"); break;
     default:
       error("unknown prior in check_bayes_priors()");
       //break;
@@ -1717,7 +1725,10 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
     }
   if(has_mu)
     {
-      find_prior(numpop2, numpop2, THETAPRIOR, options, &plist[w]);
+      /* BUG FIX: was THETAPRIOR -- the mean/min/max looked up here fed
+         the rate-modifier (RATE) prior slot, whose .bins is already
+         set from bayes_posterior_bins[RATEPRIOR] two lines below. */
+      find_prior(numpop2, numpop2, RATEPRIOR, options, &plist[w]);
       plist[w++].bins = options->bayes_posterior_bins[RATEPRIOR];
     }
   z = numpop2 + has_mu;

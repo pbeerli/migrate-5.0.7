@@ -6562,12 +6562,27 @@ numbercheck (option_fmt * options, char *var, char *value)
 	}
       break;
     case 56: /* rates-gamma */
-      get_next_word(&value,":,; ",&tmp);
-      options->seqrate_gamma_num = 0;
-      while(tmp!=NULL)
-	{
-	  options->seqrate_gamma[options->seqrate_gamma_num++] = atof(tmp);
-	}
+      /* BUG FIX: this used to call get_next_word() exactly once before the
+         loop and never again inside it, so tmp never became NULL -- an
+         unconditional infinite loop the moment this option was used, and
+         since options->seqrate_gamma was never allocated anywhere in the
+         codebase, the very first iteration wrote through a NULL pointer.
+         Fixed to match the get_next_word-in-a-while-loop idiom used by
+         set_localities()/set_growth() elsewhere in this file, growing the
+         array via myrealloc as each value is parsed. */
+      {
+	long z = 0;
+	get_next_word(&value,":,; ",&tmp);
+	while(tmp!=NULL)
+	  {
+	    options->seqrate_gamma = (MYREAL *) myrealloc (options->seqrate_gamma,
+					(size_t) (z + 1) * sizeof (MYREAL));
+	    options->seqrate_gamma[z] = atof(tmp);
+	    z++;
+	    get_next_word(&value,":,; ",&tmp);
+	  }
+	options->seqrate_gamma_num = z;
+      }
       break;
     case 57: /* Bayes-proposals*/
       get_next_word(&value,":,; ",&tmp);
