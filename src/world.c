@@ -924,7 +924,12 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  world->burnin_stops = (burnin_record_fmt *) mycalloc(world->burnin_stops_alloc, sizeof(burnin_record_fmt));
 	  //
 	  if(options->bayes_infer)
-	    convergence_len = world->numpop2 + 1;
+	    /* BUG FIX: this used to be numpop2+1 -- undersized for any
+	       model with growth/speciation/mlalpha/mu-rate parameters,
+	       since reporter.c's chain_means_bayes() writes
+	       world->numparam values per replicate slot, not numpop2+1.
+	       See the matching fix in main.c's run_locus(). */
+	    convergence_len = world->numparam;
 	  else
 	    convergence_len = world->numpop2 + world->numpop * 3;
 	  convergence_len2 = maxreplicate;

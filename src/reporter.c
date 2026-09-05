@@ -183,7 +183,13 @@ void convergence_check_bayes (world_fmt *world,  long maxreplicate)
     if (world->chains == 1 && maxreplicate <= 1)
         return;
     // len defines the length of arrays that
-    len = world->numparam + 1;
+    /* BUG FIX: this used to be numparam+1, disagreeing with
+       chain_means_bayes()'s own numparam-wide slots (world.c's/main.c's
+       allocation used yet a third formula, numpop2+1 -- fixed there too)
+       -- the stray "+1" never corresponded to a value chain_means_bayes
+       ever wrote, so gelmanw/gelmanb/gelmanr's last slot was always a
+       divide-by-zero-derived NaN that poisoned the averaged R statistic. */
+    len = world->numparam;
     nmeans  = (long *) mycalloc (maxreplicate, sizeof (long));
     gelmanw = (MYREAL *) mycalloc (len, sizeof (MYREAL));
     gelmanb = (MYREAL *) mycalloc (len, sizeof (MYREAL));
@@ -1096,10 +1102,20 @@ calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
   MYREAL            xx;
   MYREAL            s = 0.0;
 
-  i = tthis;
+  /* BUG FIX: bayes_save_parameter() (bayes.c) lays each recorded step out
+     as [oldval, likelihood, param_0, param_1, ..., param_{n-1}] (an
+     nn = 2+numparam -wide row) -- so the real parameters live at raw
+     column tthis+2, not tthis. tc[] (the chain's own mean, from
+     chain_means_bayes()) is already 0-indexed per real parameter,
+     matching tc[tthis] to real parameter tthis. Reading
+     params[j*nn+tthis] instead of params[j*nn+tthis+2] compared every
+     parameter's raw samples against a mean two columns over (or, for
+     tthis 0/1, against oldval/likelihood entirely), corrupting the
+     within-chain variance for essentially every parameter. */
+  i = tthis + 2;
   for (j = 0; j < pnum /*T*/; j++)
     {
-      xx = params[j * nn + i] - tc[i];
+      xx = params[j * nn + i] - tc[tthis];
       s += xx * xx;
     }
   if(s>0.)
@@ -1182,9 +1198,25 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
 void
 chain_means (MYREAL *thischainmeans, world_fmt * world)
 {
-  double temp;
-  temp =  (world->convergence->chain_counts[world->rep]!=0) ? world->convergence->chain_counts[world->rep] : 1;  
-  world->convergence->chain_counts[world->rep] = (long) temp;
+  /* BUG FIX: this used to set chain_counts[world->rep] to its own
+     current value if already nonzero, else 1 -- so once the very first
+     call left it at 1, every later call was a no-op, and it could never
+     become anything but 1 for the life of the run, regardless of how
+     many posterior samples were actually recorded. chain_counts[] is
+     read as a genuine per-replicate sample count/weight everywhere
+     downstream (all_chain_means()'s weighted average, calc_allgelmanb()'s/
+     calc_allgelmanw2()'s "nmeans[j] > 1" sanity guard) -- with the old
+     logic that guard could never pass (nmeans[j] was always exactly 1),
+     so convergence_check_bayes()'s combined-across-all-replicates
+     within-/between-chain variances (gelmanw/gelmanb) were silently
+     always 0, making the reported "Mean sqrt(R)"/"Maximum sqrt(R)"
+     NaN/0 on every run that used replicates, independent of the
+     numparam/offset fixes above. world->bayes->numparams is the same
+     real per-locus/replicate sample count chain_means_bayes()/
+     calc_s_bayes() already average over (their own T/pnum) -- using it
+     here too makes chain_counts[] agree with what was actually
+     recorded. */
+  world->convergence->chain_counts[world->rep] = world->bayes->numparams;
   chain_means_bayes (thischainmeans, world);
 }
 
@@ -1196,7 +1228,10 @@ void  calc_chain_s(MYREAL *cs, MYREAL *cm, world_fmt *world, long replicate)
   long start;
   long stop;
   long i;
-  len = world->numpop2+1;
+  /* BUG FIX: was numpop2+1, disagreeing with chain_means_bayes()'s own
+     numparam-wide per-replicate slots in cm/cs (and with world.c's/
+     main.c's matching allocation fix). */
+  len = world->numparam;
   start = replicate * len;
   stop = start + len;
   for(i = start; i < stop; i++)

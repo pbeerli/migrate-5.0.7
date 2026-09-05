@@ -1719,7 +1719,24 @@ run_locus (world_fmt ** universe, int usize, option_fmt * options,
   if(EARTH->data->skiploci[locus])
     return;
   if(options->bayes_infer)
-    convergence_len = universe[0]->numpop2 + 1;
+    /* BUG FIX: this used to be numpop2+1, matching world.c's allocation
+       of EARTH->convergence->{chain_means,chain_s,chain_counts} -- but
+       reporter.c's chain_means_bayes()/convergence_check_bayes() write/
+       read world->numparam values per replicate slot (every Bayesian
+       parameter, not just the numpop2 theta/M ones), so for any model
+       with growth/speciation/mlalpha/mu-rate parameters (numparam >
+       numpop2) the old formula undersized these arrays: chain_means_bayes()
+       wrote past the end of its slot into the next replicate's (or off
+       the end of the array for the last replicate), and
+       convergence_check_bayes() read with the wrong stride. Now numparam
+       throughout (also fixed in world.c's allocation, reporter.c's
+       calc_chain_s()/convergence_check_bayes()); the old formula's own
+       "+1" never corresponded to anything chain_means_bayes actually
+       wrote either (a second, independent bug -- see reporter.c's
+       calc_s_bayes() fix). The options->bayes_infer==FALSE (maximum-
+       likelihood) branch above is untouched -- this bug is specific to
+       the Bayesian replicate-convergence path. */
+    convergence_len = universe[0]->numparam;
   memset(EARTH->convergence->chain_means,0, (size_t) (maxreplicate * convergence_len) * sizeof(MYREAL));
   memset(EARTH->convergence->chain_s,0, (size_t) (maxreplicate * convergence_len) * sizeof(MYREAL));
   memset(EARTH->convergence->gelmanmeanmaxR,0,(size_t) (maxreplicate * maxreplicate) * sizeof(MYREAL));
