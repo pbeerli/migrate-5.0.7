@@ -83,8 +83,6 @@ long tree_update (world_fmt * world, long g, boolean assign);
 void new_localtimelist (timelist_fmt ** ntl, timelist_fmt * otl, long numpop);
 void new_proposal (proposal_fmt ** proposal, timelist_fmt * tl,
                    world_fmt * world);
-//CLANG_ANALYZER_NORETURN
-void set_new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world);
 void chooseOrigin (proposal_fmt * proposal);
 void construct_localtimelist (timelist_fmt * timevector,
                               proposal_fmt * proposal);
@@ -118,7 +116,6 @@ long migration_from (long to, proposal_fmt * proposal);
 
 MYREAL prob_tree (world_fmt * world, timelist_fmt * tyme);
 void traverse_check(node *theNode);
-void reset_proposal (proposal_fmt ** proposal, world_fmt *world);
 void set_tree_dirty (node * p);
 void set_tree_down_dirty (node * p);
 void new_localtimelist_new (timelist_fmt ** ntl, timelist_fmt * otl, long numpop);
@@ -383,121 +380,6 @@ new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world)
 #endif
 }
 
-///
-/// sets new proposal structure using template gproposal, this function will be called most of the time instead of new_proposal()
-void
-set_new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world)
-{
-  (void) tl;
-  (void) proposal;
-  (void) world;
-  //long mal = world->data->maxalleles[world->locus];
-  //long oldsize=0;
-  error("needs fixing");
-#if 0
-  long newsize =0;
-  mutationmodel_fmt *s;
-  long sumtips = world->sumtips;
-#ifdef UEP    
-    long j;
-#endif
-    long listsize = 2*(world->sumtips + 2);
-    (*proposal)->likelihood = -HUGE;
-    (*proposal)->sumtips = sumtips;
-    // pointers and values to outside structures
-    (*proposal)->world = world;
-    (*proposal)->datatype = world->options->datatype;
-    (*proposal)->numpop = world->numpop;
-    (*proposal)->endsite = world->data->seq[0]->endsite;
-    (*proposal)->fracchange = world->data->seq[0]->fracchange;
-    (*proposal)->param0 = world->param0;
-    (*proposal)->root = world->root;
-    (*proposal)->migration_model = world->options->migration_model;
-    // precalculated values
-    (*proposal)->mig0list = world->mig0list;
-    (*proposal)->design0list = world->design0list;
-    newsize = 4 * listsize;
-    if((*proposal)->nodedata == NULL)
-        (*proposal)->nodedata = (node **) mycalloc (newsize, sizeof (node *));
-    else
-        (*proposal)->nodedata = (node **) myrealloc ((*proposal)->nodedata, newsize * sizeof (node *));
-    //xcode  oldsize = (*proposal)->listsize;
-    memset((*proposal)->nodedata, 0, (size_t) newsize * sizeof (node *));
-    (*proposal)->aboveorigin = (*proposal)->nodedata;
-    (*proposal)->bordernodes = (*proposal)->nodedata + listsize;
-    (*proposal)->line_f =   (*proposal)->bordernodes + listsize;
-    (*proposal)->line_t_allocsize = listsize;
-    (*proposal)->line_t =  (*proposal)->line_f + listsize;
-    // mf holds also mt array  
-
-    (*proposal)->mf = (MYREAL **) mycalloc((world->numsubloci[world->locus]*2),sizeof(MYREAL*));
-    (*proposal)->mt = (*proposal)->mf + world->numsubloci[world->locus];
-    long sublocus;
-    long endsite;
-    //long rcategs;                                                                                                 
-    long sublocistart = world->sublocistarts[world->locus];
-    long sublociend = world->sublocistarts[world->locus+1];
-    (*proposal)->xf = (xarray_fmt *) mycalloc(world->numsubloci[world->locus],sizeof(xarray_fmt));
-    (*proposal)->xt = (xarray_fmt *) mycalloc(world->numsubloci[world->locus],sizeof(xarray_fmt));
-    for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
-      {
-        s = &world->mutationmodels[sublocus];
-        const long xs = sublocus - sublocistart;
-        if (strchr (SEQUENCETYPES, s->datatype))
-          {
-            endsite = s->numpatterns + s->addon;
-            (*proposal)->mf[xs] = (MYREAL *) mycalloc(endsite,sizeof(MYREAL));
-            (*proposal)->mt[xs] = (MYREAL *) mycalloc(endsite,sizeof(MYREAL));
-            allocate_xseq(&(*proposal)->xf[xs], endsite, s->numsiterates);
-            allocate_xseq(&(*proposal)->xt[xs], endsite, s->numsiterates);
-          }
-        else
-          {
-            long mal = s->maxalleles + 1;
-            (*proposal)->mf[xs] = (MYREAL *) mycalloc(mal,sizeof(MYREAL));
-            (*proposal)->mt[xs] = (MYREAL *) mycalloc(mal,sizeof(MYREAL));
-            (*proposal)->xf[xs].a = (MYREAL *) mycalloc (mal, sizeof (MYREAL));
-            (*proposal)->xt[xs].a = (MYREAL *) mycalloc (mal, sizeof (MYREAL));
-          }
-      }
-    (*proposal)->old_migr_table_counter = 4 * sumtips /* 100 */;
-    (*proposal)->old_migr_table_counter2 = 4 * sumtips /* 100 */;
-    (*proposal)->migr_table =
-      (migr_table_fmt *) mycalloc ((*proposal)->old_migr_table_counter,
-                                 sizeof (migr_table_fmt));
-                                 
-    (*proposal)->migr_table2 =
-    (migr_table_fmt *) mycalloc ((*proposal)->old_migr_table_counter2,
-                                 sizeof (migr_table_fmt));
-    (*proposal)->migr_table_counter = 0;
-    (*proposal)->migr_table_counter2 = 0;
-#ifdef UEP
-    if (world->options->uep)
-    {
-        (*proposal)->ueplike =
-        (MYREAL **) mycalloc (world->data->uepsites, sizeof (MYREAL *));
-        (*proposal)->ueplike[0] =
-        (MYREAL *) mycalloc (world->numpop * world->data->uepsites,
-                             sizeof (MYREAL));
-        for (j = 1; j < world->data->uepsites; ++j)
-            (*proposal)->ueplike[j] = (*proposal)->ueplike[0] + j * world->numpop;
-        
-        (*proposal)->ut.s = (pair *) mycalloc (world->data->uepsites, sizeof (pair));
-        (*proposal)->uf.s = (pair *) mycalloc (world->data->uepsites, sizeof (pair));
-        (*proposal)->umt = (MYREAL *) mycalloc (world->data->uepsites, sizeof (MYREAL));
-        (*proposal)->umf = (MYREAL *) mycalloc (world->data->uepsites, sizeof (MYREAL));
-    }
-#endif
-    
-#ifdef BEAGLE
-    (*proposal)->leftid   = 0;
-    (*proposal)->rightid  = 0;
-    (*proposal)->parentid = 0;
-    reset_beagle(world->beagle);
-#endif
-    world->has_proposal_first=FALSE;
-#endif /* if zero */
-}
 
 
 void jumblenodes (node ** s, long n)
@@ -1511,124 +1393,6 @@ findbordernodes (node * theNode, proposal_fmt * proposal, long pop,
 }
 #endif
 
-#ifdef TESTING2
-///
-/// freeing the proposal structure, this is the replacement of the real free_proposal method
-/// and does not allocate, but reuses old memory
-=======
-//void free_proposal(proposal_fmt *proposal)/
-//{
-    // do nothing
-//}
-void reset_simple_proposal_variables(proposal_fmt **proposal)
-{
-    (*proposal)->mig_removed = FALSE;
-    (*proposal)->rr = 0.0;
-    (*proposal)->origin = NULL;
-    (*proposal)->target = NULL;
-    (*proposal)->realtarget = NULL;
-    (*proposal)->tsister = NULL;
-    (*proposal)->realtsister = NULL;
-    (*proposal)->osister = NULL;
-    (*proposal)->realosister = NULL;
-    (*proposal)->ocousin = NULL;
-    (*proposal)->realocousin = NULL;
-    (*proposal)->oback = NULL;
-    (*proposal)->realoback = NULL;
-    //
-    (*proposal)->connect = NULL;
-    (*proposal)->likelihood = 0.0;
-    (*proposal)->time = 0.0;
-    (*proposal)->v = 0.0;
-    (*proposal)->vs = 0.0;
-    //
-#ifdef UEP
-    (*proposal)->ueplikelihood = 0.0;
-#endif
-    (*proposal)->migr_table_counter=0;
-    (*proposal)->migr_table_counter2=0;
-    (*proposal)->timeslice = 0;
-    //
-    (*proposal)->treelen = 0.0;
-#ifdef BEAGLE
-    (*proposal)->parentid = 0;
-    (*proposal)->leftid = 0;
-    (*proposal)->rightid = 0;
-#endif
-}
-
-void
-reset_proposal (proposal_fmt ** proposal, world_fmt *world)
-{
-  mutationmodel_fmt *s;
-  //world_fmt *world = proposal->world;
-  const long listsize = 2 * (world->sumtips + 2);
-  const long newsize = 4 * listsize;
-  const long mal = (*proposal)->world->data->maxalleles[(*proposal)->world->locus]+1;
-  (*proposal)->likelihood = -HUGE;
-  // pointers and values to outside structures
-  (*proposal)->world = world;
-  (*proposal)->datatype = world->options->datatype;
-  (*proposal)->sumtips = world->sumtips;
-  (*proposal)->numpop = world->numpop;
-  (*proposal)->endsite = world->data->seq[0]->endsite;
-  (*proposal)->fracchange = world->data->seq[0]->fracchange;
-  (*proposal)->param0 = world->param0;
-  (*proposal)->root = world->root;
-  (*proposal)->migration_model = world->options->migration_model;
-  // precalculated values
-  (*proposal)->mig0list = world->mig0list;
-  (*proposal)->design0list = world->design0list;
-  (*proposal)->listsize =  listsize;
-  // ..line_t are also reset with this
-
-//  memset(proposal->nodedata,0,sizeof(node *) * (2 * listsize + 2 * sumtips)); 
-  long locus = world->locus;
-  const long sublocistart = world->sublocistarts[locus];
-  const long sublociend   = world->sublocistarts[locus+1];
-  long sublocus;
-  long endsite;
-  long rcategs;
-  for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
-    {
-      long i;
-      for(i=0;i<newsize;i++)
-        (*proposal)->nodedata[i]=NULL;
-      //  memset((*proposal)->nodedata,0,sizeof(node *) * newsize); 
-      memset((*proposal)->mf,0, sizeof(MYREAL)*(2 * (*proposal)->endsite)); // (*proposal)->mt is also freed with this
-      // resetting pointers
-      reset_simple_proposal_variables(proposal);
-      
-      if (strchr (SEQUENCETYPES, (*proposal)->datatype))
-	{
-	  s = &world->mutationmodels[sublocus];
-	  endsite = s->numpatterns;
-	  rcategs = s->numsiterates;
-	  const long xs = sublocus - sublocistart;
-	  memset((*proposal)->mf[xs],0, sizeof(MYREAL)*(endsite)); 
-	  memset((*proposal)->mt[xs],0, sizeof(MYREAL)*(endsite)); 
-	  zero_xseq(&(*proposal)->xf[xs], endsite, rcategs);
-	  zero_xseq(&(*proposal)->xt[xs], endsite, rcategs);
-	}
-    }
-  memset((*proposal)->migr_table, 0, sizeof(migr_table_fmt) * (*proposal)->old_migr_table_counter);
-  memset((*proposal)->migr_table2, 0, sizeof(migr_table_fmt) * (*proposal)->old_migr_table_counter2);
-#ifdef UEP
-    
-    if ((*proposal)->world->options->uep)
-    {
-        memset((*proposal)->ueplike, 0, sizeof(MYREAL) * world->numpop * world->data->uepsites);
-        for (j = 1; j < world->data->uepsites; ++j)
-            (*(*proposal))->ueplike[j] = (*(*proposal))->ueplike[0] + j * world->numpop;
-        
-        memset((*proposal)->uf.s, 0, world->data->uepsites * sizeof(pair));
-        memset((*proposal)->ut.s, 0, world->data->uepsites * sizeof(pair));
-        memset((*proposal)->umf, 0, world->data->uepsites * sizeof(MYREAL));
-        memset((*proposal)->umt, 0, world->data->uepsites * sizeof(MYREAL));
-    }
-#endif
-}
-#endif
 ///
 /// freeing the proposal structure, this will be replaced by a function that resets permanently
 /// allocated structure [reset_proposal()]

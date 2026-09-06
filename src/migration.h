@@ -374,10 +374,13 @@ typedef struct _mutationmodel {
   contribarr *contribution;
   long *category;
   valrec ***tbl;
-  MYREAL xi;
-  MYREAL xv;
+  // xi/xv/fracchange retired: they fed a PHYLIP-dnaml-style ts/tv-only
+  // (xi/xv) engine (tree.c's nuview_sequence()/pseudonu_seq() and their
+  // _slow twins) that has since been removed as dead code -- see
+  // set_subloci_basefrequencies_seq()'s comment in mutationmodel.c.
+  // ttratio (the user-specified transition/transversion ratio) is kept;
+  // it is still used to set up each model's real internal parameters.
   MYREAL ttratio;
-  MYREAL fracchange;
   // allelic data
   MYREAL freq;
   MYREAL freqlast;
@@ -1812,7 +1815,6 @@ typedef  struct _proposal_fmt
   long sumtips;
   long numpop;
   long endsite;
-  MYREAL fracchange;
   MYREAL *param0;
   MYREAL *param0save;
   node *root;

@@ -66,7 +66,6 @@ void make_snp (world_fmt * world, option_fmt * options,
 		      data_fmt * data, long locus);
 
 MYREAL treelike_snp_unlinked (mutationmodel_fmt *s, long sublocus, world_fmt * world, long locus);
-void copy_seq (world_fmt * original, world_fmt * kopie);
 void init_sequences_aliases (world_fmt * world, option_fmt * options,
                                  data_fmt * data, long locus);
 extern void find_rates_fromdata(data_fmt * data, option_fmt * options, world_fmt *world);

@@ -178,12 +178,24 @@ void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options)
 	  // kappa2, not a hardcoded 1.0; parameters[2] must be the fixed
 	  // baseline 1.0, not kappa2).
 	  //
-	  // F84 is deliberately left as-is here: reconciling its several
-	  // mutually-inconsistent legacy formulas (this function vs.
-	  // set_subloci_basefrequencies_seq()'s F84 correction vs.
-	  // set_mutationmodel_eigenmaterial() vs. menu.c's display_F84())
-	  // needs a maintainer decision on which is authoritative, not a
-	  // unilateral guess.
+	  // F84 (BUG FIX): a1=b*(1+kappa/piR), a2=b*(1+kappa/piY), b=1 --
+	  // the standard F84<->TN93 equivalence (e.g. Yang, "Computational
+	  // Molecular Evolution", table 1.2). This is what makes F84
+	  // special versus HKY: unlike HKY (a1=a2=kappa always), F84's two
+	  // eigenvalues -(a1*piR+b*piY) and -(a2*piY+b*piR) collapse to a
+	  // SINGLE repeated eigenvalue -(1+kappa) regardless of piR/piY --
+	  // confirmed algebraically -- which is F84's whole point (same
+	  // 2-eigenvalue structure as JC69/K2P despite unequal frequencies).
+	  // Can't compute a1/a2 here yet: they need piR/piY, and base
+	  // frequencies aren't necessarily final at this point when
+	  // freqsfrom=YES (empirical frequencies, computed later from the
+	  // data). So this stores the raw kappa as a placeholder (refined
+	  // once basefreqs are final, in set_subloci_basefrequencies_seq()'s
+	  // matching F84 case) and fixes b=1 unconditionally -- the previous
+	  // "else 1.0" fallback here was reachable with sequence_model_parameters[1]
+	  // (which for F84 is nothing to do with b -- menu.c's display_F84()
+	  // sets it to 2+kappa, an unrelated echo value -- not b) whenever
+	  // that happened to be positive, silently corrupting b too.
 	  switch (s->model)
 	    {
 	    case JC69:
@@ -216,6 +228,11 @@ void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options)
 	      s->parameters[2] = 1.0;
 	      break;
 	    case F84:
+	      s->parameters[0] = options->sequence_model_parameters[0]; //raw kappa; refined below once basefreqs are final
+	      s->ttratio = options->sequence_model_parameters[0];
+	      s->parameters[1] = 1.0; // placeholder, refined below
+	      s->parameters[2] = 1.0; // b: fixed baseline, always 1.0 for F84
+	      break;
 	    default:
 	      s->parameters[0] = options->sequence_model_parameters[0]; //ttratio
 	      s->ttratio = options->sequence_model_parameters[0]; //ttratio
@@ -451,10 +468,6 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
   //MYREAL bsum=0.;
   //long locus = world->locus;
   MYREAL freqa, freqc, freqg, freqt, freqy, freqr;
-  MYREAL freqgr = 0.0;
-  MYREAL freqty = 0.0;
-  MYREAL aa = 0.0;
-  MYREAL bb = 0.0;
 
   switch(s->datatype)
     {
@@ -531,18 +544,28 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
 	s->basefreqs[NUC_TY]= freqt / freqy;
 	//MYREAL freqar = s->basefreqs[NUC_AR];
 	//MYREAL freqcy = s->basefreqs[NUC_CY];
-	freqgr = s->basefreqs[NUC_GR];
-	freqty = s->basefreqs[NUC_TY];
-	aa = s->ttratio * (freqr) * (freqy) - freqa * freqg - freqc * freqt;
-	bb = freqa * (freqgr) + freqc * (freqty);
 	if(s->model==F84)
 	  {
 	    if(!s->finished)
 	      {
 		s->finished=TRUE;
+		// BUG FIX: the old correction here (parameters[0]*=piY,
+		// parameters[1]*=piR, discarding kappa entirely from
+		// parameters[1]) does not correspond to any standard F84
+		// formula -- it silently produced a1=kappa*piY (missing
+		// the "1+" term) and a2=piR (kappa dropped completely, so
+		// a2 didn't depend on the user's ttratio at all). Correct
+		// F84<->TN93 equivalence (b=1 fixed, set in
+		// adjust_mutationmodel()): a1=1+kappa/piR, a2=1+kappa/piY.
+		// s->parameters[0] still holds the raw kappa placeholder
+		// adjust_mutationmodel() stored (basefreqs are guaranteed
+		// final by this point, unlike in adjust_mutationmodel()).
+		const MYREAL kappa = s->parameters[0];
+		const MYREAL piR = s->basefreqs[NUC_R];
+		const MYREAL piY = s->basefreqs[NUC_Y];
 		s->parameters[2] = 1.0;
-		s->parameters[0] *=  s->basefreqs[NUC_Y]; 
-		s->parameters[1] *=  s->basefreqs[NUC_R]; 
+		s->parameters[0] = 1.0 + kappa / piR;
+		s->parameters[1] = 1.0 + kappa / piY;
 	      }
 	  }
 	if(s->model==HKY)
@@ -557,22 +580,26 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
 	    //s->parameters[0] *= freqy;
 	    //s->parameters[0] *= freqr;
 	  }
-	s->xi = aa / (aa + bb);
-	s->xv = 1.0 - s->xi;
-	if (s->xi <= 0.0)
-	  {
-	    //warning ("This transition/transversion ratio (%f)\n",s->ttratio);
-	    //warning ("is impossible with these base frequencies (%f, %f, %f, %f)!\n",freqa,freqc,freqg,freqt);
-	    s->xi = 0.00001; // do not set this to zero because of the 1/(fracchange=xi*(...))
-	    s->xv = 0.99999;
-	    s->ttratio = (freqa * freqg + freqc * freqt) / ((freqr) * (freqy));
-	    
-	    //	    warning (" Transition/transversion parameter reset\n");
-	    //warning ("  so transition/transversion ratio is %10.6f\nIF this does not fit, use fixed nucleotide frequencies\n", (s->ttratio));
-	  }
-	// use 1/frac as precomputation speed up
-	s->fracchange = 1. / ((s->xi) * (2. * freqa * (freqgr) + 2. * freqc * (freqty)) + 
-			      (s->xv) * (1.0 - freqa * freqa - freqc * freqc - freqg * freqg - freqt * freqt));
+	// BUG FIX: this used to compute s->xi/s->xv/s->fracchange from a
+	// PHYLIP-dnaml-style ttratio/aa/bb formula that (a) only ever
+	// matched the F84 model it was written for, not the shared TN93
+	// rate-matrix engine (prob_tn93()/set_tn_model()) every model here
+	// (JC69/K2P/F81/F84/HKY/TN) actually runs on, and (b) fed a
+	// "fracchange" branch-length multiplier that the live pruning
+	// functions (nuview_tn93()/pseudonu_tn93()) never even applied.
+	// Replaced with a universal, model-agnostic mean-substitution-rate
+	// normalization applied where it actually takes effect: directly
+	// inside prob_tn93(), computed straight from whatever
+	// (a1,a2,b,basefreqs) are in use for THIS model -- so branch length
+	// is always in expected substitutions per site ("u=4/3" for JC69,
+	// etc.), for every model, without a separate scaling field to keep
+	// in sync. s->xi/s->xv/s->fracchange are no longer used by anything
+	// live -- their sole consumers (sequence.c's init_tbl() ratxi/ratxv,
+	// and tree.c's nuview_sequence()/nuview_sequence_slow()/
+	// pseudonu_seq()/pseudonu_seq_slow(), all reachable only via the
+	// GTR model, which errors out at setup in
+	// set_mutationmodel_eigenmaterial(), "not implemented yet") have
+	// been removed as dead code, along with the three fields themselves.
 	break;
     default:
       break;
@@ -1611,9 +1638,6 @@ void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data
 
       
       munew->addon = muold->addon;
-      munew->xi = muold->xi;
-      munew->xv = muold->xv;
-      munew->fracchange = muold->fracchange;
 
       munew->freq = muold->freq;
       munew->freqlast = muold->freqlast;

@@ -1351,8 +1351,11 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 			  s->startsite, s->numstates, s->numsiterates,s->lambda); 
       bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%f %f %f %i %i\n",
 			  s->parameters[0],s->parameters[1],s->parameters[2],(int) s->from_infile, (int) s->finished);
-      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %f %f %f %f\n",
-			  s->weightsum, s->xi, s->xv, s->ttratio, s->fracchange);
+      // xi/xv/fracchange retired (dead PHYLIP-dnaml-engine fields, see
+      // migration.h's mutationmodel_fmt comment); dropped from the wire
+      // format, ttratio kept.
+      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %f\n",
+			  s->weightsum, s->ttratio);
       bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%f %f %li %f\n",
 			  s->freq, s->freqlast,s->maxalleles,s->browniandefault);
       bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %li\n",
@@ -1752,7 +1755,6 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       {
 	world->numsubloci[locus] = world->sublocistarts[locus+1] - world->sublocistarts[locus];
       }
-    double fracchange;
     int dataclass;
     int scaling;
     long estimateseqerror;
@@ -1787,10 +1789,12 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 #ifdef DEBUG
       //      printf("@@@@@@@@@@@@@@@@@@@@@@@@ %i> %p %i: 0:%f 1:%f 2:%f \n",myID, s, s->model, s->parameters[0],s->parameters[1],s->parameters[2]);
 #endif	      
+      // xi/xv/fracchange retired, see the matching pack side's comment;
+      // ttratio kept.
       sgets_safe (&input, &inputsize, &buf);
-      sscanf (input,  "%li %lf %lf %lf %lf\n",
-	      &s->weightsum, &s->xi, &s->xv, &s->ttratio, &fracchange);
-      
+      sscanf (input,  "%li %lf\n",
+	      &s->weightsum, &s->ttratio);
+
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%lf %lf %li %lf\n",
 	      &s->freq, &s->freqlast,&s->maxalleles,&s->browniandefault);
@@ -1836,7 +1840,6 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 #ifdef DEBUG
       printf("%i> locus=%li reading %c %li %li %li (input=%s)\n", myID, locus, s->datatype, s->numsites, s->startsite, s->addon,input);
 #endif
-      s->fracchange = (MYREAL) fracchange;
     }
     // population data
     for (pop = 0; pop < data->numpop; pop++)

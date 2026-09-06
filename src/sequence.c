@@ -49,8 +49,6 @@
 #include <dmalloc.h>
 #endif
 /* prototypes ------------------------------------------- */
-//void make_sequences_old (world_fmt * world, option_fmt * options, data_fmt * data,
-//                     long locus);
 void init_sequences (world_fmt * world, option_fmt * options, data_fmt * data,
                      long locus);
 void init_sequences2 (world_fmt * world, mutationmodel_fmt *s);
@@ -71,7 +69,6 @@ MYREAL treelike_snp (mutationmodel_fmt *s, long sublocus, world_fmt * world, lon
 void find_rates_fromdata(data_fmt * data, option_fmt * options, world_fmt * world);
 
 /*private functions */
-void getbasefreqs (option_fmt * options, seqmodel_fmt * seq, long locus);
 void empiricalfreqs (world_fmt * world, option_fmt * options,
                      mutationmodel_fmt * s, long sublocus);
 void makeweights (world_fmt * world, data_fmt * data, option_fmt *options, long locus);
@@ -110,7 +107,6 @@ void constrain_rates(long categs, MYREAL *rate, MYREAL *probcat);
 void makeweights_old (world_fmt * world, data_fmt * data, option_fmt *options, long locus);
 void set_nucleotide(MYREAL *treedata, const char nucleotide, const MYREAL *seqerr);
 MYREAL treelike_snp_unlinked (mutationmodel_fmt *s, long xs, world_fmt * world, long locus);
-void copy_seq (world_fmt * original, world_fmt * kopie);
 void find_rates_fromdata_alleles(data_fmt * data, option_fmt * options, world_fmt *world, MYREAL mean);
 void free_seq(seqmodel_fmt **seq, long seqnum);
 
@@ -324,112 +320,8 @@ void constrain_rates(long categs, MYREAL *rate, MYREAL *probcat)
 }
 
 /*data read material ===================================== */
-///
-/// read sequence data and linked SNP data 
-/*
-void
-make_sequences_old (world_fmt * world, option_fmt * options, data_fmt * data,
-                long locus)
-{
-    if (world->sumtips==0)
-      {
-	data->skiploci[locus] = TRUE;
-        world->data->skiploci[locus] = TRUE;
-        world->skipped += 1;
-      }
-
-  makevalues_seq (world, options, data, locus);
-  //if (options->freqsfrom)
-  //  {
-  //    empiricalfreqs (world, options, world->data->seq[0], locus);
-  //    getbasefreqs (options, world->data->seq[0], locus);
-  // }   
-}
-
-*/
 
 /* private functions================================== */
-void
-getbasefreqs (option_fmt * options, seqmodel_fmt * seq, long locus)
-{
-  long l;
-
-  register MYREAL freqa, freqc, freqg, freqt, freqr, freqy;
-  register MYREAL /*freqar, freqcy,*/ freqgr, freqty;
-
-  MYREAL aa, bb;
-  if (locus == 0)
-    seq->ttratio = options->ttratio[0];
-  else
-    {
-      for (l = 1; l <= locus; l++)
-        {
-	  if (options->ttratio[l] == 0.0)
-            {
-	      seq->ttratio = options->ttratio[l - 1];
-	      break;
-            }
-	  seq->ttratio = options->ttratio[l];
-        }
-      if (l > locus)
-	seq->ttratio = options->ttratio[locus];
-    }
-  check_basefreq (options);
-  
-  seq->basefrequencies[NUC_A] = options->freqa;
-  seq->basefrequencies[NUC_C] = options->freqc;
-  seq->basefrequencies[NUC_G] = options->freqg;
-  seq->basefrequencies[NUC_T] = options->freqt;    
-  freqa = seq->basefrequencies[NUC_A];
-  freqc = seq->basefrequencies[NUC_C];
-  freqg = seq->basefrequencies[NUC_G];
-  freqt = seq->basefrequencies[NUC_T];
-  seq->basefrequencies[NUC_R] = freqa + freqg;
-  seq->basefrequencies[NUC_Y] = freqc + freqt;
-  freqr = seq->basefrequencies[NUC_R];
-  freqy = seq->basefrequencies[NUC_Y];
-  seq->basefrequencies[NUC_AR]= freqa / freqr;
-  seq->basefrequencies[NUC_CY]= freqc / freqy;
-  seq->basefrequencies[NUC_GR]= freqg / freqr;
-  seq->basefrequencies[NUC_TY]= freqt / freqy;
-  //freqar = seq->basefrequencies[NUC_AR];
-  //freqcy = seq->basefrequencies[NUC_CY];
-  freqgr = seq->basefrequencies[NUC_GR];
-  freqty = seq->basefrequencies[NUC_TY];
-
-  aa =
-    seq->ttratio * (freqr) * (freqy) - freqa * freqg -
-    freqc * freqt;
-  bb = freqa * (freqgr) + freqc * (freqty);
-  seq->xi = aa / (aa + bb);
-  seq->xv = 1.0 - seq->xi;
-  if (seq->xi <= 0.0)
-    {
-      warning ("This transition/transversion ratio (%f)\n",seq->ttratio);
-      warning ("is impossible with these base frequencies (%f, %f, %f, %f)!\n",freqa,freqc,freqg,freqt);
-      seq->xi = 0.00001; // do not set this to zero because of the 1/(fracchange=xi*(...))
-      seq->xv = 0.99999;
-      seq->ttratio =
-	(freqa * freqg +
-	 freqc * freqt) / ((freqr) * (freqy));
-      
-      warning (" Transition/transversion parameter reset\n");
-      warning ("  so transition/transversion ratio is %10.6f\n\n",
-	       (seq->ttratio));
-    }
-  // use 1/frac as precomputation speed up
-  seq->fracchange = 1. / (
-			  (seq->xi) * (2. * freqa * (freqgr) +
-				       2. * freqc * (freqty)) + (seq->xv) * (1.0 -
-										      freqa *
-										      freqa -
-										      freqc *
-										      freqc -
-										      freqg *
-										      freqg -
-										      freqt *
-										      freqt));
-}
 
 /*===================================================*/
 
@@ -1399,8 +1291,12 @@ void init_tbl (world_fmt * world, long locus)
 		for (j = 0; j < categs; j++)
 		  {
 		    s->tbl[i][j]->rat = s->siterates[i] * world->options->rate[j];
-		    s->tbl[i][j]->ratxi = s->tbl[i][j]->rat * s->xi;
-		    s->tbl[i][j]->ratxv = s->tbl[i][j]->rat * s->xv;
+		    // ratxi/ratxv used to be rat*s->xi/rat*s->xv, feeding the
+		    // now-removed PHYLIP-dnaml-style nuview_sequence()/
+		    // nuview_sequence_slow() in tree.c; s->xi/s->xv are
+		    // retired (see set_subloci_basefrequencies_seq()'s
+		    // comment in mutationmodel.c), and nothing reads
+		    // ratxi/ratxv any more.
 		  }
 	      }
 	    sumrates = 0.0;
@@ -1417,8 +1313,6 @@ void init_tbl (world_fmt * world, long locus)
 	      for (j = 0; j < categs; j++)
 		{
 		  s->tbl[i][j]->rat /= sumrates;
-		  s->tbl[i][j]->ratxi /= sumrates;
-		  s->tbl[i][j]->ratxv /= sumrates;
 		}
 	  }
       }
@@ -1846,32 +1740,6 @@ check_basefreq (option_fmt * options)
 }
 
 
-void copy_seq (world_fmt * original, world_fmt * kopie)
-{
-    size_t sites;
-    seqmodel_fmt *kseq;
-    seqmodel_fmt *oseq;
-    kseq = kopie->data->seq[0];
-    oseq = original->data->seq[0];
-    sites = (size_t) oseq->sites[original->locus];
-    memcpy(kseq->basefrequencies,oseq->basefrequencies,sizeof(MYREAL)*BASEFREQLENGTH);
-    kseq->aa = oseq->aa;
-    kseq->bb = oseq->bb;
-    kseq->endsite = oseq->endsite;
-    kseq->xi = oseq->xi;
-    kseq->xv = oseq->xv;
-    kseq->ttratio = oseq->ttratio;
-    kseq->fracchange = oseq->fracchange;
-    memcpy (kseq->sites, oseq->sites, sizeof (long) * (size_t) original->loci);
-    memcpy (kseq->alias, oseq->alias, sizeof (long) * sites);
-    memcpy (kseq->ally, oseq->ally, sizeof (long) * sites);
-    memcpy (kseq->category, oseq->category, sizeof (long) * sites);
-    memcpy (kseq->weight, oseq->weight, sizeof (short) * sites);
-    kseq->weightsum = oseq->weightsum;
-    memcpy (kseq->aliasweight, oseq->aliasweight, sizeof (long) * sites);
-    memcpy (kseq->location, oseq->location, sizeof (long) * sites);
-    kseq->addon = oseq->addon;
-}
 
 void find_rates_fromdata(data_fmt * data, option_fmt * options, world_fmt * world)
 {
