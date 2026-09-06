@@ -163,18 +163,69 @@ void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options)
 	      s->basefreqs[NUC_G] = options->freqg;
 	      s->basefreqs[NUC_T] = options->freqt;
 	    }
-	  // this works for HKY, F84 who only need ttratio
-	  // and assumes that ttratio is kappa1 for TN, kappa2 is fed into param[2]!!
-	  // F81, JC, K2P
 	  if (s->parameters == NULL)
 	    	s->parameters  = (double *) mycalloc(NUMMUTATIONPARAMETERS,sizeof(double));
-	  s->parameters[0] = options->sequence_model_parameters[0]; //ttratio
-	  s->ttratio = options->sequence_model_parameters[0]; //ttratio
-	  s->parameters[1] = 1.0;
-	  if (options->sequence_model_parameters[1] > 0.0)
-	    s->parameters[2] = options->sequence_model_parameters[1];
-	  else
-	    s->parameters[2] = 1.0;
+	  // BUG FIX: every branch below except F84 used to fall through to
+	  // a single generic assignment (parameters[0]=ttratio,
+	  // parameters[1]=1.0, parameters[2]=second option or 1.0) that
+	  // only happens to be correct for F84's *first* parameter. In
+	  // particular JC69/F81 (no free ts/tv parameter at all -- a1=a2=b=1
+	  // always) and K2P/HKY (a single kappa shared by BOTH the purine
+	  // and pyrimidine transition rate, i.e. a2 must equal a1, not be
+	  // left at 1.0) were silently given the wrong internal rate
+	  // parameters for any ttratio != 1, and TN had its second kappa and
+	  // its baseline transversion rate swapped (parameters[1] must be
+	  // kappa2, not a hardcoded 1.0; parameters[2] must be the fixed
+	  // baseline 1.0, not kappa2).
+	  //
+	  // F84 is deliberately left as-is here: reconciling its several
+	  // mutually-inconsistent legacy formulas (this function vs.
+	  // set_subloci_basefrequencies_seq()'s F84 correction vs.
+	  // set_mutationmodel_eigenmaterial() vs. menu.c's display_F84())
+	  // needs a maintainer decision on which is authoritative, not a
+	  // unilateral guess.
+	  switch (s->model)
+	    {
+	    case JC69:
+	    case F81:
+	      // No free transition/transversion parameter: all six
+	      // substitution rates are equal (a1=a2=b=1); only the base
+	      // frequencies (equal for JC69, free for F81) differ.
+	      s->parameters[0] = s->parameters[1] = s->parameters[2] = 1.0;
+	      s->ttratio = 1.0;
+	      break;
+	    case K2P:
+	    case HKY:
+	      // A single kappa governs both the purine (A<->G) and
+	      // pyrimidine (C<->T) transition rate equally.
+	      s->parameters[0] = options->sequence_model_parameters[0]; //ttratio (kappa)
+	      s->ttratio = options->sequence_model_parameters[0];
+	      s->parameters[1] = s->parameters[0];
+	      s->parameters[2] = 1.0;
+	      break;
+	    case TN:
+	      // Two independent kappas (purine, pyrimidine); the baseline
+	      // transversion rate is always 1.0, matching every other model
+	      // here (and set_mutationmodel_eigenmaterial()'s TN case).
+	      s->parameters[0] = options->sequence_model_parameters[0]; //kappa1
+	      s->ttratio = options->sequence_model_parameters[0];
+	      if (options->sequence_model_parameters[1] > 0.0)
+		s->parameters[1] = options->sequence_model_parameters[1]; //kappa2
+	      else
+		s->parameters[1] = 1.0;
+	      s->parameters[2] = 1.0;
+	      break;
+	    case F84:
+	    default:
+	      s->parameters[0] = options->sequence_model_parameters[0]; //ttratio
+	      s->ttratio = options->sequence_model_parameters[0]; //ttratio
+	      s->parameters[1] = 1.0;
+	      if (options->sequence_model_parameters[1] > 0.0)
+		s->parameters[2] = options->sequence_model_parameters[1];
+	      else
+		s->parameters[2] = 1.0;
+	      break;
+	    }
 	}
     }
   if(s->numsiterates>1)
@@ -606,10 +657,22 @@ void set_tn_model(double a1, double a2, double b, double pia, double pic, double
   double piy = pic + pit;
 
   // eigenvalues
+  //
+  // BUG FIX: the purine/pyrimidine eigenvalues used to be -(a1+b) and
+  // -(a2+b), omitting the pir/piy weighting. For the rate matrix this
+  // eigensystem is supposed to diagonalize (Q[A][G]=a1*pig,
+  // Q[C][T]=a2*pit, all transversions=b*pi_j), the correct eigenvalues
+  // are -(a1*pir + b*piy) and -(a2*piy + b*pir) -- confirmed by symbolic
+  // diagonalization of that Q. The old formula made every model built on
+  // this eigensystem (JC69, K2P, F81, F84, HKY, TN93 alike) compute the
+  // wrong transition/transversion balance: even the textbook JC69 case
+  // (a1=a2=b=1) came out with transitions weighted 3x over
+  // transversions instead of all six substitution types being equal.
+  // See prob_tn93() below for the matching closed-form fix.
   mumod->eigenvalues[0] = 0.0;
   mumod->eigenvalues[1] = -b;
-  mumod->eigenvalues[2] = -a1 - b;
-  mumod->eigenvalues[3] = -a2 - b;
+  mumod->eigenvalues[2] = -a1 * pir - b * piy;
+  mumod->eigenvalues[3] = -a2 * piy - b * pir;
   // eigenvector
   mumod->eigenvectormatrix[0]= 1.0;
   mumod->eigenvectormatrix[1]= -piy / pir;
@@ -1644,7 +1707,27 @@ void get_mutationmodel_nameparam(char *modelname, char *modelparams, mutationmod
 
 void prob_tn93 (MYREAL p[4][4], const MYREAL u, const MYREAL ar, const MYREAL ay, const MYREAL b, const mutationmodel_fmt *s)
 {
-  /* mathematica derived transition probabilities for TN93 model*/
+  /* Closed-form transition probabilities for the Tamura-Nei (1993) model,
+     P(u) = V * diag(exp(eigenvalue * u)) * Vinv, using the eigenvectors
+     from set_tn_model() and the corrected eigenvalues
+     { 0, -b, -(ar*pR + b*pY), -(ay*pY + b*pR) } (pR=pA+pG, pY=pC+pT).
+     BUG FIX: the previous version of this function used exponents
+     (ar+b)*u and (ay+b)*u (missing the pR/pY weighting), which does not
+     diagonalize the TN93 rate matrix (Q[A][G]=ar*pG, Q[C][T]=ay*pT, all
+     transversions = b*pi_j) except in the degenerate pR=pY=0.5 case.
+     Every model built on this routine (JC69, K2P, F81, F84, HKY, TN93)
+     shares this fix.
+
+     Branch-length scaling, also fixed here: (ar,ay,b) are set per model
+     (adjust_mutationmodel()) without regard to what mean substitution
+     rate they imply -- e.g. JC69 uses ar=ay=b=1, whose rate matrix has
+     mean rate 3/4, not 1. So that `u` always means "branch length in
+     expected substitutions per site" regardless of that arbitrary
+     per-model scale, u is rescaled here by the rate matrix's actual
+     mean rate, 2*ar*pA*pG + 2*ay*pC*pT + 2*b*pR*pY (piA*Q[A][G] +
+     piG*Q[G][A] + ... summed over every off-diagonal entry). For JC69
+     this divides u by 3/4, i.e. multiplies the effective rate by 4/3 --
+     the standard JC69 normalization. */
   const MYREAL pA = s->basefreqs[NUC_A];
   const MYREAL pC = s->basefreqs[NUC_C];
   const MYREAL pG = s->basefreqs[NUC_G];
@@ -1653,64 +1736,59 @@ void prob_tn93 (MYREAL p[4][4], const MYREAL u, const MYREAL ar, const MYREAL ay
   const MYREAL pY = s->basefreqs[NUC_Y];
   const MYREAL invpR = 1./pR;
   const MYREAL invpY = 1./pY;
-  MYREAL x1 = ar * u;
+
+  MYREAL mean_rate = 2.0 * ar * pA * pG + 2.0 * ay * pC * pT + 2.0 * b * pR * pY;
+  if (mean_rate < EPSILON)
+    mean_rate = EPSILON; /* guard against a degenerate all-zero-rate model */
+  const MYREAL uu = u / mean_rate;
+
+  MYREAL x1 = b * uu;
   if (x1 > 100.0)
     x1 = 100.0;
-  const MYREAL earu = exp(x1);
-  const MYREAL invearu = 1./earu;
-  MYREAL x2 = ay * u;
+  const MYREAL invebu = exp(-x1);           /* exp(-b u), eigenvalue -b */
+
+  MYREAL x2 = (ar * pR + b * pY) * uu;
   if (x2 > 100.0)
     x2 = 100.0;
-  const MYREAL eayu = exp(x2);
-  const MYREAL inveayu = 1./eayu;
-  MYREAL x3 = (ar+b) * u;
+  const MYREAL invearbu = exp(-x2);         /* eigenvalue -(ar pR + b pY): purine (A<->G) mode */
+
+  MYREAL x3 = (ay * pY + b * pR) * uu;
   if (x3 > 100.0)
     x3 = 100.0;
-  const MYREAL earbu = exp(x3);
-  const MYREAL invearbu = 1./earbu;
-  MYREAL x4 = (ay+b) * u;
-  if (x4 > 100.0)
-    x4 = 100.0;
-  const MYREAL eaybu = exp(x4);
-  const MYREAL inveaybu = 1./eaybu;
-  MYREAL x5 = b * u;
-  if (x5 > 100.0)
-    x5 = 100.0;
-  const MYREAL ebu = exp(x5);
-  const MYREAL invebu = 1./ebu;
+  const MYREAL inveaybu = exp(-x3);         /* eigenvalue -(ay pY + b pR): pyrimidine (C<->T) mode */
 
-  /* A to A  paa = E^(-(ar + b) * u) * (pA + pG)^(-1) (pG - E^(ar u) pA (-1 + pA + pG) + E^((ar + b) u) pA (pA + pG));*/
-  p[NUC_A][NUC_A] =  invearbu * invpR * (pG + earu * pA * pY + earbu * pA * pR);
-  /* A to C  pac = pC - E^(-b u) pC;*/
-  p[NUC_A][NUC_C] = pC - invebu * pC;
-  /* A to G  pag = E^(-b u) pG (pA + pG)^(-1) ( 1 - E^(-ar u) - pA - pG + E^(b u) (pA + pG)); */
-  p[NUC_A][NUC_G] = invebu * pG * invpR * (pY - invearu + ebu * pR); 
-  /* A to T  pat = -E^(-b u) (-1 + E^(b u)) (-1 + pA + pC + pG);*/
-  p[NUC_A][NUC_T] = (1.0 - invebu)  * pT;
-  /* C to A  pca = pA - E^(-b u) pA;*/
-  p[NUC_C][NUC_A] = pA - invebu * pA;
-  /* C to C  pcc = pC + E^(-(ay + b) u) (-1 + pA + pG)^(-1) (-1 + pA + pC + pG - E^(ay u) pC (pA + pG)); */
-  p[NUC_C][NUC_C] = pC + inveaybu * invpY * (pT + eayu * pC * pR); 
-  /* C to G  pcg = pG - E^(-b u) pG; */
-  p[NUC_C][NUC_G] = pG - invebu* pG; 
-  /* C to T  pct = E^(-(ay + b) u) (-1 + pA + pG)^(-1) (-1 + pA + pC + pG) (-1 - E^((ay + b) u) (-1 + pA + pG) + E^(ay u) (pA + pG));*/
-  p[NUC_C][NUC_T] = inveaybu * invpY * pT * (eaybu * pY + eayu * pR - 1.0);
-  /* G to A  pga = E^(-b u) pA (pA + pG)^(-1) (1 - E^(-ar u) - pA - pG + E^(b u) (pA + pG)); */
-  p[NUC_G][NUC_A] = invebu * pA * invpR * (pY - invearu + ebu * pR); 
-  /* G to C  pgc = pC - E^(-b u) pC; */
-  p[NUC_G][NUC_C] = pC - invebu * pC; 
-  /* G to G  pgg = E^(-b u) (pA + pG)^(-1) (E^(-ar u) pA + pG - pG (pA + pG) + E^(b u) pG (pA + pG));*/
-  p[NUC_G][NUC_G] = invebu * invpR * (invearu * pA + pG - pG * pR + ebu * pG * pR); // * (1.0 - ebu);
-  /* G to T  pgt = -E^(-b u) (-1 + E^(b u)) (-1 + pA + pC + pG);*/
-  p[NUC_G][NUC_T] = (1.0 - invebu) * pT;
-  /* T to A  pta = pA - E^(-b u) pA; */
-  p[NUC_T][NUC_A] = pA - invebu * pA; 
-  /* T to C  ptc = pC + E^(-(ay + b) u) (-1 + pA + pG)^(-1)  (pC - E^(ay u) pC (pA + pG)); */
-  p[NUC_T][NUC_C] = pC + inveaybu * invpY * (eayu * pC * pR - pC); 
-  /* T to G  ptg = pG - E^(-b u) pG; */
-  p[NUC_T][NUC_G] = pG - invebu * pG; 
-  /* T to T  ptt = E^(-b u) (-1 + pA + pG)^(-1) (-E^(-ay u) pC - E^( b u) (-1 + pA + pG) (-1 + pA + pC + pG) + (pA + pG) (-1 + pA + pC + pG))*/
-  p[NUC_T][NUC_T] = invebu * invpY *(inveayu * pC + pT * (ebu * pY + pR));
+  /* A to A */
+  p[NUC_A][NUC_A] = pA + pA * pY * invpR * invebu + pG * invpR * invearbu;
+  /* A to C */
+  p[NUC_A][NUC_C] = pC - pC * invebu;
+  /* A to G */
+  p[NUC_A][NUC_G] = pG + pG * pY * invpR * invebu - pG * invpR * invearbu;
+  /* A to T */
+  p[NUC_A][NUC_T] = pT - pT * invebu;
+  /* C to A */
+  p[NUC_C][NUC_A] = pA - pA * invebu;
+  /* C to C */
+  p[NUC_C][NUC_C] = pC + pC * pR * invpY * invebu + pT * invpY * inveaybu;
+  /* C to G */
+  p[NUC_C][NUC_G] = pG - pG * invebu;
+  /* C to T */
+  p[NUC_C][NUC_T] = pT + pT * pR * invpY * invebu - pT * invpY * inveaybu;
+  /* G to A */
+  p[NUC_G][NUC_A] = pA + pA * pY * invpR * invebu - pA * invpR * invearbu;
+  /* G to C */
+  p[NUC_G][NUC_C] = pC - pC * invebu;
+  /* G to G */
+  p[NUC_G][NUC_G] = pG + pG * pY * invpR * invebu + pA * invpR * invearbu;
+  /* G to T */
+  p[NUC_G][NUC_T] = pT - pT * invebu;
+  /* T to A */
+  p[NUC_T][NUC_A] = pA - pA * invebu;
+  /* T to C */
+  p[NUC_T][NUC_C] = pC + pC * pR * invpY * invebu - pC * invpY * inveaybu;
+  /* T to G */
+  p[NUC_T][NUC_G] = pG - pG * invebu;
+  /* T to T */
+  p[NUC_T][NUC_T] = pT + pT * pR * invpY * invebu + pC * invpY * inveaybu;
 }
 	  
 #ifndef AVX
