@@ -3324,11 +3324,27 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
 
 long unpack_heat(MYREAL *buffer, long start, long locus, world_fmt * world)
 {
-  return 0;
+  // BUG FIX: these two are no-op placeholders (they read/write nothing),
+  // so they must hand back `start` unchanged. Returning the literal 0
+  // instead reset the caller's running buffer position back to the
+  // beginning: pack_bayes_buffer()/pack_result_buffer() both do
+  // `z = pack_heat(buffer, z, locus, world);` right after packing a
+  // locus' histogram/result material whenever adaptiveheat is on (the
+  // default heating scheme), so that already-packed content was silently
+  // discarded and overwritten by the BF/ESS/hyper material that follows
+  // -- the final bufsize sent to the master under-counted the message by
+  // exactly the discarded amount. The master's matching unpack (e.g.
+  // unpack_hist_bayes_buffer()) had no way to know this happened and kept
+  // reading at the offsets it expected, picking up whatever unrelated
+  // heap content followed the truncated buffer -- reproduced as a
+  // deterministic crash with a wildly out-of-range `locus` value, with
+  // either one or several MPI workers (never a race: pack_heat() runs on
+  // every worker, every time, unconditional on adaptiveheat).
+  return start;
 }
 long pack_heat(MYREAL **buffer, long start, long locus, world_fmt * world)
 {
-  return 0;
+  return start;
 }
 
  /// packing autocorrelation and ess buffer
