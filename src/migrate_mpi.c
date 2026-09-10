@@ -120,7 +120,7 @@ void unpack_failed_percentiles (char *buffer, boolean *failed, long n);
 void handle_message(char *rawmessage,int sender, world_fmt *world);
 void handle_mdim(float *values,long n, int sender, world_fmt * world);
 void handle_burnin_message(char *rawmessage,int sender, world_fmt * world);
-void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, option_fmt * options, data_fmt *data);
+void handle_locusdataondemand(int sender,int tag,char *tempstr, world_fmt *world, option_fmt * options, data_fmt *data);
 void set_filehandle(char *message, world_fmt *world,void **file, long *msgstart);
 
 void mpi_receive_replicate( int sender, int tag, long locus, long replicate, world_fmt * world);
@@ -247,8 +247,8 @@ mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
 	    tag = status.MPI_TAG;
 	    switch(leadstr[0])
 	      {
-	      case 'D': //request data [handle data on demand]
-		handle_dataondemand(sender, tag, leadstr, world, options, data);
+	      case 'L': //request all of one locus's data at once [handle data on demand]
+		handle_locusdataondemand(sender, tag, leadstr, world, options, data);
 		break;
 
 	      case 'M': //get message to print or file
@@ -2228,31 +2228,236 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       }
 
 
-void request_data(long pop,long ind, long locus, long sublocus,long allelenum, world_fmt *world, data_fmt *data, option_fmt * options, site_fmt ***datapart)
+// --- Locus-batched data-on-demand (ported from migrate-codex-7, 2026-09-09) --
+// Replaces the earlier per-(population,individual,sublocus) request_data()/
+// handle_dataondemand() pair, which issued one blocking MPI round trip per
+// item -- for a real 1000-locus/10,000bp/20-individual dataset that is
+// ~20 round trips per locus per worker, all serviced one at a time by the
+// master's single dispatch thread (mpi_runloci_master()). A real HPC
+// rank-scaling sweep (up to 512 cores, see the migrate-codex-7 modernization
+// branch's plan.md, "Final, complete rank-scaling result" / "HPC re-run")
+// measured this causing real anti-scaling above 256 workers, and confirmed
+// (same sweep, after the fix) a real +39% per-worker throughput improvement
+// at 512 workers from exactly this change -- though also confirmed the
+// 4-256 worker range is unaffected, meaning a second, still-unidentified
+// bottleneck remains; ported here anyway since the 512-worker win is real
+// and the change is byte-identical-verified safe.
+//
+// Fix: a worker fetches an entire locus's data (every population x
+// individual x sublocus it needs) in ONE round trip when it is assigned
+// that locus. This keeps the property that motivated MPIDATAONDEMAND in
+// the first place -- a worker never holds more than one locus's data in
+// memory at a time -- it just widens the granularity of a single
+// demand-pull from "one item" to "one locus".
+//
+// The per-item wire sub-format (name line, freq/baseref lines, raw
+// concatenated site bytes) is UNCHANGED from this file's existing
+// single-item protocol (%f-precision basefreqs, int-typed baseref_used,
+// no derived-ratio fields) -- deliberately not importing migrate-codex-7's
+// separate, unrelated %.17g-precision and boolean-baseref_used fixes here;
+// this port is the batching change only.
+//
+// One correctness subtlety this design has to get right: whether a given
+// sublocus is treated as allelenum=0 (sequence types) or allelenum=1
+// (allele/microsat/brownian) depends on world->mutationmodels[sublocus]
+// .datatype *after* makevalues()'s own `if (s->datatype==0) s->datatype =
+// world->options->datatype;` defaulting -- the master's own copy
+// (data->mutationmodels) is never run through that same defaulting, since
+// the master never calls makevalues() itself. So the master must NOT
+// recompute allelenum from its own datatype field; the worker computes it
+// (applying the same defaulting) once per sublocus and sends it as part
+// of the request.
+
+// Ensures buffer has room for at least `more` additional bytes beyond the
+// current bufsize, growing (and updating) *allocbufsize/*buffer as needed.
+static void ensure_dataondemand_bufcap(char **buffer, long *allocbufsize, long bufsize, long more)
 {
-  //datapart is a pointer to an array of strings, it is assumed that it has NULL bytes allocated, it will receive
-  //its memory from here
-  long bufsize=0;
-  mutationmodel_fmt *s = &world->mutationmodels[sublocus];
-  long site;
-  //long patterns = s->numpatterns;
-  long numsites = s->numsites;
-  MPI_Status  status;
-  long tag=myID+ONDEMANDTAG;
-  long len;
+  if (bufsize + more > *allocbufsize)
+    {
+      long newsize = *allocbufsize;
+      while (newsize < bufsize + more)
+	newsize *= 2;
+      *buffer = (char*) myrealloc(*buffer, (size_t) newsize * sizeof(char));
+      *allocbufsize = newsize;
+    }
+}
+
+// Appends one (population,individual,sublocus) item's data to the shared,
+// growing reply buffer -- the master side of the wire sub-format. Same
+// content this file's old single-item handle_dataondemand() sent, minus
+// its own per-call MPI send (now done once for the whole locus by the
+// caller) and with the per-site loop switched from a mysnprintf("%s",...)
+// call per site (a full format-string reparse per site, ~10,000 of them
+// for a 10kb locus, all on the single master thread) to a direct memcpy
+// of the already-known-length site string.
+static void append_dataondemand_item(char **buffer, long *bufsize, long *allocbufsize,
+                                      long pop, long ind, long sublocus, long allelenum,
+                                      data_fmt *data, option_fmt *options)
+{
+  ensure_dataondemand_bufcap(buffer, allocbufsize, *bufsize, LINESIZE);
+  *bufsize += mysnprintf(*buffer + *bufsize, LINESIZE, "%*s\n",
+                          (int) options->nmlength, data->indnames[pop][ind][0]);
+  if (allelenum != 0)
+    {
+      ensure_dataondemand_bufcap(buffer, allocbufsize, *bufsize, LINESIZE);
+      *bufsize += mysnprintf(*buffer + *bufsize, LINESIZE, "%s %s\n",
+                              data->yy[pop][ind][sublocus][0][0], data->yy[pop][ind][sublocus][1][0]);
+    }
+  else
+    {
+      mutationmodel_fmt *s = &data->mutationmodels[sublocus];
+      int tmp = (s->dataclass == SITECHARACTER ? 0 : 1);
+      ensure_dataondemand_bufcap(buffer, allocbufsize, *bufsize, LINESIZE);
+      *bufsize += mysnprintf(*buffer + *bufsize, LINESIZE, "%i %f %f %f %f\n", tmp,
+                              s->basefreqs[0], s->basefreqs[1], s->basefreqs[2], s->basefreqs[3]);
+      ensure_dataondemand_bufcap(buffer, allocbufsize, *bufsize, LINESIZE);
+      if (s->baseref_used && s->baseref != NULL && s->dataclass == SITECHARACTER)
+	{
+	  *bufsize += mysnprintf(*buffer + *bufsize, LINESIZE, "%li %li %li %li %li %li %li %li\n",
+				  (long) s->baseref_used,
+				  s->baseref[0], s->baseref[1], s->baseref[2], s->baseref[3],
+				  s->baseref[4], s->baseref[5], s->baseref[6]);
+	}
+      else
+	{
+	  *bufsize += mysnprintf(*buffer + *bufsize, LINESIZE, "%li\n", (long) s->baseref_used);
+	}
+      long site;
+      for (site = 0; site < s->numsites; site++)
+	{
+	  const char *sitestr = data->yy[pop][ind][sublocus][0][site];
+	  size_t len = strlen(sitestr);
+	  ensure_dataondemand_bufcap(buffer, allocbufsize, *bufsize, (long) len);
+	  memcpy(*buffer + *bufsize, sitestr, len);
+	  *bufsize += (long) len;
+	}
+    }
+}
+
+// Master side: builds and sends the whole locus's data (every population x
+// individual x sublocus the requesting worker's makevalues() will need) in
+// one reply. `tempstr` is "L <locus> <numsub> <allelenum_0> ... <allelenum_{numsub-1}>"
+// -- the per-sublocus allelenum list the worker already computed (see the
+// correctness note above for why the master must not recompute this itself).
+void handle_locusdataondemand(int sender,int tag,char *tempstr, world_fmt *world, option_fmt * options, data_fmt *data)
+{
+  long locus;
+  long pop;
+  long ind;
+  long ii;
+  long top;
+  long sublocus;
+  long sublocistart;
+  long sublociend;
+  long numsub;
+  long allelenum[SMALLBUFSIZE];
   char *buffer;
-  char *buf;
-  char *  p1 = (char *) mycalloc(LINESIZE,sizeof(char));
-  long inputsize = LONGLINESIZE;
-  char *  input = (char *) mycalloc(inputsize,sizeof(char));
-  mysnprintf(p1,LINESIZE,"D %li %li %li %li",pop,ind,sublocus,allelenum);
-  //fprintf(stdout,"%i> requested data from master %s (pop,ind,subloc,allelnum)\n", myID, p1);
-  //fflush(stdout);
+  long allocbufsize = LONGLINESIZE;
+  long bufsize = 0;
+  const char *p = tempstr + 1;
+  int consumed = 0;
+  buffer = (char *) mycalloc (allocbufsize,sizeof (char));
+  sscanf(p, "%li %li%n", &locus, &numsub, &consumed);
+  p += consumed;
+  sublocistart = data->sublocistarts[locus];
+  sublociend   = data->sublocistarts[locus+1];
+  if (numsub != sublociend - sublocistart || numsub > SMALLBUFSIZE)
+    {
+      error("handle_locusdataondemand(): sublocus count mismatch or too large");
+    }
+  for (long xs = 0; xs < numsub; xs++)
+    {
+      sscanf(p, "%li%n", &allelenum[xs], &consumed);
+      p += consumed;
+    }
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      top = max_shuffled_individuals(options, data, pop, locus);
+      for (ii = 0; ii < top; ii++)
+	{
+	  ind = data->shuffled[pop][locus][ii];
+	  for (sublocus = sublocistart; sublocus < sublociend; sublocus++)
+	    {
+	      append_dataondemand_item(&buffer, &bufsize, &allocbufsize,
+					pop, ind, sublocus, allelenum[sublocus - sublocistart],
+					data, options);
+	    }
+	}
+    }
+  MYMPISEND (&bufsize, 1, MPI_LONG, (MYINT) sender, (MYINT) tag, comm_world);
+  MYMPISEND (buffer, bufsize, MPI_CHAR, (MYINT) sender, (MYINT) tag, comm_world);
+  myfree(buffer);
+}
+
+// Worker side: sends the one "L <locus> ..." request and receives the one
+// combined reply buffer. `*buffer_out`/`*cursor_out` are both set to the
+// received buffer; the caller (makevalues(), via parse_dataondemand_item()
+// below) advances *cursor_out item by item as it consumes the locus.
+// `*buffer_out` must be myfree()'d by the caller once the whole locus is
+// done -- *cursor_out is a moving view into the same allocation, not a
+// separate one.
+void request_locus_data(long locus, world_fmt *world, data_fmt *data, option_fmt *options,
+                         char **buffer_out, char **cursor_out)
+{
+  long bufsize = 0;
+  MPI_Status status;
+  long tag = myID + ONDEMANDTAG;
+  char *p1 = (char *) mycalloc(SMALLBUFSIZE, sizeof(char));
+  char *buffer;
+  long sublocistart = world->sublocistarts[locus];
+  long sublociend   = world->sublocistarts[locus+1];
+  long numsub = sublociend - sublocistart;
+  long pos = 0;
+  long sublocus;
+  // SMALLBUFSIZE is a hard architectural limit here: mpi_runloci_master()'s
+  // dispatch loop receives every incoming request (whatever its verb) into
+  // one fixed SMALLBUFSIZE-sized buffer before looking at leadstr[0], so
+  // this request string -- "L <locus> <numsub>" plus one allelenum per
+  // sublocus -- must fit inside it. Comfortably true for realistic
+  // sublocus counts (a handful at most); fail loudly rather than silently
+  // truncate (and thereby corrupt the request) if that ever stops holding.
+  pos += mysnprintf(p1+pos, SMALLBUFSIZE-pos, "L %li %li", locus, numsub);
+  for (sublocus = sublocistart; sublocus < sublociend; sublocus++)
+    {
+      mutationmodel_fmt *s = &world->mutationmodels[sublocus];
+      long allelenum;
+      if (s->datatype == 0)
+	s->datatype = world->options->datatype;
+      allelenum = strchr(SEQUENCETYPES, s->datatype) ? 0 : 1;
+      if (pos + 20 >= SMALLBUFSIZE)
+	{
+	  error("request_locus_data(): too many subloci for one SMALLBUFSIZE-limited request");
+	}
+      pos += mysnprintf(p1+pos, SMALLBUFSIZE-pos, " %li", allelenum);
+    }
   MYMPISEND (p1, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, (MYINT) tag, comm_world);
   MYMPIRECV (&bufsize, ONE, MPI_LONG, MASTER, (MYINT) tag, comm_world, &status);
-  buffer = (char *) mycalloc (bufsize, sizeof (char));
-  MYMPIRECV (buffer, bufsize, mpisizeof, MASTER, (MYINT) tag, comm_world, &status);
-  buf = buffer;
+  buffer = (char *) mycalloc (bufsize > 0 ? bufsize : 1, sizeof (char));
+  if (bufsize > 0)
+    MYMPIRECV (buffer, bufsize, mpisizeof, MASTER, (MYINT) tag, comm_world, &status);
+  myfree(p1);
+  *buffer_out = buffer;
+  *cursor_out = buffer;
+}
+
+// Worker side: parses exactly one (population,individual,sublocus) item
+// out of the already-fully-received locus buffer, advancing *buf_cursor
+// past it -- the same unpack logic this file's old single-item
+// request_data() used after its own network receive, just no longer doing
+// a receive of its own (the whole locus's bytes are already in memory;
+// this only moves the read cursor through them). *input_ptr/*inputsize_ptr
+// are sgets_safe()'s scratch line buffer, owned by the caller across the
+// whole locus (one allocation per locus instead of one per item).
+void parse_dataondemand_item(char **buf_cursor, char **input_ptr, long *inputsize_ptr,
+                              long pop, long ind, long locus, long sublocus, long allelenum,
+                              world_fmt *world, data_fmt *data, option_fmt *options,
+                              site_fmt ***datapart)
+{
+  mutationmodel_fmt *s = &world->mutationmodels[sublocus];
+  long site;
+  long numsites = s->numsites;
+  long len;
+  char *buf = *buf_cursor;
 
   if (*datapart == NULL)
     {
@@ -2285,17 +2490,17 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
   
   if (allelenum!=0)
     {
-      sgets_safe (&input, &inputsize, &buf);
-      sscanf (input, "%s", data->indnames[pop][ind][0]);
-      sgets_safe (&input, &inputsize, &buf);
-      sscanf (input, "%s %s", (*datapart)[0][0],(*datapart)[1][0]);
+      sgets_safe (input_ptr, inputsize_ptr, &buf);
+      sscanf (*input_ptr, "%s", data->indnames[pop][ind][0]);
+      sgets_safe (input_ptr, inputsize_ptr, &buf);
+      sscanf (*input_ptr, "%s %s", (*datapart)[0][0],(*datapart)[1][0]);
     }
   else
     {
-      sgets_safe (&input, &inputsize, &buf);
-      mysnprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, input);	
+      sgets_safe (input_ptr, inputsize_ptr, &buf);
+      mysnprintf(data->indnames[pop][ind][locus],LINESIZE,"%-*s", (int) options->nmlength, *input_ptr);	
 
-      sgets_safe (&input, &inputsize, &buf);
+      sgets_safe (input_ptr, inputsize_ptr, &buf);
       if(s->basefreqs==NULL)
 	{
 	  s->basefreqs = (double*) mycalloc((s->numstates+BASEFREQLENGTH-4), sizeof(double));
@@ -2305,7 +2510,7 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 	  s->basefreqs = (double*) myrealloc(s->basefreqs,(s->numstates+BASEFREQLENGTH-4) * sizeof(double));
 	}
       int tmp=0;
-      sscanf(input,"%i %lf %lf %lf %lf", &tmp, &s->basefreqs[0],&s->basefreqs[1],&s->basefreqs[2],&s->basefreqs[3]);
+      sscanf(*input_ptr,"%i %lf %lf %lf %lf", &tmp, &s->basefreqs[0],&s->basefreqs[1],&s->basefreqs[2],&s->basefreqs[3]);
       if (tmp==0)
 	s->dataclass = SITECHARACTER;
       else
@@ -2313,8 +2518,8 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 
       if(s->dataclass==SITECHARACTER)
 	{
-	  sgets_safe (&input, &inputsize, &buf);
-	  if (input[0] == '1')
+	  sgets_safe (input_ptr, inputsize_ptr, &buf);
+	  if ((*input_ptr)[0] == '1')
 	    {
 	      if(s->baseref==NULL)
 		{
@@ -2324,8 +2529,8 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 		{
 		  s->baseref = (long*) myrealloc(s->baseref, BASEREF * sizeof(long));
 		}
-	      fprintf(stderr,"%i> baseref %s", myID, input);
-	      sscanf(input,"%i %li %li %li %li %li %li %li\n",
+	      fprintf(stderr,"%i> baseref %s", myID, *input_ptr);
+	      sscanf(*input_ptr,"%i %li %li %li %li %li %li %li\n",
 		     &s->baseref_used,
 		     &s->baseref[0],
 		     &s->baseref[1],
@@ -2349,13 +2554,11 @@ void request_data(long pop,long ind, long locus, long sublocus,long allelenum, w
 	}
       else
 	{
-	  sgets_safe (&input, &inputsize, &buf);
-	  strcpy((*datapart)[0][0],input);
+	  sgets_safe (input_ptr, inputsize_ptr, &buf);
+	  strcpy((*datapart)[0][0],*input_ptr);
 	}
     }
-  myfree(p1);
-  myfree(buffer);
-  myfree(input);
+  *buf_cursor = buf;
 }
 
 
@@ -4141,69 +4344,6 @@ boolean in_mpistack(int sender, world_fmt *world)
 	return TRUE;
     }
   return FALSE;
-}
-
-void handle_dataondemand(int sender,int tag,char *tempstr, world_fmt *world, option_fmt * options, data_fmt *data)
-{
-  //long  pos=0;
-  long pop;
-  long ind;
-  long sublocus;
-  long allelenum;
-  char *buffer;
-  long allocbufsize=LONGLINESIZE;
-  long bufsize;
-  //sleep(100);
-  buffer = (char *) mycalloc (allocbufsize,sizeof (char));
-  sscanf(tempstr+1,"%li%li%li%li", &pop, &ind, &sublocus, &allelenum);
-  bufsize = mysnprintf(buffer,LINESIZE, "%*s\n",  (int) options->nmlength, data->indnames[pop][ind][0]);
-  if(allelenum!=0)
-    {
-      if (bufsize > allocbufsize-100)
-	{
-	  allocbufsize += bufsize;
-	  buffer = (char*) myrealloc(buffer, allocbufsize * sizeof(char));
-	}
-      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%s %s\n", data->yy[pop][ind][sublocus][0][0],data->yy[pop][ind][sublocus][1][0]);
-    }
-  else
-    {
-	mutationmodel_fmt *s = &data->mutationmodels[sublocus];
-	int tmp = (s->dataclass == SITECHARACTER ? 0 : 1);
-	bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%i %f %f %f %f\n", tmp, s->basefreqs[0],s->basefreqs[1],s->basefreqs[2],s->basefreqs[3]);
-	if (s->baseref_used && s->baseref != NULL && s->dataclass == SITECHARACTER)
-	  {
-	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li %li %li %li %li %li %li %li\n",
-				  (long) s->baseref_used,
-				  s->baseref[0],
-				  s->baseref[1],
-				  s->baseref[2],
-				  s->baseref[3],
-				  s->baseref[4],
-				  s->baseref[5],
-				  s->baseref[6]);
-	    fprintf(stderr,"%i> send baseref %s", myID, buffer);
-	  }
-	else
-	  {
-	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li\n",(long) s->baseref_used);
-	  }
-	long site;
-	for(site=0; site < s->numsites; site++)
-	  {
-	    if (bufsize > allocbufsize-s->numsites)
-	      {
-		allocbufsize += s->numsites+2;
-		buffer = (char*) myrealloc(buffer, allocbufsize * sizeof(char));
-	      }
-	    bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%s", data->yy[pop][ind][sublocus][0][site]);
-	    //printf("%s",data->yy[pop][ind][sublocus][0][site]);
-	  }
-	//printf("###%i####\n",myID);
-    }
-  MYMPISEND (&bufsize, 1, MPI_LONG, (MYINT) sender, (MYINT) tag, comm_world);
-  MYMPISEND (buffer, bufsize, MPI_CHAR, (MYINT) sender, (MYINT) tag, comm_world);
-  myfree(buffer);
 }
 
 

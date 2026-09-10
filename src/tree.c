@@ -1523,6 +1523,26 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
   long oldsite;
   site_fmt **datapart = NULL;  // MPI data on demand will use this, the other compile version treat this as a
   // a reference to the data->yy section
+#if defined(MPI) && defined(MPIDATAONDEMAND)
+  // Fetch this whole locus's data in one round trip (ported from
+  // migrate-codex-7, 2026-09-09; see the design note above
+  // handle_locusdataondemand() in migrate_mpi.c) instead of one
+  // request_data() round trip per (population,individual,sublocus) triple
+  // below. Fetched unconditionally, even when options->usertree is set and
+  // the loop below never consumes it (that branch never touches
+  // locus_buffer at all) -- simpler and safer than threading the usertree
+  // guard through the fetch too, at the cost of one wasted fetch per locus
+  // in that uncommon case.
+  char *locus_buffer = NULL;
+  char *locus_cursor = NULL;
+  char *locus_input = NULL;
+  long  locus_inputsize = LONGLINESIZE;
+  if (myID != MASTER)
+    {
+      request_locus_data(locus, world, data, options, &locus_buffer, &locus_cursor);
+      locus_input = (char *) mycalloc(locus_inputsize, sizeof(char));
+    }
+#endif
   //empty_world_unassigned(world);
   for (pop = 0; pop < data->numpop; pop++)
     {
@@ -1569,11 +1589,13 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 		      //	{			 
 		      if (!strchr (SEQUENCETYPES, s->datatype))
 			{
-			  request_data(pop,ind,locus,sublocus,1, world, data, options, &datapart);
-			}		
+			  parse_dataondemand_item(&locus_cursor, &locus_input, &locus_inputsize,
+						   pop,ind,locus,sublocus,1, world, data, options, &datapart);
+			}
 		      else
 			{
-			  request_data(pop,ind,locus,sublocus,0, world, data, options, &datapart);
+			  parse_dataondemand_item(&locus_cursor, &locus_input, &locus_inputsize,
+						   pop,ind,locus,sublocus,0, world, data, options, &datapart);
 			}
 		      if(treenode[z]==NULL)
 			{
@@ -1757,6 +1779,13 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
   //  myfree(datapart);
   //}
   //#endif
+#if defined(MPI) && defined(MPIDATAONDEMAND)
+  if (myID != MASTER)
+    {
+      myfree(locus_buffer);
+      myfree(locus_input);
+    }
+#endif
 }
 
 

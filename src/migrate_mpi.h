@@ -206,7 +206,12 @@ extern long  mpi_send_stop_mcmc_worker_orig(long numcpu, long loci, MPI_Comm *co
 #endif /*slownet */
 extern long  mpi_send_stop_mcmc_replicateworker(long numcpu, long loci);
 extern int get_replicant_color(int numcpu, long maxreplicate, long loci);
-extern void request_data(long pop,long ind, long locus, long sublocus,long allelenum, world_fmt *world, data_fmt *data, option_fmt * options, site_fmt ***datapart);
+extern void request_locus_data(long locus, world_fmt *world, data_fmt *data, option_fmt *options,
+                                char **buffer_out, char **cursor_out);
+extern void parse_dataondemand_item(char **buf_cursor, char **input_ptr, long *inputsize_ptr,
+                                     long pop, long ind, long locus, long sublocus, long allelenum,
+                                     world_fmt *world, data_fmt *data, option_fmt *options,
+                                     site_fmt ***datapart);
 //#include <sys/resource.h>
 //extern void set_memory_limit(rlim_t softsize,rlim_t maxsize);
 //extern void check_memory_limit();

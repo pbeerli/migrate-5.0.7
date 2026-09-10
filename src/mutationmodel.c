@@ -496,7 +496,7 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
 	  s->basefreqs[NUC_T] = options->freqt;
 	}
 #else
-      // handled with request_data 
+      // handled with request_locus_data() / parse_dataondemand_item() (see migrate_mpi.c)
 #endif /*MPI_ONDEMAND*/
       freqa = s->basefreqs[NUC_A];
       freqc = s->basefreqs[NUC_C];
