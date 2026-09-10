@@ -184,13 +184,153 @@ boolean my_write_error;
 #endif
 
 
+// --- LPT (largest-processing-time-first) dispatch ordering -------------
+// Ported 2026-09-10 from migrate-codex-7 (Phase 6 MPI-scaling
+// investigation there): reorders WHICH locus id gets dispatched at each
+// self-scheduling step in mpi_runloci_master() -- largest-computational-
+// cost locus first, instead of file order. Direct simulation of this
+// exact dispatch scheme against a real per-locus site-pattern-count
+// distribution predicted a real (if dataset-dependent) throughput gain,
+// growing as workers approach the loci count; measured on migrate-codex-7
+// as ~3.5% real, reproducible on a mild-heterogeneity simulated dataset
+// (three repeats per side, homogeneous dedicated HPC hardware), with
+// theoretical grounds to expect more on real, more-heterogeneous
+// empirical data. Worker/rank assignment and MPI tags are untouched --
+// only which locus id gets sent at each step changes -- and every locus
+// is still processed by exactly one worker exactly once, so locus
+// ordering in the final output is unaffected. This can change a
+// fixed-seed run's exact numeric output (worker-to-locus-to-RNG-stream
+// assignment shifts); verify via multi-seed statistical equivalence, not
+// byte-identical comparison, per the same standard migrate-codex-7 used.
+
+// Comparator for qsort() over an array of null-terminated per-site
+// signature strings (one character per (population,individual) at that
+// site, concatenated in a fixed order) -- used only to count distinct
+// site patterns as a locus-cost proxy, in estimate_locus_cost() below.
+static int
+compare_site_signature(const void *a, const void *b)
+{
+  const char *sa = *(const char * const *) a;
+  const char *sb = *(const char * const *) b;
+  return strcmp(sa, sb);
+}
+
+// Estimates `locus`'s relative computational cost for dispatch-ordering
+// purposes only -- never used in the actual likelihood calculation.
+// Approximates the real cost driver (post-compression distinct site
+// patterns; see makeweights()/sitesort2() in sequence.c) directly from
+// the master's already-loaded raw sequence data (data->yy and
+// data->mutationmodels[]'s dataclass/numsites -- the same fields
+// handle_locusdataondemand()/append_dataondemand_item() above already
+// rely on being populated at this point), without needing that per-locus
+// machinery's mutationmodel_fmt/world scaffolding -- not built for any
+// locus yet here, since mpi_runloci_master() runs before any locus is
+// assigned to a worker, and the master (a pure dispatcher under
+// MPIDATAONDEMAND) never builds that scaffolding for any locus itself.
+// Only SITECHARACTER (sequence) subloci contribute a pattern count;
+// non-sequence subloci (microsatellite/allele data) get a small flat
+// weight (sample count) instead, since "site patterns" is not a
+// meaningful concept for those datatypes.
+static long
+estimate_locus_cost(long locus, data_fmt *data, world_fmt *world)
+{
+  long sublocistart = world->sublocistarts[locus];
+  long sublociend   = world->sublocistarts[locus + 1];
+  long cost = 0;
+  long sublocus;
+
+  for (sublocus = sublocistart; sublocus < sublociend; sublocus++)
+    {
+      mutationmodel_fmt *s = &data->mutationmodels[sublocus];
+      long pop;
+      long total_samples = 0;
+      for (pop = 0; pop < data->numpop; ++pop)
+	total_samples += data->numind[pop][locus];
+
+      if (s->dataclass != SITECHARACTER || s->numsites <= 0 || total_samples <= 0)
+	{
+	  cost += total_samples; // flat weight -- patterns not meaningful here
+	  continue;
+	}
+
+      long numsites = s->numsites;
+      size_t stride = (size_t) total_samples + 1;
+      char *sigbuf = (char *) mycalloc((size_t) numsites * stride, sizeof(char));
+      char **sigs  = (char **) mycalloc((size_t) numsites, sizeof(char *));
+      long site;
+      for (site = 0; site < numsites; site++)
+	{
+	  char *sig = sigbuf + (size_t) site * stride;
+	  long k = 0;
+	  long ind;
+	  for (pop = 0; pop < data->numpop; ++pop)
+	    for (ind = 0; ind < data->numind[pop][locus]; ++ind)
+	      {
+		const char *sitestr = data->yy[pop][ind][sublocus][0][site];
+		sig[k++] = (sitestr != NULL && sitestr[0] != '\0') ? sitestr[0] : '?';
+	      }
+	  sig[k] = '\0';
+	  sigs[site] = sig;
+	}
+      qsort(sigs, (size_t) numsites, sizeof(char *), compare_site_signature);
+      long patterns = 1;
+      for (site = 1; site < numsites; site++)
+	if (strcmp(sigs[site - 1], sigs[site]) != 0)
+	  patterns++;
+      myfree(sigs);
+      myfree(sigbuf);
+      cost += patterns;
+    }
+  return cost;
+}
+
+// One (cost,locus) pair -- sorted descending by cost, ties broken by
+// ascending locus id for determinism, to produce the actual dispatch
+// order.
+typedef struct
+{
+  long cost;
+  long locus;
+} locus_cost_pair;
+
+static int
+compare_locus_cost_desc(const void *a, const void *b)
+{
+  const locus_cost_pair *pa = (const locus_cost_pair *) a;
+  const locus_cost_pair *pb = (const locus_cost_pair *) b;
+  if (pa->cost != pb->cost)
+    return (pa->cost < pb->cost) ? 1 : -1; // descending by cost
+  return (pa->locus < pb->locus) ? -1 : (pa->locus > pb->locus ? 1 : 0);
+}
+
+// Returns a newly allocated permutation of 0..loci-1, most-expensive
+// locus first (see estimate_locus_cost() above). Caller owns the result
+// (myfree() it).
+static long *
+compute_lpt_dispatch_order(long loci, data_fmt *data, world_fmt *world)
+{
+  locus_cost_pair *pairs = (locus_cost_pair *) mycalloc((size_t) loci, sizeof(locus_cost_pair));
+  long *order = (long *) mycalloc((size_t) loci, sizeof(long));
+  long locus;
+  for (locus = 0; locus < loci; locus++)
+    {
+      pairs[locus].locus = locus;
+      pairs[locus].cost  = estimate_locus_cost(locus, data, world);
+    }
+  qsort(pairs, (size_t) loci, sizeof(locus_cost_pair), compare_locus_cost_desc);
+  for (locus = 0; locus < loci; locus++)
+    order[locus] = pairs[locus].locus;
+  myfree(pairs);
+  return order;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ///
-/// Controls all loci in the MPI implementation, uses a load balancing scheme and 
+/// Controls all loci in the MPI implementation, uses a load balancing scheme and
 /// distributes the work on the waiting nodes
 ///
 void
-mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options, 
+mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
 		    data_fmt *data, boolean options_readsum, boolean menu)
 {
     int tag;
@@ -207,10 +347,11 @@ mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
     long locus;
     long newsize;
     long *twolongs;
+    long *dispatch_order;
     char *savetempstr;
-    char *tempstr; 
+    char *tempstr;
     char *leadstr;
-    float *temp;   
+    float *temp;
     MPI_Status status;
     MPI_Status *istatus;
     MPI_Request *irequests;
@@ -223,10 +364,11 @@ mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
     leadstr    = (char *) mycalloc(SMALLBUFSIZE, sizeof(char));
     temp       = (float *) mycalloc(floattempstrsize, sizeof(float));
     twolongs[1]= 0;
+    dispatch_order = compute_lpt_dispatch_order(loci, data, world);
 
     for (locus = 0; locus < minnodes; locus++)
       {
-	twolongs[0] = locus;
+	twolongs[0] = dispatch_order[locus];
 	ll = (int) (locus + 1);
 	MYMPIISEND(twolongs, TWO, MPI_LONG, ll, ll, comm_world, &irequests[numsent]);
 	numsent++;
@@ -357,7 +499,7 @@ mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
 	// if not done with loci send another locus-work to sender (a node 1..numcpu)
         if (numsent < loci)
 	  {
-            twolongs[0]=numsent;
+            twolongs[0]=dispatch_order[numsent];
             MYMPISEND (twolongs, TWO, MPI_LONG, (MYINT) sender, (MYINT) numsent + 1, comm_world);
             numsent++;
 	  }
@@ -387,6 +529,7 @@ mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
     myfree(savetempstr);
     myfree(leadstr);
     myfree(temp);
+    myfree(dispatch_order);
 }
 
 
