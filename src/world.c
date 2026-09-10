@@ -1299,6 +1299,26 @@ free_world(world_fmt *world, option_fmt *options)
     long sumloc = world->loci > 1 ? 1 : 0;
     // timevector is already freed in mcmc1.c
 
+    // Final release of the reused tree-proposal scratchpad (ported from
+    // migrate-codex-7, 2026-09-09; see migration.h's world_fmt comment and
+    // mcmc1.c's new_proposal()): free_masterproposal() no longer frees it
+    // on every proposal, only stashes it for reuse within the same locus --
+    // this is the one remaining owner that must release it when the world
+    // itself goes away, since no further locus change will ever trigger the
+    // new_proposal()-side replacement path to do it instead. Passes
+    // world->cached_proposal_locus, NOT world->locus -- by this point
+    // (final teardown, long after the last locus finished) world->locus
+    // may no longer match what this specific cached proposal was built
+    // for; see free_proposal_buffers()'s own comment (a real ASan
+    // heap-buffer-overflow here, caught by migrate-codex-7's mandated
+    // sanitizer stress test when this fix was built there, was the first
+    // version's bug).
+    if (world->cached_proposal != NULL)
+      {
+        free_proposal_buffers(world->cached_proposal, world->cached_proposal_locus);
+        world->cached_proposal = NULL;
+      }
+
 #ifdef MPI
     myfree(world->who);
     myfree(world->mpistack);

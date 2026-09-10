@@ -1708,6 +1708,26 @@ typedef struct _world
   long numparam; //holds the result from get_numparam [this is used so many times
   long numparamcumvec[PRIOR_SIZE]; //holds the cumulative numparam for each param group
   long numparamvec[PRIOR_SIZE]; //holds the  numparam for each param group
+
+  // Reused across tree-topology proposals within one locus (ported from
+  // migrate-codex-7, 2026-09-09, Phase 6 allocation/free audit):
+  // new_proposal()/free_masterproposal() (mcmc1.c) used to allocate and
+  // free the whole proposal_fmt scratchpad on every single MCMC tree
+  // proposal -- every field/sub-allocation's size is a deterministic
+  // function of `locus` alone (numsubloci, sublocistarts, per-sublocus
+  // numpatterns/numsiterates/maxalleles, sumtips, numpop2, uepsites, ...),
+  // so as long as `locus` hasn't changed since this was built, it's safe
+  // to reset in place instead of a fresh free+malloc round trip.
+  // `cached_proposal_locus` records which locus `cached_proposal` was
+  // sized for; NULL `cached_proposal` (the mycalloc()-zeroed default)
+  // always means "not yet built," regardless of `cached_proposal_locus`'s
+  // value, so no sentinel value is needed for the latter. Each world_fmt
+  // (EARTH, and each heated chain in universe[]) owns its own independent
+  // slot -- klone() copies fields one at a time and was deliberately NOT
+  // taught to copy these two, so a freshly mycalloc()'d heated-chain world
+  // always starts with its own NULL cache, never aliasing another chain's.
+  struct _proposal_fmt *cached_proposal;
+  long cached_proposal_locus;
 }
 world_fmt;
 

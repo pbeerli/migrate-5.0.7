@@ -271,12 +271,101 @@ void new_localtimelist_new (timelist_fmt ** ntl, timelist_fmt * otl, long numpop
 
 
 
+// --- Reused proposal_fmt scratchpad (ported from migrate-codex-7, 2026-09-09) --
+// new_proposal()/free_masterproposal() used to allocate and free the whole
+// proposal_fmt structure (~20 sub-allocations, dominated by
+// allocate_xseq()'s numsiterates*numpatterns-sized buffers) on every single
+// tree-topology MCMC proposal -- real profile evidence put malloc-family
+// cost at ~9-10% on the real 1000-locus/10,000bp dataset (migrate-codex-7's
+// plan.md, Phase 6 allocation/free audit). Every size involved is a
+// deterministic function of the world's CURRENT locus alone, so as long as
+// `world->locus` hasn't changed since a proposal was built, it's safe to
+// reset it in place (zero every buffer's content, exactly matching what a
+// fresh mycalloc() would have produced) instead of a fresh free+malloc
+// round trip.
+//
+// A prior, abandoned attempt at this exists in this same file/tree.c: an
+// `#ifdef TESTING2` branch that made free_masterproposal() a no-op (never
+// `#define`'d anywhere, so dead), and zero_xseq() (tree.c) -- a partial
+// reset helper for just the xf/xt buffers, called nowhere. Neither was
+// reusable as-is: TESTING2's branch never paired with any actual reset
+// logic (a real leak if it had ever been enabled), and zero_xseq() only
+// covered one of the ~20 sub-allocations. This replaces both with a
+// complete design.
+//
+// allocate_proposal_buffers() is the original new_proposal() body,
+// unchanged, renamed. reset_proposal_buffers() is new: it must zero every
+// buffer AND every "leftover" scalar/pointer field new_proposal() itself
+// never explicitly sets (mig_removed, the origin/target/tsister/... node
+// pointers chooseTarget()/chooseOrigin() fill in later, etc.) -- those
+// fields always started at 0/NULL from a fresh mycalloc() before, and a
+// reused proposal must start exactly the same way, or a proposal that
+// happens to read one of them before writing it would silently see a
+// stale value from the previous proposal instead of the zero/NULL the
+// original code always guaranteed.
+static void allocate_proposal_buffers (proposal_fmt ** proposal, world_fmt * world);
+static void reset_proposal_buffers (proposal_fmt * proposal, world_fmt * world);
+void free_proposal_buffers (proposal_fmt * proposal, long locus); // also declared in mcmc.h (non-static: free_world(), world.c, needs it too)
+
 void
 new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world)
 {
   (void) tl;
+  if (world->cached_proposal != NULL && world->cached_proposal_locus == world->locus)
+    {
+      // Same locus as last time: every size-determining quantity below is
+      // identical to what this cached proposal was already built for.
+      *proposal = world->cached_proposal;
+      reset_proposal_buffers (*proposal, world);
+    }
+  else
+    {
+      if (world->cached_proposal != NULL)
+        {
+          // Pass the STALE cache's own locus (world->cached_proposal_locus),
+          // not world->locus -- world->locus is about to become (or already
+          // is) the NEW locus we're switching to, which is exactly why this
+          // cache is being invalidated in the first place; using it here
+          // would read the wrong sublocistarts/mutationmodels entries for
+          // whatever this cached proposal was actually sized for.
+          free_proposal_buffers (world->cached_proposal, world->cached_proposal_locus);
+          world->cached_proposal = NULL;
+        }
+      allocate_proposal_buffers (proposal, world);
+      world->cached_proposal = *proposal;
+      world->cached_proposal_locus = world->locus;
+    }
+  // "Pointers and values to outside structures" (the original comment
+  // below): always refreshed regardless of which branch above ran, since
+  // these can legitimately change between proposals even within the same
+  // locus (e.g. world->root after an accepted move) -- matches the
+  // allocate path's own unconditional assignments exactly, just no longer
+  // gated behind "did we just allocate."
+  (*proposal)->world = world;
+  (*proposal)->sumtips = world->sumtips;
+  (*proposal)->numpop = world->numpop;
+  (*proposal)->param0 = world->param0;
+  (*proposal)->root = world->root;
+  (*proposal)->migration_model = world->options->migration_model;
+  (*proposal)->mig0list = world->mig0list;
+  (*proposal)->design0list = world->design0list;
+  (*proposal)->likelihood = (double) -HUGE;
+  (*proposal)->migr_table_counter = 0;
+  (*proposal)->migr_table_counter2 = 0;
+  (*proposal)->divlist->div_elem = 0;
+#ifdef BEAGLE
+  (*proposal)->leftid   = 0;
+  (*proposal)->rightid  = 0;
+  (*proposal)->parentid = 0;
+  reset_beagle(world->beagle);
+#endif
+}
+
+static void
+allocate_proposal_buffers (proposal_fmt ** proposal, world_fmt * world)
+{
   const long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
-#ifdef UEP    
+#ifdef UEP
     long j;
 #endif
     long listsize = 2*(world->sumtips + 2);
@@ -295,7 +384,7 @@ new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world)
     // precalculated values
     (*proposal)->mig0list = world->mig0list;
     (*proposal)->design0list = world->design0list;
-    
+
     (*proposal)->aboveorigin_allocsize = listsize;    
     // nodes above the picked node + migration nodes
     (*proposal)->aboveorigin = (node **) mycalloc (listsize, sizeof (node *));
@@ -378,6 +467,118 @@ new_proposal (proposal_fmt ** proposal, timelist_fmt * tl, world_fmt * world)
     (*proposal)->parentid = 0;
     reset_beagle(world->beagle);
 #endif
+}
+
+///
+/// Resets an already-allocated proposal_fmt (built for the SAME locus,
+/// checked by the caller) for reuse by the next proposal: zeroes every
+/// buffer's content to match what a fresh mycalloc() would have produced,
+/// and explicitly resets every other scalar/pointer field new_proposal()
+/// itself never touches (mig_removed, the origin/target/tsister/.../
+/// realoback node pointers chooseTarget()/chooseOrigin() fill in later,
+/// etc.) -- those always started at 0/NULL from a fresh mycalloc() before,
+/// and must start the same way here, or a code path that happens to read
+/// one of them before writing it in THIS proposal would silently see a
+/// stale value left over from the PREVIOUS proposal instead. Does not
+/// touch: aboveorigin_allocsize/bordernodes_allocsize/line_f_allocsize/
+/// line_t_allocsize/old_migr_table_counter/old_migr_table_counter2 (still
+/// correct, describe buffers being reused as-is) or divlist->div_allocsize
+/// (same reason) -- and does not touch world/sumtips/numpop/param0/root/
+/// migration_model/mig0list/design0list/likelihood/migr_table_counter/
+/// migr_table_counter2/divlist->div_elem/leftid/rightid/parentid, which
+/// new_proposal() itself resets unconditionally right after calling this,
+/// whether this function ran or a fresh allocation did.
+static void
+reset_proposal_buffers (proposal_fmt * proposal, world_fmt * world)
+{
+  mutationmodel_fmt *s;
+  long sublocus;
+  long locus = world->locus;
+  long sublocistart = world->sublocistarts[locus];
+  long sublociend = world->sublocistarts[locus+1];
+
+  memset(proposal->aboveorigin, 0, (size_t) proposal->aboveorigin_allocsize * sizeof(node*));
+  memset(proposal->bordernodes, 0, (size_t) proposal->bordernodes_allocsize * sizeof(node*));
+  memset(proposal->line_f,      0, (size_t) proposal->line_f_allocsize * sizeof(node*));
+  memset(proposal->line_t,      0, (size_t) proposal->line_t_allocsize * sizeof(node*));
+  memset(proposal->divlist->divlist, 0, (size_t) proposal->divlist->div_allocsize * sizeof(longpair));
+
+  {
+    const long np = world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    memset(proposal->param0save, 0, (size_t) np * sizeof(MYREAL));
+  }
+
+  for (sublocus = sublocistart; sublocus < sublociend; sublocus++)
+    {
+      s = &world->mutationmodels[sublocus];
+      const long xs = sublocus - sublocistart;
+      if (strchr (SEQUENCETYPES, s->datatype))
+	{
+	  long endsite = s->numpatterns + s->addon;
+	  memset(proposal->mf[xs], 0, (size_t) endsite * sizeof(MYREAL));
+	  memset(proposal->mt[xs], 0, (size_t) endsite * sizeof(MYREAL));
+	  // matches zero_xseq()'s (tree.c) already-established pattern for
+	  // this exact buffer shape: one contiguous s[0] allocation, s[j]
+	  // (j>0) are pointer-arithmetic views into it that never move.
+	  memset(proposal->xf[xs].s[0], 0, (size_t) (s->numsiterates * endsite) * sizeof(sitelike));
+	  memset(proposal->xt[xs].s[0], 0, (size_t) (s->numsiterates * endsite) * sizeof(sitelike));
+	}
+      else
+	{
+	  long mal = s->maxalleles + 1;
+	  memset(proposal->mf[xs], 0, (size_t) mal * sizeof(MYREAL));
+	  memset(proposal->mt[xs], 0, (size_t) mal * sizeof(MYREAL));
+	  memset(proposal->xf[xs].a, 0, (size_t) mal * sizeof(MYREAL));
+	  memset(proposal->xt[xs].a, 0, (size_t) mal * sizeof(MYREAL));
+	}
+    }
+
+  memset(proposal->migr_table,  0, (size_t) proposal->old_migr_table_counter  * sizeof(migr_table_fmt));
+  memset(proposal->migr_table2, 0, (size_t) proposal->old_migr_table_counter2 * sizeof(migr_table_fmt));
+
+#ifdef UEP
+  if (world->options->uep)
+    {
+      memset(proposal->ueplike[0], 0, (size_t) (world->numpop * world->data->uepsites) * sizeof(MYREAL));
+      // ueplike[j] (j>0) are pointer-arithmetic views into ueplike[0],
+      // same shape as xf/xt's s[j] above -- never move, no need to
+      // re-establish them.
+      memset(proposal->uf.s, 0, (size_t) world->data->uepsites * sizeof(pair));
+      memset(proposal->ut.s, 0, (size_t) world->data->uepsites * sizeof(pair));
+      memset(proposal->umf, 0, (size_t) world->data->uepsites * sizeof(MYREAL));
+      memset(proposal->umt, 0, (size_t) world->data->uepsites * sizeof(MYREAL));
+      proposal->firstuep = NULL;
+    }
+#endif
+
+  // Leftover fields new_proposal() itself never sets (filled in later by
+  // chooseTarget()/chooseOrigin()/the target_*/coat_* proposal-evaluation
+  // functions in mcmc2.c during this proposal's own use) -- always 0/NULL
+  // from a fresh mycalloc() before; must be explicitly reset here too.
+  proposal->datatype = 0;
+  proposal->endsite = 0;
+  proposal->mig_removed = FALSE;
+  proposal->rr = 0.0;
+  proposal->nodedata = NULL;
+  proposal->origin = NULL;
+  proposal->target = NULL;
+  proposal->realtarget = NULL;
+  proposal->tsister = NULL;
+  proposal->realtsister = NULL;
+  proposal->osister = NULL;
+  proposal->realosister = NULL;
+  proposal->ocousin = NULL;
+  proposal->realocousin = NULL;
+  proposal->oback = NULL;
+  proposal->realoback = NULL;
+  proposal->connect = NULL;
+  proposal->ueplikelihood = 0.0;
+  proposal->time = 0.0;
+  proposal->v = 0.0;
+  proposal->vs = 0.0;
+  proposal->divlist_allocsize = 0;
+  proposal->timeslice = 0;
+  proposal->treelen = 0.0;
 }
 
 
@@ -1394,24 +1595,50 @@ findbordernodes (node * theNode, proposal_fmt * proposal, long pop,
 #endif
 
 ///
-/// freeing the proposal structure, this will be replaced by a function that resets permanently
-/// allocated structure [reset_proposal()]
-#ifdef TESTING2
+/// Called at every proposal exit path (accept, reject, every early return
+/// in newtree_update()) -- used to unconditionally free the whole
+/// proposal_fmt. Now: stash it on the owning world for reuse by the next
+/// new_proposal() call instead (see the design note above new_proposal()).
+/// The actual buffer-freeing logic moved to free_proposal_buffers(),
+/// called only when new_proposal() finds a stale (wrong-locus) cache to
+/// replace, and by free_world() for final teardown.
+///
+/// (This replaces a previously dead `#ifdef TESTING2` branch that made
+/// this function a no-op with no paired reset logic anywhere -- a real
+/// leak had it ever been enabled. TESTING2 was never #define'd in this
+/// build.)
 void
 free_masterproposal (proposal_fmt * proposal)
 {
-  //implement  free_masterproposal(proposal);
+  if (proposal == NULL)
+    return;
+  proposal->world->cached_proposal = proposal;
+  proposal->world->cached_proposal_locus = proposal->world->locus;
 }
-#else
+
+///
+/// Actually releases a proposal_fmt's memory -- the original
+/// free_masterproposal() body, unchanged except that `locus` (the locus
+/// this proposal was actually built for) is now a parameter instead of
+/// being re-read from proposal->world->locus: a real ASan
+/// heap-buffer-overflow (caught by migrate-codex-7's own mandated
+/// sanitizer stress test when this fix was built there, not shipped
+/// blind) showed world->locus can have already moved on to a different
+/// value (or a terminal/reset one) by the time this runs, for both of
+/// this function's call sites -- new_proposal()'s cache-invalidation
+/// path (world->locus is already the NEW locus by design) and
+/// free_world()'s final teardown (long after the last locus finished).
+/// Callers must pass world->cached_proposal_locus, which is frozen at
+/// the moment this specific proposal was cached and never changes out
+/// from under it.
 void
-free_masterproposal (proposal_fmt * proposal)
+free_proposal_buffers (proposal_fmt * proposal, long locus)
 {
   mutationmodel_fmt *s;
   long sublocus;
-  long locus = proposal->world->locus;
   long sublocistart = proposal->world->sublocistarts[locus];
   long sublociend = proposal->world->sublocistarts[locus+1];
-  
+
   //static long count=0;
   myfree(proposal->aboveorigin);
   myfree(proposal->bordernodes);
@@ -1463,8 +1690,6 @@ free_masterproposal (proposal_fmt * proposal)
 #endif
     myfree(proposal);
 }
-
-#endif  /*TESTING2*/
 
 
 void

@@ -41,6 +41,14 @@ $Id: mcmc.h 2157 2013-04-16 22:27:40Z beerli $
 extern long tree_update (world_fmt * world, long g, boolean assign);
 extern void free_timevector (timelist_fmt * timevector);
 extern void free_masterproposal (proposal_fmt *proposal);
+extern void free_proposal_buffers (proposal_fmt *proposal, long locus); // actually releases a proposal_fmt's memory;
+                                                              // `locus` MUST be the locus the proposal was actually
+                                                              // built for (world->cached_proposal_locus at the call
+                                                              // site, NOT world->locus -- by the time this runs,
+                                                              // world->locus may already have moved on to a
+                                                              // different/reset value). Called by
+                                                              // free_masterproposal() only when replacing a stale
+                                                              // cache entry, and by free_world() for final teardown.
 extern void count_migrations (node * p, long *count);
 extern void traverse_tagnew(node *theNode, node *origin);
 extern void set_tree_down_dirty (node * p);
