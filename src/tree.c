@@ -4291,7 +4291,22 @@ pseudo_tl_snp (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
         }
         for (j = 0; j < rcategs; j++)
             like[j] = 1.0;
-        for (i = 0; i < endsite; i++)
+        /* Site-by-site autocorrelation recursion: must walk *physical*
+           sites in original order (s->numsites), not compressed
+           patterns (endsite == s->numpatterns) -- ally[]/location[]
+           are indexed by physical site, exactly like pseudo_tl_seq()'s
+           equivalent loop already does. Using endsite here silently
+           truncated the recursion (and skipped every site beyond the
+           first `numpatterns` original sites) whenever a locus's site
+           patterns actually get compressed, which numpatterns==numsites
+           for SNP data has so far only avoided by the accident of
+           needing an exact allele match across every individual at two
+           different sites -- not something a large linked SNP panel
+           with a modest individual count can be relied on to avoid.
+           Ported from migrate-codex-7 2026-09-11 (see that project's
+           plan.md); confirmed present here byte-for-byte identical
+           before this fix. */
+        for (i = 0; i < s->numsites; i++)
         {
             sumc = 0.0;
             for (k = 0; k < rcategs; k++)
@@ -5432,12 +5447,36 @@ MYREAL calc_pseudotreelength (proposal_fmt * proposal, MYREAL treelen)
 }
 
 
+/// Despite the name, every real call site (pseudo_tl_seq()/pseudo_tl_snp()
+/// and treelike_seq()/treelike_snp(), all in this file) uses this as a
+/// one-directional copy of *a's contents into *b, not a symmetric
+/// exchange -- confirmed by the commented-out `memcpy(b, a, size)`
+/// fossils left next to several call sites (e.g. `swap (&clai,
+/// &s->contribution[i]); //memcpy(s->contribution[i], clai, size);`),
+/// which is exactly what this now does. Until this fix the body was
+/// `t=a; a=b; b=t;` -- reassigning the function's own local parameter
+/// copies, a complete no-op (the clang static analyzer's "this
+/// assignment is not doing anything" warning was correct, contrary to
+/// the comment that used to override it here) -- which silently
+/// disabled the entire site-by-site autocorrelation recursion
+/// everywhere it is used. Ported from migrate-codex-7 2026-09-11 (see
+/// that project's plan.md); confirmed present here byte-for-byte
+/// identical before this fix.
+///
+/// A true bidirectional exchange (copy each way through a temporary) is
+/// NOT what these call sites need, and is actively wrong for one of
+/// them: the recursion's `swap (&s->contribution[lai - 1], &clai)` call
+/// reads one cached pattern's conditional likelihood into `clai` once
+/// per *physical site* that maps to it, and multiple physical sites
+/// legitimately share one pattern after site-pattern compression (that
+/// is the entire point of the compression) -- a bidirectional exchange
+/// there would clobber the shared cache after its first read,
+/// corrupting every subsequent site that maps to the same pattern. A
+/// one-directional copy leaves the source (the cache) untouched,
+/// exactly matching every call site's actual intent.
 void swap (contribarr *a, contribarr *b)
 {
-    contribarr *t;
-    t = a;
-    a = b;
-    b = t;//clang static analyzer claims this assignment is not doing anything, but it does!
+    memcpy (*b, *a, sizeof (contribarr));
 }
 
 

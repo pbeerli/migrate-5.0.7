@@ -50,6 +50,18 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "haplotype.h"
 #include "mutationmodel.h"
 
+/* Declared in sequence.c (allocates mutationmodel_fmt.contribution, the
+   per-pattern conditional-likelihood cache the swap()-based
+   autocorrelation recursion reads/writes). Not declared via
+   sequence.h: that header's own prototype for this function is stale
+   (a leftover 3-argument/seqmodel_fmt* signature from before the
+   mutationmodel_fmt-based split; sequence.c itself carries its own
+   matching local prototype instead), so this uses the same ad-hoc
+   extern-declaration pattern already used elsewhere in this codebase
+   rather than pulling in a conflicting header. Ported from
+   migrate-codex-7 2026-09-11. */
+extern void init_sequences2 (world_fmt * world, mutationmodel_fmt * s);
+
 #ifndef WINDOWS
 #include <unistd.h>
 #endif
@@ -1904,7 +1916,7 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
     for (locus = 0; locus < data->allsubloci; locus++)
     {
       s = &(data->mutationmodels[locus]);
-#ifdef MPIDATAONDEMAND    
+#ifdef MPIDATAONDEMAND
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
@@ -1912,11 +1924,13 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       init_mutationmodel_readsites2(s, s->datatype, s->numsites);
       s->numpatterns = numpp;
       s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
+      init_sequences2 (world, s);
 #else
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
       init_mutationmodel_readsites3(s, s->datatype, s->numsites);
+      init_sequences2 (world, s);
 #endif
       sgets_safe (&input, &inputsize, &buf);
       sscanf (input,  "%li %li %li %lf\n",
