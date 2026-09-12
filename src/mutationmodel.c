@@ -37,7 +37,7 @@ extern int myID;
 
 
 void calc_brownian_default(mutationmodel_fmt *s, option_fmt *options, data_fmt *data, long locus, long sublocus);
-void calc_seq_basefreq(mutationmodel_fmt *s, option_fmt *options, data_fmt *data, long locus, long sublocus);
+void calc_seq_basefreq(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long sublocus);
 void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long xs);
 void calculate_microsat_steps (mutationmodel_fmt *s);
 void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options);
@@ -295,7 +295,7 @@ void set_subloci_basefrequencies(mutationmodel_fmt *s, world_fmt *world, option_
 	s->basefreqs = (double*) mycalloc((s->numstates+BASEFREQLENGTH-4), sizeof(double));
       if(options->freqsfrom)
 	{
-	  calc_seq_basefreq(s, options, data, locus, xs);
+	  calc_seq_basefreq(s, world, options, data, locus, xs);
 	}
       else
 	{
@@ -350,76 +350,142 @@ void calc_brownian_default(mutationmodel_fmt *s, option_fmt *options, data_fmt *
   s->browniandefault = bsum;
 }
 
-void calc_seq_basefreq(mutationmodel_fmt *s, option_fmt *options, data_fmt *data, long locus, long sublocus)
+static void accumulate_basefreq_site(char site, MYREAL *freqa, MYREAL *freqc, MYREAL *freqg, MYREAL *freqt, MYREAL *total, long pop, long sublocus)
 {
-  long   top;
-  long   pop;
-  long   ind;
-  long   ii;
-  long xsite;
+  *total += 1.0;
+  switch (site)
+    {
+    case 'A': *freqa += 1.; break;
+    case 'C': *freqc += 1.; break;
+    case 'G': *freqg += 1.; break;
+    case 'U':
+    case 'T': *freqt += 1.; break;
+    case 'M': *freqa += 0.5; *freqc += 0.5; break;
+    case 'R': *freqa += 0.5; *freqg += 0.5; break;
+    case 'W': *freqa += 0.5; *freqt += 0.5; break;
+    case 'S': *freqc += 0.5; *freqg += 0.5; break;
+    case 'Y': *freqc += 0.5; *freqt += 0.5; break;
+    case 'K': *freqg += 0.5; *freqt += 0.5; break;
+    case 'B': *freqc += 1./3.; *freqg += 1./3.; *freqt += 1./3.; break;
+    case 'D': *freqa += 1./3.; *freqg += 1./3.; *freqt += 1./3.; break;
+    case 'H': *freqa += 1./3.; *freqc += 1./3.; *freqt += 1./3.; break;
+    case 'V': *freqa += 1./3.; *freqc += 1./3.; *freqg += 1./3.; break;
+    case 'X':
+    case 'N': *freqa += 0.25; *freqc += 0.25; *freqg += 0.25; *freqt += 0.25; break;
+    case '-':
+    case '0':
+    case '?': *total -= 1.0; break;
+    default:
+      warning("Wrong Base detected=%c pop=%li, sublocus=%li, total=%f",site,pop,sublocus,*total);
+      error("Abort");
+    }
+}
+
+static void accumulate_basefreq_counts(mutationmodel_fmt *s, option_fmt *options, data_fmt *data, long locus, long sublocus, MYREAL *freqa, MYREAL *freqc, MYREAL *freqg, MYREAL *freqt, MYREAL *total)
+{
+  long pop;
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      long top = max_shuffled_individuals(options, data, pop, locus);
+      long ii;
+      for (ii = 0; ii < top; ii++)
+	{
+	  long ind = data->shuffled[pop][locus][ii];
+	  long xsite;
+	  for (xsite=0; xsite < s->numsites; xsite++)
+	    {
+	      char site = data->yy[pop][ind][sublocus][0][xsite][0];
+	      accumulate_basefreq_site(site, freqa, freqc, freqg, freqt, total, pop, sublocus);
+	    }
+	}
+    }
+}
+
+// Pools base counts across every sequence-type sublocus in the whole
+// dataset -- used as a fallback when a single locus's own counts are too
+// sparse (e.g. a biallelic SNP locus, <=2 distinct bases present) to give
+// a stable per-locus base-frequency estimate on their own.
+static void accumulate_basefreq_counts_all(world_fmt *world, option_fmt *options, data_fmt *data, MYREAL *freqa, MYREAL *freqc, MYREAL *freqg, MYREAL *freqt, MYREAL *total)
+{
+  long locus;
+  for (locus = 0; locus < world->loci; locus++)
+    {
+      long sublocus;
+      for (sublocus = world->sublocistarts[locus]; sublocus < world->sublocistarts[locus+1]; sublocus++)
+	{
+	  mutationmodel_fmt *other = &world->mutationmodels[sublocus];
+	  if (!strchr(SEQUENCETYPES, other->datatype))
+	    continue;
+	  accumulate_basefreq_counts(other, options, data, locus, sublocus, freqa, freqc, freqg, freqt, total);
+	}
+    }
+}
+
+static long count_present_bases(MYREAL freqa, MYREAL freqc, MYREAL freqg, MYREAL freqt)
+{
+  long present = 0;
+  if (freqa > EPSILON)
+    present++;
+  if (freqc > EPSILON)
+    present++;
+  if (freqg > EPSILON)
+    present++;
+  if (freqt > EPSILON)
+    present++;
+  return present;
+}
+
+// Normalizes freqa/c/g/t into s->basefreqs via force_basefreqs(), falling
+// back to uniform 0.25 frequencies if the total is degenerate (no data at
+// all) -- this is the single place that guarantees non-NaN base
+// frequencies regardless of how sparse the input counts were.
+static void set_safe_basefreqs(MYREAL **basefreqs, MYREAL freqa, MYREAL freqc, MYREAL freqg, MYREAL freqt)
+{
+  MYREAL total = freqa + freqc + freqg + freqt;
+  MYREAL pA;
+  MYREAL pC;
+  MYREAL pG;
+
+  if(total <= EPSILON)
+    {
+      freqa = freqc = freqg = freqt = 0.25;
+      total = 1.0;
+    }
+
+  pA = freqa / total;
+  pC = freqc / total;
+  pG = freqg / total;
+  force_basefreqs(basefreqs, pA, pC, pG);
+}
+
+void calc_seq_basefreq(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long sublocus)
+{
   MYREAL freqa = 0.0;
   MYREAL freqc = 0.0;
   MYREAL freqg = 0.0;
   MYREAL freqt = 0.0;
   MYREAL total = 0.0;
+  MYREAL pooled_freqa = 0.0;
+  MYREAL pooled_freqc = 0.0;
+  MYREAL pooled_freqg = 0.0;
+  MYREAL pooled_freqt = 0.0;
+  MYREAL pooled_total = 0.0;
   if (s->baseref_used)
     return;
-  for (pop = 0; pop < data->numpop; pop++)
-    {
 #ifdef DEBUG
-      printf("%i> Locus %li  Basefrequency calculations:\n",myID,locus);
+  printf("%i> Locus %li  Basefrequency calculations:\n",myID,locus);
 #endif
-      top = max_shuffled_individuals(options, data, pop, locus);
-      for (ii = 0; ii < top; ii++)
-	{
-	  ind = data->shuffled[pop][locus][ii];
-	  //printf("\n");
-	  for (xsite=0; xsite < s->numsites; xsite++)
-	    {
-	      //printf("%i> xsite=%li ",myID, xsite);
-	      fflush(stdout);
-	      char site = data->yy[pop][ind][sublocus][0][xsite][0];
-	      total += 1.0;
-	      //printf("%c",site);
-	      //printf(" +%c+\n",site);
-	      switch (site)
-		{
-		case 'A': freqa += 1.; break;  
-		case 'C': freqc += 1.; break;  
-		case 'G': freqg += 1.; break;  
-		case 'U':
-		case 'T': freqt += 1.; break;  
-		case 'M': freqa += 0.5; freqc += 0.5; break;  
-		case 'R': freqa += 0.5; freqg += 0.5; break;  
-		case 'W': freqa += 0.5; freqt += 0.5; break;  
-		case 'S': freqc += 0.5; freqg += 0.5; break;  
-		case 'Y': freqc += 0.5; freqt += 0.5; break;  
-		case 'K': freqg += 0.5; freqt += 0.5; break;  
-		case 'B': freqc += 1./3.; freqg += 1./3.; freqt += 1./3.; break;  
-		case 'D': freqa += 1./3.; freqg += 1./3.; freqt += 1./3.; break;  
-		case 'H': freqa += 1./3.; freqc += 1./3.; freqt += 1./3.; break;  
-		case 'V': freqa += 1./3.; freqc += 1./3.; freqg += 1./3.; break;  
-		case 'X':  // we count X and N because this means that something is there
-		case 'N': freqa += 0.25; freqc += 0.25; freqg += 0.25; freqt += 0.25; break;  
-		case '-':
-		case '0':
-		case '?': total -= 1; //we do not count question mark, which means no data.
-		  break;
-		default:
-		  warning("Wrong Base detected=%c pop=%li, sublocus=%li, total=%f",site,pop,sublocus,total);
-		  error("Abort");
-		}
-	    }
-	}
-    }
+  accumulate_basefreq_counts(s, options, data, locus, sublocus, &freqa, &freqc, &freqg, &freqt, &total);
+
   if (total <= 0.0)
     {
       // every site is missing ('?', '-' or '0'), so the data carry no
-      // information about the base composition. Without this guard
-      // total=1./0. is +infinity and total*freq is 0*infinity = NaN, which
-      // then poisons every conditional likelihood: acceptlike() compares
-      // against NaN, every comparison is false and nothing is ever accepted
-      // (the acceptance ratio is reported as 0.00 instead of 1.00).
+      // information about the base composition. Without a safe fallback
+      // (below, via set_safe_basefreqs()) total=1./0. is +infinity and
+      // total*freq is 0*infinity = NaN, which then poisons every
+      // conditional likelihood: acceptlike() compares against NaN, every
+      // comparison is false and nothing is ever accepted (the acceptance
+      // ratio is reported as 0.00 instead of 1.00).
       // this is called once per locus per heated chain, so report only the
       // first few times to avoid flooding the log on many-loci runs
       static long allmissing_warnings = 0;
@@ -429,30 +495,33 @@ void calc_seq_basefreq(mutationmodel_fmt *s, option_fmt *options, data_fmt *data
 	  warning("Locus %li sublocus %li has only missing data, using uniform base frequencies%s\n",
 		  locus, sublocus, allmissing_warnings == 5 ? " (further such warnings suppressed)" : "");
 	}
-      s->basefreqs[NUC_A] = 0.25;
-      s->basefreqs[NUC_C] = 0.25;
-      s->basefreqs[NUC_G] = 0.25;
-      s->basefreqs[NUC_T] = 0.25;
-      return;
     }
-  total = 1./total;
-  s->basefreqs[NUC_A] = total*freqa;
-  s->basefreqs[NUC_C] = total*freqc;
-  s->basefreqs[NUC_G] = total*freqg;
-  s->basefreqs[NUC_T] = total*freqt;
-  if (total*freqa < EPSILON)
-    s->basefreqs[NUC_A] = EPSILON;
-  if (total*freqc < EPSILON)
-    s->basefreqs[NUC_C] = EPSILON;
-  if (total*freqg < EPSILON)
-    s->basefreqs[NUC_G] = EPSILON;
-  if (total*freqt < EPSILON)
-    s->basefreqs[NUC_T] = EPSILON;
-  total = s->basefreqs[NUC_A] + s->basefreqs[NUC_C] + s->basefreqs[NUC_G] + s->basefreqs[NUC_T];
-  s->basefreqs[NUC_A] /= total;
-  s->basefreqs[NUC_C] /= total;
-  s->basefreqs[NUC_G] /= total;
-  s->basefreqs[NUC_T] /= total;
+
+  // A single SNP/Hapmap locus with only 1-2 distinct bases present (very
+  // common for real biallelic data) cannot give a stable per-locus
+  // estimate of the other 2-3 bases' frequencies on its own -- pool
+  // counts across the whole dataset instead, and only fall back to flat
+  // 0.25 uniform frequencies if even the pooled counts are still too
+  // sparse (e.g. a single-locus, single-SNP dataset).
+  if (strchr(SNPTYPES, s->datatype) != NULL && count_present_bases(freqa, freqc, freqg, freqt) <= 2)
+    {
+      accumulate_basefreq_counts_all(world, options, data, &pooled_freqa, &pooled_freqc, &pooled_freqg, &pooled_freqt, &pooled_total);
+      if (pooled_total > EPSILON && count_present_bases(pooled_freqa, pooled_freqc, pooled_freqg, pooled_freqt) >= 3)
+	{
+	  freqa = pooled_freqa;
+	  freqc = pooled_freqc;
+	  freqg = pooled_freqg;
+	  freqt = pooled_freqt;
+	  total = pooled_total;
+	}
+      else
+	{
+	  freqa = freqc = freqg = freqt = 0.25;
+	  total = 1.0;
+	}
+    }
+
+  set_safe_basefreqs(&s->basefreqs, freqa, freqc, freqg, freqt);
 }
 
 ///
@@ -485,7 +554,7 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
       if(options->freqsfrom)
 	{
 	  //empiricalfreqs (world, options, s, xs);
-	  calc_seq_basefreq(s, options, data, locus, xs);
+	  calc_seq_basefreq(s, world, options, data, locus, xs);
 	}
       else
 	{

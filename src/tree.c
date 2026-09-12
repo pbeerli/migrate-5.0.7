@@ -1715,9 +1715,22 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 	  oldsite = s->numpatterns;
 	  invi = s->numpatterns; //seq->endsite;
 	  //s->numpatterns += 4; //seq->endsite += 4;
-	  if (options->totalsites>0 || s->baseref != NULL)
+	  /* s->baseref is unconditionally allocated (zero-filled) for
+	     every mutationmodel_fmt regardless of datatype, so `!= NULL`
+	     alone is never a real guard for "real reference counts were
+	     actually read" -- it is always true. Without a real
+	     reference (baseref[0], the total count, still 0), the branch
+	     below divides by that zero total and poisons every base
+	     frequency with NaN, which then cascades into a
+	     NULL-histogram-pointer segfault in bayes_combine_loci() once
+	     every locus's posterior comes out unusable. Ported from
+	     migrate-codex-7, where this exact defect was found and fixed
+	     under the same name ("SNP/Hapmap invariant reconstruction
+	     (empty baseref)") very early in that project's baseline
+	     work; never previously ported back here. */
+	  if (options->totalsites>0 || (s->baseref != NULL && s->baseref[0] > 0))
 	    {
-	      if (s->baseref != NULL)
+	      if (s->baseref != NULL && s->baseref[0] > 0)
 		{
 		  //long invsites = options->totalsites - oldsite;
 		  long total = s->baseref[0];
