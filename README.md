@@ -1,5 +1,5 @@
-#Migrate 5.0.8
-Released Summer 2025
+#Migrate 6.1.2
+Released September 2026
 
 ##Quick installation guide for the source code
 
