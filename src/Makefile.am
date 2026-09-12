@@ -17,6 +17,24 @@ COMMON_SOURCES = \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
     mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c
 
+# Not compiled directly, but every one of them is #included by the
+# sources above -- listing them here is what makes `make dist` actually
+# package them. Without this, "make dist"'s tarball builds nothing at
+# all (every .c's first #include fails) despite `make dist` itself
+# reporting success; caught 2026-09-11 by extracting a fresh tarball
+# into a clean directory and building from it before shipping it.
+noinst_HEADERS = \
+    assignment.h autotune.h bayes.h calculator.h conf.h correlation.h \
+    data.h definitions.h growth.h haplotype.h hash.h heating.h \
+    hermite_interpoly.h histogram.h kernel_smooth.h laguerre.h \
+    marginallike.h mcmc.h mcmc2.h menu.h migevents.h migrate_mpi.h \
+    migration.h mittag_leffler_interpol_data.h mittag_leffler.h mlalpha.h \
+    mutationmodel.h options.h pretty.h priors.h random.h reporter.h \
+    romberg.h savitzky_golay.h seqerror.h sequence.h sighandler.h \
+    skyline.h skyparam.h slice.h sort.h speciate.h tables.h tools.h \
+    tree.h uep.h watterson.h windows_timveval.h windowupdate.h world.h \
+    znzlib.h
+
 # Shared flags (common defines + local includes)
 COMMON_CPPFLAGS = \
     -I../lib/SFMT-src-1.5.1 \

@@ -1,10 +1,22 @@
 SUBDIRS = src
 
-# These are files that are not automatically built, but should be included in dist tarball
+# These are files that are not automatically built, but should be included in dist tarball.
+# The SFMT entries were previously just SFMT.c/SFMT.h, but SFMT.h itself
+# #includes SFMT-common.h and one of SFMT-params.h/SFMT-params<MEXP>.h/
+# SFMT-sse2.h/SFMT-neon.h/SFMT-alti.h depending on platform -- listing
+# only SFMT.c/SFMT.h left every one of those out of `make dist`'s
+# tarball, breaking the build from a fresh extraction (caught 2026-09-11
+# by actually building from one before shipping it). Globbing the whole
+# directory's headers (matching the pattern the haru entries below
+# already use) covers every platform variant, not just the one this
+# machine happens to need.
 EXTRA_DIST = \
-  lib/SFMT-src-1.5.1/SFMT.c \
-  lib/SFMT-src-1.5.1/SFMT.h \
+  lib/SFMT-src-1.5.1/*.c \
+  lib/SFMT-src-1.5.1/*.h \
+  lib/SFMT-src-1.5.1/LICENSE.txt \
+  lib/SFMT-src-1.5.1/README.txt \
   lib/haru/src/*.c \
+  lib/haru/src/*.h \
   lib/haru/include/*.h \
   lib/haru/include/hpdf_config.h.in
 

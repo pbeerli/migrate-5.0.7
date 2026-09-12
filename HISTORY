@@ -12,6 +12,21 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 11 Migrate 6.1.1 Fixed the source distribution tarball
+             ("make dist"): the top-level Makefile.am's EXTRA_DIST only
+             listed SFMT.c/SFMT.h and the haru library's public headers,
+             so a tarball built from it could not actually compile --
+             missing migration.h and every other src/ header (never
+             declared anywhere for Automake to distribute), the SFMT
+             params/common/sse2/neon headers SFMT.h itself needs, and
+             libharu's t4.h (which lives next to its .c files, not in
+             its public include/ directory). Caught by extracting a
+             fresh tarball into a clean directory and building it end
+             to end (./configure && make, both migrate-n and
+             migrate-n-mpi, then a real analysis run) before shipping
+             it -- something this file's own convention of recording
+             fixes should have caught happening in the first place.
+
 September 11 Migrate 6.1.0 Covers about seven weeks of work (since
              July 25) that had never been logged here -- versions 6.0.0
              through 6.0.2 were never recorded in this file either, even
