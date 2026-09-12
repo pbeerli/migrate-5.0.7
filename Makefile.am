@@ -18,7 +18,12 @@ EXTRA_DIST = \
   lib/haru/src/*.c \
   lib/haru/src/*.h \
   lib/haru/include/*.h \
-  lib/haru/include/hpdf_config.h.in
+  lib/haru/include/hpdf_config.h.in \
+  LICENSE \
+  HISTORY \
+  GUIDANCE \
+  README.md \
+  example/*
 
 DISTCLEANFILES = \
   lib/SFMT-src-1.5.1/SFMT.o

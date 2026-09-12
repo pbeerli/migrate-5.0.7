@@ -12,6 +12,15 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 11 Migrate 6.1.2 The source tarball built only what was
+             needed to compile (src/ and the vendored libraries) --
+             fine for GitHub users, who already get everything else,
+             but this tarball is also handed out on its own as a
+             stand-alone "source available" download, so it now also
+             includes LICENSE, HISTORY, GUIDANCE, README.md, and the
+             example/ datasets (README was already included; Automake
+             distributes a file literally named README by default).
+
 September 11 Migrate 6.1.1 Fixed the source distribution tarball
              ("make dist"): the top-level Makefile.am's EXTRA_DIST only
              listed SFMT.c/SFMT.h and the haru library's public headers,
