@@ -36,8 +36,8 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
-#define MIGRATEVERSION "6.0.2 [Mittag (merged with main Jul 22 2026)]"
-#define MIGRATESUBVERSION "July-22-2026"
+#define MIGRATEVERSION "6.1.0 [Mittag (merged with main Sep 11 2026)]"
+#define MIGRATESUBVERSION "September-11-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
 /* compiler directives */

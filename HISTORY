@@ -10,6 +10,68 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 
 
 -------------------------------------------------------------------------
+                                     2026
+-------------------------------------------------------------------------
+September 11 Migrate 6.1.0 Covers about seven weeks of work (since
+             July 25) that had never been logged here -- versions 6.0.0
+             through 6.0.2 were never recorded in this file either, even
+             though real work happened in that range; this entry starts
+             the version-tracking discipline back up rather than
+             attempting to reconstruct that earlier gap.
+
+             New proposal mechanisms: a multiplicative (log-scale)
+             proposal as a proper proposal kind, independent of any
+             prior (bayes-proposals=...MULTIPLIER); a joint
+             tree+parameter rescaling ("scaler"/up-down) move that
+             moves Theta and M together along their ridge instead of
+             the slow Gibbs crawl the ordinary sampler is limited to; a
+             joint local-M + windowed migration-history move (a new
+             CTMC bridge sampler); windowed beta/normal/gamma/
+             exponential priors as an alternative to independence
+             sampling; a named updatefreq= syntax
+             (tree:/parameter:/scaler:/...) with a report of the actual
+             effective move frequencies used.
+
+             Fixed a run of sampler-correctness bugs found during an
+             extended MCMC-convergence/mixing investigation: a
+             coalescence-clock double-count that made genealogies
+             systematically too shallow, a multiplier-move bound that
+             was not dimensionless (letting M jump by up to ~2000x in
+             one step), Jacobian errors in the multiplicative- and
+             beta-prior acceptance ratios, an undersized/unbounded
+             move-selection array, a mode-search bug and mislabeled HPD
+             columns in the posterior tables, two heated-chain-swap
+             bugs (NODATA runs still counting the data likelihood;
+             haplotyping data not swapped along with the tree), a stale
+             acceptance-rate reporting denominator, and four Bayesian
+             priors/options-parsing bugs (an infinite loop in
+             rates-gamma=, a missing ML-alpha prior case, a
+             mixed-up prior type in check_bayes_priors(), and an
+             unsized rate-parameter slot under mutation=ESTIMATE).
+
+             Fixed NaN base frequencies (and the silent
+             always-reject/crashes they caused) in three places: a
+             locus that is entirely missing data, the SNP/Hapmap
+             invariant-site reconstruction path (this one had already
+             been found and fixed in the parallel migrate-codex-7
+             modernization effort back in May but never ported back
+             here), and the empirical freqs-from-data=YES path, which
+             was also missing its purine/pyrimidine-derived frequency
+             fields until now. Also ported from migrate-codex-7: an MPI
+             per-locus data-fetch batching fix, a proposal-buffer
+             allocation hoist out of the per-step hot loop, and
+             largest-cost-first MPI locus dispatch ordering.
+
+             Reporting: compressed repetitive per-locus summary tables
+             down to one line when every locus agrees, fixed the
+             static-heating temperature printout, added
+             variable-sites-per-locus coverage reporting, and added a
+             set of coalescent/mixing regression tests and diagnostics
+             (an exchangeability check, an overdispersed-start check, a
+             coalescent-prior regression test, and a migration-prior
+             regression test) used during the convergence investigation
+             above and now kept as permanent checks.
+-------------------------------------------------------------------------
                                      2025
 -------------------------------------------------------------------------
 May 1        Migrate 5.0.7 Replaced libharu 1.x with libharu 2.x because
