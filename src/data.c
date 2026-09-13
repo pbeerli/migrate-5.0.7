@@ -3175,7 +3175,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
     else
       {
 	long printloci = data->loci;
-	if(terse)
+	if(terse && data->loci > TEN)
 	  {
 	    printloci = TEN;
 	    fprintf(file,"Only the first 10 loci are shown\n");
@@ -3292,7 +3292,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 	    else
 	      {
 		long printloci = data->loci;
-		if (terse)
+		if (terse && data->loci > TEN)
 		  printloci = TEN;
 		for(locus=0; locus< printloci; locus++)
 		  {
@@ -3336,7 +3336,7 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 	    }
 	  else
 	    {
-	      if (terse)
+	      if (terse && data->loci > TEN)
 		printloci = TEN;
 	      if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype != '@')
 		{

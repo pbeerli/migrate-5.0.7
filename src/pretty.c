@@ -4350,7 +4350,7 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
       else
 	{
 	  long printloci = data->loci;
-	  if(terse)
+	  if(terse && data->loci > TEN)
 	    {
 	      printloci = TEN;
 	      pdf_advance(&page_height);
@@ -4467,7 +4467,7 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	    else
 	      {
 		long printloci = data->loci;
-		if (terse)
+		if (terse && data->loci > TEN)
 		  printloci = TEN;
 		pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
 		pdf_printf_ralign(col2, page_height,"1");
@@ -4531,7 +4531,7 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	    }
 	  else
 	    {
-	      if (terse)
+	      if (terse && data->loci > TEN)
 		printloci = TEN;
 	      pdf_printf(left_margin, page_height, 'L', "Total of all populations");
 	      pdf_printf_ralign(col2, page_height,"1");
