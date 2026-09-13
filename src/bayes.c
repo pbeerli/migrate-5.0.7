@@ -2254,7 +2254,18 @@ long scaler_update(world_fmt *world)
   // Jacobian term) would silently reassign events to different skyline
   // slices than before, corrupting the per-slice sufficient statistics --
   // independent of whether Theta is directly re-estimated per slice.
-  if (world->timeelements > 1)        // skyline time slices would have to scale too
+  //
+  // BUG FIX (2026-09-13): the guard used to read `world->timeelements > 1`,
+  // but options->timeelements defaults to 2 UNCONDITIONALLY (options.c) and
+  // is only ever changed by the parser inside the "skyline=PARAM:n" branch
+  // (case 55 below) -- plain skyline=NO/YES never touch it. That made this
+  // guard trip on every dataset regardless of skyline, so scaler_update()
+  // never got past its own guards in practice. skyline_param (the
+  // "PARAM:n" sub-form, which is the one that actually binds Theta/M to
+  // fixed-width time slices; skyline=YES alone is just an aggregate report,
+  // not a per-slice model constraint) is the field this guard actually
+  // needs. Found via a real run in migrate-codex-7 and ported back here.
+  if (world->options->skyline_param)
     return 0;
   if (world->has_mlalpha)             // Mittag-Leffler times do not scale linearly
     return 0;

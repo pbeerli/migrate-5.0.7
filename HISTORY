@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 13 Migrate 6.1.5 Fixed scaler_update()'s skyline guard: it
+             checked world->timeelements > 1, which defaults to 2
+             unconditionally regardless of skyline usage, so the move
+             never ran on any dataset; now guards on
+             world->options->skyline_param. Found in migrate-codex-7,
+             ported back here.
+
 September 13 Migrate 6.1.4 Fixed two MCMC-diagnostic bugs: heated-chain
              acceptance ratios could print above 1.0 (now uses the
              real accept/trials counter), and Gelman-Rubin's
