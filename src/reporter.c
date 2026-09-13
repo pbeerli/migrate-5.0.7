@@ -63,7 +63,7 @@ void calc_gelmanw (MYREAL *gelmanw, world_fmt * world, MYREAL *mc, MYREAL *tc,
 void calc_gelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb,
                    long len, long lastn, long n);
 void calc_average_biggest_gelmanr (MYREAL *gelmanr, long len, MYREAL *meanR,
-                                   MYREAL *bigR);
+                                   MYREAL *bigR, world_fmt *world);
 void print_gelmanr (MYREAL average, MYREAL biggest);
 MYREAL calc_s (long tthis, MYREAL *tc, world_fmt * world);
 MYREAL calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world);
@@ -71,9 +71,9 @@ void chain_means (MYREAL *thischainmeansm, world_fmt * world);
 
 void calc_gelmanw2 (MYREAL *gelmanw, MYREAL *s1, MYREAL *s2, long len);
 void all_chain_means (MYREAL *mc, MYREAL *chainmeans, long *nmeans, long len, long maxreplicate);
-void calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, long len, long maxreplicate);
-void calc_allgelmanw2 (MYREAL *gelmanw, MYREAL *chain_s, long *nmeans, long len, long maxreplicate);
-void calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans, long len, long maxreplicate);
+void calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, long len, long maxreplicate, world_fmt *world);
+void calc_allgelmanw2 (MYREAL *gelmanw, MYREAL *chain_s, long *nmeans, long len, long maxreplicate, world_fmt *world);
+void calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans, long len, long maxreplicate, world_fmt *world);
 
 void collect_acceptance(world_fmt *world);
 void collect_ess_values(world_fmt *world);
@@ -152,7 +152,7 @@ void convergence_check (world_fmt * world, boolean progress)
                           lastn, n);
             calc_gelmanr (gelmanr, gelmanw, gelmanb, len, lastn, n);
             calc_average_biggest_gelmanr (gelmanr, len, &world->convergence->gelmanmeanRall,
-                                          &world->convergence->gelmanmaxRall);
+                                          &world->convergence->gelmanmaxRall, world);
             memcpy (lastchainmeans, thischainmeans, sizeof (MYREAL) * (size_t) len);
             lastn = n;
         }
@@ -236,18 +236,19 @@ void convergence_check_bayes (world_fmt *world,  long maxreplicate)
 	    //report_values(gelmanw, len, "gelmanw");
 	    calc_gelmanr (gelmanr, gelmanw, gelmanb, len, n_i, n_j);
 	    //report_values(gelmanr, len, "gelmanr");
-	    calc_average_biggest_gelmanr (gelmanr, len, 
+	    calc_average_biggest_gelmanr (gelmanr, len,
 					  &world->convergence->gelmanmeanmaxR[j * maxreplicate + i],
-					  &world->convergence->gelmanmeanmaxR[i * maxreplicate + j]);
+					  &world->convergence->gelmanmeanmaxR[i * maxreplicate + j],
+					  world);
 	  }
       }
     all_chain_means(chain_averages,chain_means, nmeans, len, maxreplicate);
-    calc_allgelmanb(gelmanb,chain_averages, chain_means, nmeans, len, maxreplicate);
-    calc_allgelmanw2 (gelmanw, chain_s, nmeans, len, maxreplicate);
-    calc_allgelmanr (gelmanr, gelmanw, gelmanb, nmeans, len, maxreplicate);
-    calc_average_biggest_gelmanr (gelmanr, len, 
+    calc_allgelmanb(gelmanb,chain_averages, chain_means, nmeans, len, maxreplicate, world);
+    calc_allgelmanw2 (gelmanw, chain_s, nmeans, len, maxreplicate, world);
+    calc_allgelmanr (gelmanr, gelmanw, gelmanb, nmeans, len, maxreplicate, world);
+    calc_average_biggest_gelmanr (gelmanr, len,
 				  &world->convergence->gelmanmeanRall,
-				  &world->convergence->gelmanmaxRall);
+				  &world->convergence->gelmanmaxRall, world);
     
     myfree(gelmanw);
     myfree(gelmanb);
@@ -311,7 +312,7 @@ calc_gelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *tc, MYREAL *lc, long len,
 
 }
 void
-calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, long len, long maxreplicate)
+calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, long len, long maxreplicate, world_fmt *world)
 {
     long i;
     long j;
@@ -320,6 +321,10 @@ calc_allgelmanb (MYREAL *gelmanb, MYREAL *mc, MYREAL *chainmeans, long *nmeans, 
     MYREAL val;
     for (i = 0; i < len; i++)
       {
+	/* Skip fixed/not-estimated parameters (world->bayes->map[i][1]
+	   == INVALID) -- see chain_means_bayes()'s own comment. */
+	if (world->bayes->map[i][1] == INVALID)
+	    continue;
 	sum = 0.;
 	//nsum = 0;
 	for(j=0; j < maxreplicate; j++)
@@ -859,13 +864,15 @@ calc_gelmanw2 (MYREAL *gelmanw, MYREAL *s1, MYREAL *s2, long len)
 ///
 /// calculates the overall s^2 of all replicate chains
 void
-calc_allgelmanw2 (MYREAL *gelmanw, MYREAL *chain_s, long *nmeans, long len, long maxreplicate)
+calc_allgelmanw2 (MYREAL *gelmanw, MYREAL *chain_s, long *nmeans, long len, long maxreplicate, world_fmt *world)
 {
     long i;
     long j;
     MYREAL sum = 0.;
     for (i = 0; i < len; i++)
     {
+      if (world->bayes->map[i][1] == INVALID)
+          continue;
       sum = 0.;
       for(j=0; j < maxreplicate; j++)
 	{
@@ -897,7 +904,7 @@ calc_gelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long len,
 }
 
 void
-calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans, long len, long maxreplicate)
+calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans, long len, long maxreplicate, world_fmt *world)
 {
     long i;
     long j;
@@ -912,6 +919,8 @@ calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans
     nn = (long) (ceil(nn/maxreplicate));
     for (i = 0; i < len; i++)
     {
+      if (world->bayes->map[i][1] == INVALID)
+          continue;
       sqplus = (nn - 1.) / nn * gelmanw[i] + gelmanb[i];
       //      v = (maxreplicate+1)/maxreplicate * sqplus;
       gelmanr[i] = sqrt (sqplus / gelmanw[i]);// - (nn-1)/(maxreplicate * nn));
@@ -920,19 +929,31 @@ calc_allgelmanr (MYREAL *gelmanr, MYREAL *gelmanw, MYREAL *gelmanb, long *nmeans
 
 void
 calc_average_biggest_gelmanr (MYREAL *gelmanr, long len,
-                              MYREAL *meanR, MYREAL *bigR)
+                              MYREAL *meanR, MYREAL *bigR, world_fmt *world)
 {
     long i;
+    long validcount = 0;
     MYREAL average = 0;
     MYREAL biggest = 0.;
     for (i = 0; i < len; i++)
     {
+        /* Skip fixed/not-estimated parameters -- their gelmanr[i] was
+           never computed above (chain_means_bayes()'s own comment
+           explains why: zero within-chain variance makes the ratio
+           NaN, which used to poison this average unconditionally, even
+           though the max below already skipped it "for free" via
+           IEEE-754's any-comparison-with-NaN-is-false rule -- confirmed
+           directly on a real dataset with a fixed migration rate,
+           ported from migrate-codex-7). */
+        if (world->bayes->map[i][1] == INVALID)
+            continue;
+        validcount++;
         if (biggest < gelmanr[i])
             biggest = gelmanr[i];
         average += gelmanr[i];
     }
-    if (len > 0)
-        *meanR = average / len;
+    if (validcount > 0)
+        *meanR = average / validcount;
     else
         *meanR = average;
     *bigR = biggest;
@@ -1180,16 +1201,27 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
   MYREAL           *params  = world->bayes->params;
   long              nn      = 2+world->numparam;
 
+  /* Skip parameters world->bayes->map[][1] marks INVALID (fixed/not
+     estimated, e.g. one direction of an asymmetric migration model) --
+     same guard collect_acceptance()/collect_ess_values() already use.
+     Left at 0 (its memset()-ed initial value) rather than averaged: a
+     fixed parameter's samples never vary, so its within-chain variance
+     is genuinely 0, which later made its Gelman-Rubin ratio NaN
+     (sqrt(x/0)) and silently poisoned "Mean sqrt(R)" for the whole run
+     -- confirmed directly on a real dataset with a fixed M rate, ported
+     from migrate-codex-7. */
   for (j = 0; j < T; j++)
     {
       for (i = 2; i < nn; i++)
         {
-	  thischainmeans[i-2]           += params[j * nn + i];
+	  if (world->bayes->map[i-2][1] != INVALID)
+	      thischainmeans[i-2]           += params[j * nn + i];
         }
     }
   for (i = 2; i < nn; i++)
     {
-      thischainmeans[i-2]           /= T;
+      if (world->bayes->map[i-2][1] != INVALID)
+          thischainmeans[i-2]           /= T;
     }
 }
 
@@ -1236,7 +1268,13 @@ void  calc_chain_s(MYREAL *cs, MYREAL *cm, world_fmt *world, long replicate)
   stop = start + len;
   for(i = start; i < stop; i++)
     {
-      cs[i] = calc_s_bayes (i-start, &cm[start], world);
+      /* Same INVALID guard as chain_means_bayes() -- leave a fixed
+         parameter's variance at 0 (its memset()-ed initial value; not
+         computed, not a meaningful "0" either way) rather than compute
+         a genuine variance-of-a-constant 0 that later divides into a
+         Gelman-Rubin ratio. */
+      if (world->bayes->map[i-start][1] != INVALID)
+          cs[i] = calc_s_bayes (i-start, &cm[start], world);
     }
 }
 

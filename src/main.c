@@ -1312,6 +1312,7 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
   char dots[STRSIZE];
   world_fmt *world = universe[0];
   const  long npp = world->numparam;//world->numpop2 + (long) world->bayes->mu + 2 * world->species_model_size + world->grownum;
+  MYREAL accratio[4];
   get_time (nowstr, "%H:%M:%S");
   plog = (char *) mycalloc(LONGLINESIZE,sizeof(char));
 #ifdef MPI
@@ -1325,8 +1326,29 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
     dots[0]='\0';
   plogsize += mysnprintf(plog + plogsize,LINESIZE, "(%.4g,%.4g,%.4g,%.4g%s) ",universe[0]->averageheat,
 		       universe[1]->averageheat,universe[2]->averageheat,universe[3]->averageheat,dots);
-  plogsize += mysnprintf(plog + plogsize,LINESIZE, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",universe[0]->accept_freq,
-		       universe[1]->accept_freq,universe[2]->accept_freq,universe[3]->accept_freq,dots);
+  /* Was universe[k]->accept_freq: a running sum of tree_update()'s 0/1
+     result, added every time the TREEUPDATE move is chosen within a
+     step's inner iterations but only ever reset once per *outer* step,
+     not once per proposal. Since that move can be chosen and accepted
+     more than once per outer step, accept_freq (divided by the outer
+     step count) is really "accepted tree updates per step", not a 0-1
+     ratio -- normally < 1 by coincidence (most tree proposals get
+     rejected), but at extreme heat (the posterior is nearly flat)
+     essentially every attempt succeeds, so a chain offered the move
+     more than once per step on average genuinely prints a value > 1
+     (confirmed directly, ported from migrate-codex-7 where this was
+     found via the user's own testing). bayes->accept[npp]/trials[npp]
+     is the real, already-tracked accept/attempt counter for this exact
+     move, guaranteed in [0,1]. */
+  for (i = 0; i < 4; i++)
+  {
+      long ntrials = universe[i]->bayes->trials[npp];
+      accratio[i] = (ntrials > 0)
+          ? (MYREAL) universe[i]->bayes->accept[npp] / (MYREAL) ntrials
+          : 0.0;
+  }
+  plogsize += mysnprintf(plog + plogsize,LINESIZE, "Acc(%.2f,%.2f,%.2f,%.2f%s) ",accratio[0],
+		       accratio[1],accratio[2],accratio[3],dots);
   plogsize += mysnprintf(plog + plogsize,LINESIZE, "Swap(%li,%li,%li%s)\n                           Param = {",universe[0]->swapped,
 			   universe[1]->swapped,universe[2]->swapped /*,universe[3]->swapped*/,dots);
   for (i=0;i<npp;i++)
