@@ -542,8 +542,13 @@ MYREAL probg_treetimes(world_fmt* world)
 	  else
 	    mlalpha = mlalphas[xx-1];
 	  deltatime = -pow(deltatime2,mlalpha);
-	  fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
-	  
+	  // BUG FIX: this fprintf was a leftover diagnostic from an
+	  // abandoned investigation (commit 095d4ef) that never got
+	  // guarded or removed -- it fired unconditionally on every
+	  // timelist event of every ML-alpha (Mittag-Leffler) run,
+	  // spamming stderr. Found while auditing this tree against
+	  // migrate-codex-7, which never had it (already commented out).
+	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
       if(type == 't')
         {
@@ -576,7 +581,11 @@ MYREAL probg_treetimes(world_fmt* world)
 		    {
 		      waitprobcoal += deltatime * kpop * (kpop - 1) / (mu_rate * param0[pop]);
 		      assert(!isnan(waitprobcoal));
-		      assert(deltatime<0);
+		      // BUG FIX: another leftover from the same abandoned
+		      // diagnostic (095d4ef) -- deltatime==0 is a legitimate
+		      // zero-length interval (t0==t1), not a bug, so this
+		      // could abort a real run in a debug build. Removed;
+		      // codex-7 never had it.
 		    }
 		}
 	      msta = world->mstart[pop];

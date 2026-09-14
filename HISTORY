@@ -12,6 +12,14 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 13 Migrate 6.1.7 Removed a leftover diagnostic fprintf and
+             assert from probg_treetimes() (an abandoned May
+             investigation, commit 095d4ef): the fprintf fired
+             unconditionally on every timelist event of every ML-alpha
+             run, and the assert could abort on a legitimate
+             zero-length interval. Found while auditing this tree
+             against migrate-codex-7, which never had either.
+
 September 13 Migrate 6.1.6 Fixed pdf_print_options()'s "Update
              frequencies" table: chnames[] had one fewer entry than
              NUMBER_OF_UPDATES (it predates the Window move), so the
