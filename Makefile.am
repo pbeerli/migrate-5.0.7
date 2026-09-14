@@ -45,8 +45,17 @@ BUILT_SOURCES += lib/haru/src/libhpdf.a
 endif
 
 # Hook: build libhpdf.a
+#
+# The prerequisite list matters: without it, this rule has no way to know
+# libhpdf.a is stale once it already exists on disk, so `make` treats any
+# already-built libhpdf.a as permanently up to date -- even after editing
+# lib/haru/src/*.c -- and silently keeps linking the old one. Found in
+# migrate-codex-7 (2026-09-14, ported here): the same missing-dependency
+# bug there meant every Autotools-built migrate-n was silently missing
+# real libharu fixes made since this .a was first built (June 2025); this
+# tree's own libhpdf.a carries the exact same stale June 2025 build.
 if !USE_SYSTEM_LIBHPDF
-lib/haru/src/libhpdf.a:
+lib/haru/src/libhpdf.a: $(wildcard lib/haru/src/*.c lib/haru/include/*.h)
 	@echo "Compiling static libharu (no JPEG, no PNG)..."
 	mkdir -p lib/haru/src/build
 	cd lib/haru/src && \
