@@ -12,6 +12,16 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 14 Migrate 6.1.8 Fixed a real Autotools build bug (found in and
+             ported from migrate-codex-7): libhpdf.a was never rebuilt
+             once already present on disk, so an Autotools-built
+             migrate-n could silently keep linking a stale, months-old
+             libharu build even after real fixes were made to
+             lib/haru/src -- this tree's own libhpdf.a carried the same
+             stale June 2025 build. No PDF/UA-1 tagging exists in this
+             tree, so no user-visible PDF defect was traced to it here,
+             but the underlying bug (and risk for any future libharu fix)
+             was identical.
 September 13 Migrate 6.1.7 Removed a leftover diagnostic fprintf and
              assert from probg_treetimes() (an abandoned May
              investigation, commit 095d4ef): the fprintf fired
