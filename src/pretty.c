@@ -3822,10 +3822,16 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
       double pch[NUMBER_OF_UPDATES];
       long ci;
       char mytextf[LINESIZE];
+      // BUG FIX: this array had only 8 entries for NUMBER_OF_UPDATES==9 (it
+      // predates the Window move), so the loop below read chnames[8] out of
+      // its initializer -- implicitly NULL, passed straight to a %s in
+      // pdf_print_tableline(). Found while porting this function to
+      // migrate-codex-7.
       const char *chnames[NUMBER_OF_UPDATES] = {
 	"Genealogy (tree rearrangement)", "Parameters (Theta, M, ...)",
 	"Haplotypes", "Time parameters (skyline)", "Assignment of individuals",
-	"Sequencing error", "Mittag-Leffler alpha", "Scaler (Theta*c, M/c, times*c)"};
+	"Sequencing error", "Mittag-Leffler alpha", "Scaler (Theta*c, M/c, times*c)",
+	"Window (local-M + windowed history)"};
       pch[0] = cch[0];
       for (ci = 1; ci < NUMBER_OF_UPDATES; ci++)
 	pch[ci] = cch[ci] - cch[ci-1];
@@ -3841,6 +3847,14 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	{
 	  mysnprintf(mytextf, LINESIZE, "%.5f", 1.0 + world->options->scaler_delta);
 	  pdf_print_tableline(width2, "%s %s", "  scaler multiplier bound b = 1 + delta", mytextf);
+	  pdf_advance(&page_height);
+	}
+      if (pch[WINDOWUPDATE] > 0.0)
+	{
+	  // parity with the ASCII version in options.c (print_update_frequencies),
+	  // which already shows this detail; the PDF table was missing it.
+	  mysnprintf(mytextf, LINESIZE, "%.5f / %li", world->options->window_delta, world->options->window_size);
+	  pdf_print_tableline(width2, "%s %s", "  window step sd / branches per move", mytextf);
 	  pdf_advance(&page_height);
 	}
       pdf_advance(&page_height);

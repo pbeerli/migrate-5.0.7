@@ -12,6 +12,14 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 13 Migrate 6.1.6 Fixed pdf_print_options()'s "Update
+             frequencies" table: chnames[] had one fewer entry than
+             NUMBER_OF_UPDATES (it predates the Window move), so the
+             Window row read an implicit NULL string. Found while
+             porting this function to migrate-codex-7; also added the
+             window step sd/branches detail row there, matching the
+             text/outfile version.
+
 September 13 Migrate 6.1.5 Fixed scaler_update()'s skyline guard: it
              checked world->timeelements > 1, which defaults to 2
              unconditionally regardless of skyline usage, so the move
