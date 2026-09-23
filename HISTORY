@@ -12,6 +12,15 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 23 Migrate 6.1.10 Fixed crashes ("time conflict", "problem with
+             time encountered") in runs with population growth that
+             6.1.9 exposed: with strong growth the coalescence waiting
+             time fell below double precision and tied with the previous
+             event. Ties now move to the next representable time, and
+             the growth waiting time uses log1p and returns no
+             coalescence when negative growth has no solution.
+             (ported from migrate-codex-7 7.0.24)
+
 September 23 Migrate 6.1.9 Fixed a Bayesian Theta bias that grew with
              sample size (~7x too high at n=176, fine at n=20).
              newtree_update() added a fixed jitter of up to 1e-6
