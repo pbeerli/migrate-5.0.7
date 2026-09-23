@@ -1760,8 +1760,22 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	//    loopcleanup(assign, world, proposal, oldpop, timevector);
 	//    return 0;
         //}
-	  
-	x += EPSILON*UNIF_RANDUM();
+
+	// BUG FIX (large-n Theta bias): the jitter below was added because the
+	// jitter-free code produced rare ties (identical event times), but a
+	// fixed absolute offset of up to EPSILON (1e-6) is far too heavy-handed.
+	// Near the tips the expected coalescent interval is theta/(k(k-1)),
+	// e.g. ~1.6e-7 for k=176, theta=0.005 -- smaller than the jitter itself.
+	// Because acceptlike() assumes the re-simulated lineage is drawn exactly
+	// from the coalescent prior (no Hastings correction), every accepted
+	// tree was slightly too long; the Theta update followed the trees,
+	// the next re-simulation used the larger Theta, and so on: Theta
+	// ratcheted upward with a bias growing ~n^2 (7x at n=176; with
+	// NODATA=YES Theta ran to the prior's upper bound).
+	// Kept as a comment in case ties show up again; a fix for ties should
+	// be scale-aware (relative to the interval) or break ties explicitly,
+	// not add a fixed absolute offset.
+	//x += EPSILON*UNIF_RANDUM();
 	proposal->time = age + x;
 	//fprintf(world->options->logfile,"#proposal %li %li %c %f\n",from, to, event, proposal->time);
 	if(proposal->time < 0.0 || isnan(proposal->time))

@@ -12,6 +12,19 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 23 Migrate 6.1.9 Fixed a Bayesian Theta bias that grew with
+             sample size (~7x too high at n=176, fine at n=20).
+             newtree_update() added a fixed jitter of up to 1e-6
+             (EPSILON*UNIF_RANDUM()) to every re-simulated event
+             time; it had been introduced to avoid rare ties, but near
+             the tips the coalescent intervals, theta/(k(k-1)), are
+             smaller than the jitter, and the tree acceptance assumes
+             draws from the coalescent prior, so trees and Theta
+             ratcheted upward (with NODATA=YES Theta ran to the prior's
+             upper bound). The jitter is kept as a comment in case ties
+             reappear. The bias is present since at least 6.0.1; large-n
+             Bayesian results from earlier versions should be rerun.
+
 September 14 Migrate 6.1.8 Fixed a real Autotools build bug (found in and
              ported from migrate-codex-7): libhpdf.a was never rebuilt
              once already present on disk, so an Autotools-built
