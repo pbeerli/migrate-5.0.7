@@ -1777,6 +1777,11 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	// not add a fixed absolute offset.
 	//x += EPSILON*UNIF_RANDUM();
 	proposal->time = age + x;
+	// tie-break: with strong growth the waiting time can be below the
+	// resolution of age (age + x == age); move the event to the next
+	// representable time instead of adding a fixed offset
+	if (proposal->time <= age)
+	  proposal->time = nextafter(age, (double) HUGE);
 	//fprintf(world->options->logfile,"#proposal %li %li %c %f\n",from, to, event, proposal->time);
 	if(proposal->time < 0.0 || isnan(proposal->time))
 	  {

@@ -4519,25 +4519,19 @@ double interval_growth(double r, double t0, double theta0, double growth, double
 
 double get_time_for_growth(double theta0, double growth, double k, double t0)
 {
-  // revision using my own
-  // logr <= 0
+  // waiting time u from t0 with coalescence rate k exp(growth t)/theta0:
+  //   k/(theta0 growth) (exp(growth (t0+u)) - exp(growth t0)) = -log(r)
+  //   u = log1p(a)/growth,  a = growth theta0 (-log r) / (k exp(growth t0))
+  // log1p keeps precision for tiny a (the old log(1+a) returned exactly 0);
+  // for growth < 0 and a <= -1 the lineage never coalesces.
+  // The old version took creal(clog(-1-a)), i.e. log|1+a|, which gave a
+  // spurious finite time (or 0) instead of no coalescence when 1+a <= 0.
   double logr = LOG(UNIF_RANDUM());
-  //double interval =  (1./(t0 * growth) * log(-1/k *  logr * (theta0 * growth) - exp(growth * t0)))/growth;
-#ifdef WINDOWS
-  MYCOMPLEX tmp = {-1.0 + (growth * theta0 * logr)/(k * exp(growth*t0)), 0.0};
-  MYCOMPLEX tmp2 = clog(tmp);
-  MYCOMPLEX tmp3 = _Cmulcr(tmp2, 1.0/growth);
-  double interval = creal(tmp3);
-#else
-  double interval = creal(clog(-1.0 + (growth * theta0 * logr)/(k * exp(growth*t0)))/growth);
-#endif
-  /////logr =  - log(k * (exp(growth * (t0+u)) - exp(growth * t0))/(theta0 * growth));
-  //logr =  - [log(k) + log(exp(growth * (t0+u)) - exp(growth * t0))-log(theta0 * growth))];
-  
-  
-  //double tk = - LOG(UNIF_RANDUM()) * theta0 / k;
-  //double interval = (-growth * t0 + LOG(exp(growth * t0) + growth * tk))/growth;
-  if (interval<0.0)
+  double a = (growth * theta0 * (-logr)) / (k * exp(growth * t0));
+  if (a <= -1.0 || isnan(a))
+    return (double) HUGE;
+  double interval = log1p(a) / growth;
+  if (interval < 0.0)
     return 0.0;
   else
     return interval;
