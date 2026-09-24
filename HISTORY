@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 23 Migrate 6.1.11 Fixed print-tree=ALL and print-tree=LASTCHAIN:
+             LASTCHAIN with an increment above 1 never wrote a tree; in
+             parallel runs, ALL/LASTCHAIN crashed ("Input/Output problem")
+             once a locus held more than one tree, and only one
+             replicate's trees were kept; the LASTCHAIN filename was
+             ignored.
 September 23 Migrate 6.1.10 Fixed crashes ("time conflict", "problem with
              time encountered") in runs with population growth that
              6.1.9 exposed: with strong growth the coalescence waiting
