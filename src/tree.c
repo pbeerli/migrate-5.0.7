@@ -4638,7 +4638,7 @@ print_tree (world_fmt * world, long g, long *filepos)
 #ifdef NEXUSTREE
   long counter = 0;
 #endif
-  long count          = 1;
+  static long count   = 1; // static: a local reset every call made LASTCHAIN:inc>1 never print
   long pos            = 0;
   long allocval       = 0;
   char *tmp = NULL; //not used because we changed print_to_buffer()
