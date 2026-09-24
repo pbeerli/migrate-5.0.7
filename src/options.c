@@ -6000,7 +6000,9 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    get_next_word(&value,":",&tmp);// the word LASTCHAIN
 	    get_next_word(&value,":",&tmp);
 	    options->treeinc = atol(tmp);
-	    set_filename(value, "LASTCHAIN", &options->treefilename);
+	    // value now holds only the filename; set_filename() would look for "LASTCHAIN" in it
+	    if (value != NULL && value[0] != '\0')
+	      get_filename(&options->treefilename, value);
             break;
         default:
             options->treeprint = myNONE;

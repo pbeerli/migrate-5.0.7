@@ -2979,12 +2979,14 @@ unpack_treespace_buffer (MYREAL *buffer, world_fmt * world,
       }
     else
       {
-	size = strlen(buf) + 1;
+	// ALL/LASTCHAIN: append, each replicate (and each worker) sends its own trees
+	long oldsize = (long) strlen(world->treespace[locus]);
+	size = oldsize + (long) strlen(buf) + 1;
 	world->treespacealloc[locus] = size;
-	world->treespacenum[locus] = size;
+	world->treespacenum[locus] = size - 1;
 	world->treespace[locus] = (char *) myrealloc(world->treespace[locus],
 						     sizeof(char)*(size+1));
-	strcpy(world->treespace[locus],buf);
+	strcpy(world->treespace[locus] + oldsize, buf);
       }
     myfree(sbuf);
 }
@@ -3023,7 +3025,14 @@ long pack_treespace_buffer (MYREAL **buffer, world_fmt * world,
   (*buffer) = (MYREAL *) myrealloc(*buffer, (1+thisrealsize) * sizeof(MYREAL));
   memset(*buffer, 0, sizeof(MYREAL) * (1+thisrealsize));
   // the sizeof(char) is NO MISTAKE!
-  mysnprintf((char*)(*buffer),LONGLINESIZE, "%s%s", input, world->treespace[locus]);
+  // bound is the allocated buffer, not LONGLINESIZE: ALL/LASTCHAIN hold many trees
+  mysnprintf((char*)(*buffer),(size_t)((1+thisrealsize) * sizeof(MYREAL)), "%s%s", input, world->treespace[locus]);
+  if(world->options->treeprint != BEST)
+    {
+      // sent trees are now the master's; clear so the next replicate does not resend them
+      world->treespace[locus][0] = '\0';
+      world->treespacenum[locus] = 0;
+    }
   return thisrealsize;
 }
 
