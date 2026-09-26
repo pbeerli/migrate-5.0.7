@@ -12,6 +12,16 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 26 Migrate 6.1.13 Genealogy proposals again draw coalescence and
+             migration separately, so growth, Mittag-Leffler, geo and
+             skyline apply (time_to_coalmig ignored them); lineages
+             beyond the old root obey the same forces. Removed the
+             remaining fixed time offsets; times change only on ties,
+             and inserted migrations keep their exact times (a rounding
+             tie crashed growth runs with "problem with time").
+             Parallel runs no longer wait ~20 s at the end (idle-worker
+             poll backs off from 10 ms to 1 s instead of sleeping 10 s).
+
 September 26 Migrate 6.1.12 Fixed Mittag-Leffler runs (mittag-leffler-alpha):
              fixed alpha values crashed at startup and estimated alpha
              read past arrays. Without population-mlalpha, alpha now

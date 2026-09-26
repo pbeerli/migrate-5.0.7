@@ -113,8 +113,6 @@ void keep_min_eventtime(MYREAL *the_eventtime, MYREAL eventtime, char *the_event
 long speciation_from(long to, proposal_fmt * proposal);
 void loopcleanup(boolean assign, world_fmt * world, proposal_fmt *proposal, long oldpop, long newpop, timelist_fmt *timevector);
 long newtree_update (world_fmt * world, long g, boolean assign);
-void set_things(MYREAL t1, MYREAL t2, char e1, char e2, long to1, long from1, long to2, long from2, 
-		MYREAL *time, char *event, long *to, long *from);
 void calc_time_per_line(proposal_fmt * proposal, char type, long popto, boolean same,MYREAL *time, char *event, long *to, long *from);
 int beyond_last_node(proposal_fmt* proposal, vtlist *tentry, long gte, long *slider);
 long get_species_record(world_fmt * world,long which);
@@ -905,8 +903,7 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
   if (!touched)
     return (double) HUGE;
 
-  if (t1<t0)
-    t1 = t0 + EPSILON;
+  t1 = time_above(t1, t0);
 
   *event = 'd';
   *from = sfrom;
@@ -1106,7 +1103,7 @@ MYREAL time_to_speciate_normalorig(world_fmt *world, long pop, MYREAL t0, char *
       else if (cdfval >= 1.0)
 	{
 	  //tnew = t0>mu ? t0+EPSILON : mu+EPSILON;
-	  tnew = t0 + EPSILON * UNIF_RANDUM();
+	  tnew = time_above(t0, t0);
 	}
       else
 	{
@@ -1128,12 +1125,12 @@ MYREAL time_to_speciate_normalorig(world_fmt *world, long pop, MYREAL t0, char *
   *to = pop;
   if (t0 <= t1 && t1 < newtmax)
     {
-      interval =  t1-t0;  
+      interval =  time_above(t1, t0) - t0;
       return interval;
     }
   else 
     {
-      return EPSILON;
+      return time_above(t0, t0) - t0;
     }
 }
 
@@ -1193,16 +1190,12 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
 	    }
 	  else if (cdfval >= 1.0)
 	    {
-	      if(t0>mu)
-		tnew = t0 + EPSILON * UNIF_RANDUM();
-	      else
-		tnew = mu + EPSILON * UNIF_RANDUM();
+	      tnew = time_above((t0 > mu) ? t0 : mu, t0);
 	    }
 	  else
 	    {
 	      tnew =  mu - SQRT2 * sigma * (erfinv(cdfval));
-	      if (tnew < t0)
-		tnew = t0 + EPSILON * UNIF_RANDUM();
+	      tnew = time_above(tnew, t0);
 	    }
 	}
       if(tnew < t1)
@@ -1221,17 +1214,13 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
   *to = pop;
   if (t0 <= t1 && t1 < newtmax)
     {
-      interval =  t1-t0;  
+      interval =  time_above(t1, t0) - t0;
       return interval;
     }
   else 
     {
-      if (100.0 * newmu < t0)
-	return EPSILON;
-      if (t1 - t0 > -10e-8)
-	return EPSILON;
-      else
-	return EPSILON;
+      // all former branches returned EPSILON: split at the next time
+      return time_above(t0, t0) - t0;
     }
 }
 
@@ -1575,12 +1564,13 @@ MYREAL eventtime_single(proposal_fmt *proposal, world_fmt *world, long pop, long
   char myevent=' ';
   long fromx = *from;
   long tox = *to;
-  //ceventtime = time_to_coalescence(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
-  //keep_min_eventtime(&the_eventtime, ceventtime, &the_event, myevent, to, tox, from, fromx);
-  //meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, &myevent,&tox, &fromx);
-  meventtime = time_to_coalmig(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
+  // separate coalescence and migration draws (growth, Mittag-Leffler, geo,
+  // skyline); time_to_coalmig() (095d4ef, M experiment) ignored those and
+  // is kept unused
+  ceventtime = time_to_coalescence(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
+  keep_min_eventtime(&the_eventtime, ceventtime, &the_event, myevent, to, tox, from, fromx);
+  meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, &myevent,&tox, &fromx);
   keep_min_eventtime(&the_eventtime, meventtime, &the_event, myevent, to, tox, from, fromx);
-  //printf("@ c m: %lf %lf, %c\n",ceventtime,meventtime,the_event);
   deventtime = time_to_speciation(world, pop, age, &myevent, &tox, &fromx);
   keep_min_eventtime(&the_eventtime, deventtime, &the_event, myevent, to, tox, from, fromx);
   //  }
@@ -1776,12 +1766,10 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	// be scale-aware (relative to the interval) or break ties explicitly,
 	// not add a fixed absolute offset.
 	//x += EPSILON*UNIF_RANDUM();
-	proposal->time = age + x;
 	// tie-break: with strong growth the waiting time can be below the
-	// resolution of age (age + x == age); move the event to the next
-	// representable time instead of adding a fixed offset
-	if (proposal->time <= age)
-	  proposal->time = nextafter(age, (double) HUGE);
+	// resolution of age (age + x == age); time_above() then moves the
+	// event to the next representable time instead of a fixed offset
+	proposal->time = time_above(age + x, age);
 	//fprintf(world->options->logfile,"#proposal %li %li %c %f\n",from, to, event, proposal->time);
 	if(proposal->time < 0.0 || isnan(proposal->time))
 	  {
@@ -1944,25 +1932,6 @@ long newtree_update (world_fmt * world, long g, boolean assign)
     //return -1;
 }
 
-void set_things(MYREAL t1, MYREAL t2, char e1, char e2, long to1, long from1, long to2, long from2, 
-		MYREAL *time, char *event, long *to, long *from)
-{
-  if (t1 < t2)
-    {
-      *time = t1 + EPSILON * UNIF_RANDUM();
-      *event = e1;
-      *to = to1;
-      *from = from1;
-    }
-  else
-    {
-      *time = t2 + EPSILON * UNIF_RANDUM();
-      *event = e2;
-      *to = to2;
-      *from = from2;
-    }
-}
-
 // calculates the time=age and event for each lineage (of the final 2) 
 // in beyond_....()
 // augmented for mittag-leffler alpha
@@ -1970,87 +1939,32 @@ void calc_time_per_line(proposal_fmt * proposal, char type, long popto, boolean 
 {
   (void) type;
   (void) popto;
-  char events;
-  long i,j;
+  // beyond the residual tree the lineage obeys the same forces as inside
+  // it (growth, Mittag-Leffler, locus rate, skyline, migration,
+  // divergence), so use eventtime_single(): the only other lineage is the
+  // partner line, and only one of the two calls per step may run the pair's
+  // coalescence clock (same), see beyond_last_node(). The former inline
+  // version drew coalescence as a plain exponential from Theta alone and
+  // shifted every time by EPSILON*UNIF_RANDUM().
+  world_fmt * world = proposal->world;
   long   pop = *to;
   MYREAL age = *time;
-  //long f; //from
-  long t; //to
-  long frompop=-1;
-  long froms = -1;
-  long tos = -1;
-  double temptime;
-  double time_coal = (double) HUGE;
-  double time_mig  = (double) HUGE;
-  double time_mig_old;
-  double time_spec = (double) HUGE;
-  world_fmt * world = proposal->world;
-  double  r0 = LOG(UNIF_RANDUM());
-  double  r1;
-  long msta = world->mstart[pop];
-  long msto = world->mend[pop];
-  //species_fmt *s = NULL; 
-	  
-  // coalescence time if same is true
-  if(same)
-    time_coal = -r0 *  (proposal->param0[pop]) * 0.5;
-  else
-    time_coal = (double) HUGE;
-  // migration
-  time_mig_old = (double) HUGE;
-  time_mig = (double) HUGE;
-  for (i=msta;i<msto;i++)
+  long   timeslice = world->timeelements - 1;
+  long  *lineages = (long *) mycalloc(world->numpop, sizeof(long));
+  MYREAL interval;
+  lineages[pop] = same ? 1 : 0;
+  while (timeslice > 0 && age < world->times[timeslice])
+    timeslice--;
+  interval = eventtime_single(proposal, world, pop, timeslice, lineages, age, event, to, from);
+  myfree(lineages);
+  if (*event == ' ' || interval >= (double) HUGE)
     {
-      if(shortcut(i, world, &j))
-	continue;
-      else
-	{
-	  r1  = LOG(UNIF_RANDUM());
-	  temptime = -r1 /(world->data->geo[j] * world->param0[j]);
-	  if (temptime < time_mig_old)
-	    {
-	      time_mig_old = temptime;
-	      time_mig = temptime;
-	      m2mm(j,world->numpop,&frompop,&t);
-	      if (t!=pop)
-		error("calc_time_per_line problem with migration to");	      
-	    }
-	}
-    }
-  // speciation
-  if (world->has_speciation)
-    {
-      time_spec = time_to_speciation(world, pop, age, &events, &tos, &froms);
-    }
-  else
-    time_spec = (double) HUGE;
-  // adding fuzz so that we do not end up with identical times: 
-  age += EPSILON * UNIF_RANDUM();
-  if (time_coal < time_mig && time_coal < time_spec)
-    {
-      *time = age + time_coal;
-      *from = pop;
-      *event='c';
-    }
-  else if (time_mig < time_coal && time_mig < time_spec)
-    {
-      *time = age + time_mig;
-      *from = frompop;
-      *event = 'm';
-    }
-  else if (time_spec < time_coal && time_spec < time_mig)
-    {
-      *time = age + time_spec;
-      *from = froms;
-      *event = 'd';
-    }
-  else
-    {
-      //warning("no event was suitable for calc_per_line");
       *event = ' ';
       *from = -1;
       *time = (double) HUGE;
     }
+  else
+    *time = time_above(age + interval, age);
 }
 
 

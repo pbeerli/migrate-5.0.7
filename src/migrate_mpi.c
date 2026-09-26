@@ -822,22 +822,29 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
       {
 	MYMPISEND (ready, SMALLBUFSIZE, MPI_CHAR, (MYINT) MASTER, myID, comm_world);
 #ifdef IPROBE
-	// this forces nodes that do not have work to sleep for 10 seconds and then check again
-	// this reduces the load on the machine when the run is near finishing and only few nodes
-	// do work, on multicore machine this will give more cycles to the working nodes.
-	while(1)
-	  {
-	    MPI_Iprobe(MASTER, MPI_ANY_TAG, comm_world, &notwaiting, &status);
-	    if(!notwaiting)
-	      {
-		//get_time (tempstr, "%H:%M:%S");
-		//fprintf(stdout,"%i> replicate worker waits for master -- %s\n",myID, tempstr);
-		sleep(10);
-		continue;
-	      }
-	    else
-	      break;
-	  }
+	// nodes without work sleep between polls so that, near the end of a run
+	// when only few nodes work, the working nodes get the cycles. The poll
+	// interval doubles from 10 ms to 1 s: a fixed sleep(10) made the
+	// master wait up to 10 s per end-of-run collection round (~20 s on
+	// every run) for idle workers to notice its requests.
+	{
+	  useconds_t poll_us = 10000;
+	  while(1)
+	    {
+	      MPI_Iprobe(MASTER, MPI_ANY_TAG, comm_world, &notwaiting, &status);
+	      if(!notwaiting)
+		{
+		  //get_time (tempstr, "%H:%M:%S");
+		  //fprintf(stdout,"%i> replicate worker waits for master -- %s\n",myID, tempstr);
+		  usleep(poll_us);
+		  if (poll_us < 1000000)
+		    poll_us *= 2;
+		  continue;
+		}
+	      else
+		break;
+	    }
+	}
 #endif
         MYMPIRECV (temp, 3, MPI_LONG, (MYINT) MASTER, MPI_ANY_TAG, comm_world, &status);
         sender = (int) temp[0];

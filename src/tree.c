@@ -2369,12 +2369,9 @@ my_random_tree (world_fmt * world, long tips)
 	    {
 	      // tie-break as in newtree_update(): a waiting time below the
 	      // resolution of age moves to the next representable time
-	      double newage = age + shortt;
-	      if (newage <= age)
-		{
-		  newage = nextafter(age, (double) HUGE);
-		  shortt = newage - age;
-		}
+	      double newage = time_above(age + shortt, age);
+	      if (newage != age + shortt)
+		shortt = newage - age;
 	      age = newage;
 	    }
 	  else
