@@ -1002,12 +1002,8 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
       //sumprob += deltatime * (waitprob + waitprob_spec) + eventprob;
       if(has_mlalpha)
 	{
-	   //mittag-leffle
-	  long xx = mlalphapops[pop];
-	  if (xx == 0)
-	    mlalpha = 1.0;
-	  else
-	    mlalpha = mlalphas[xx-1];
+	   //mittag-leffle: mlalpha was set from the event population ypop at
+	   //the top of this interval (pop is past the end of its loop here)
 	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
 #ifdef WINDOWS
 	  _Dcomplex pwc = {pw,0.0};

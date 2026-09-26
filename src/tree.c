@@ -2366,7 +2366,17 @@ my_random_tree (world_fmt * world, long tips)
       else
 	{
 	  if(shortt < (double) HUGE)	  
-	    age += shortt;
+	    {
+	      // tie-break as in newtree_update(): a waiting time below the
+	      // resolution of age moves to the next representable time
+	      double newage = age + shortt;
+	      if (newage <= age)
+		{
+		  newage = nextafter(age, (double) HUGE);
+		  shortt = newage - age;
+		}
+	      age = newage;
+	    }
 	  else
 	    {
 	      if (maxsimtips < tips)

@@ -1971,15 +1971,19 @@ insert_migr_node (world_fmt * world, node * up, node * down,
     }
   theNode=up;
   long mm = (*migr_table_counter) - 1;
-  if((down->tyme - migr_table[mm].time) < DBL_EPSILON)
+  // tie-break: move a migration that is not below down to the next
+  // representable time below it. The former fixed "-= DBL_EPSILON" pushed
+  // migrations near a tip (time ~1e-16) below the tip (time conflict) and
+  // was below the resolution of times > 2, leaving the tie in place.
+  if(migr_table[mm].time >= down->tyme)
     {
       warning("%i> adjusted time of migration because it was identical to internal node\n",myID);
-      migr_table[mm].time -= DBL_EPSILON;
+      migr_table[mm].time = nextafter(down->tyme, -(double) HUGE);
       while(mm>0 && migr_table[mm-1].time >= migr_table[mm].time)
 	{
 	  warning("%i> adjusted time of migration because it was identical to internal node\n",myID);
 	  mm--;
-	  migr_table[mm].time -= DBL_EPSILON;
+	  migr_table[mm].time = nextafter(migr_table[mm+1].time, -(double) HUGE);
 	}
     }
   

@@ -724,19 +724,16 @@ double propose_new_mlftime(double lambda, double alpha, double r1, double r2)
   double denoma = 1.0 / alpha;
   double denomlambda = 1.0 / lambda;
   
-  double sin_term = sin(pia);
-  double tan_term = tan(pia * (1.0 - r1));
-  double cos_term = cos(pia);
-
-  if (tan_term == 0.0)
-    {
-      // Avoid division by zero in the tangent term.
-      //  warning("tan is %f\n", tan_term);
-      tan_term = EPSILON;
-    }
-
-  double base = denomlambda * (sin_term / tan_term - cos_term);
-  if (base <= 0)
+  // sin(pia)/tan(pia(1-r1)) - cos(pia) == sin(pia r1)/sin(pia(1-r1));
+  // the difference form cancels for small r1 and could round to <= 0
+  // (returning a zero waiting time); the quotient form is positive for
+  // every 0 < r1 < 1 and needs no tan() singularity guard.
+  // sin(pi alpha(1-r1)) == sin(pi d) with d = 1 - alpha(1-r1); use d when
+  // small so alpha near 1 and tiny r1 keep full precision
+  double d = (1.0 - alpha) + alpha * r1;
+  double den = (d < 0.5) ? sin(PI * d) : sin(PI * (alpha - alpha * r1));
+  double base = denomlambda * sin(pia * r1) / den;
+  if (!(base > 0.0))
     {
 	// When the base is less than or equal to zero, the pow function cannot operate correctly.
 	warning("base is %f\n", base);

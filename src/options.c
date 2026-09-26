@@ -5401,7 +5401,7 @@ booleancheck (option_fmt * options, char *var, char *value)
 			    {
 			      options->mlalpha_numalloc = z+1;
 			      options->mlalpha = myrealloc(options->mlalpha,
-							   options->mlalpha_numalloc*sizeof(long));
+							   options->mlalpha_numalloc*sizeof(double));
 			    }
 			  get_next_word(&value,",;{} ",&tmp);
 			  if (tmp != NULL)
