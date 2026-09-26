@@ -1971,19 +1971,18 @@ insert_migr_node (world_fmt * world, node * up, node * down,
     }
   theNode=up;
   long mm = (*migr_table_counter) - 1;
-  // tie-break: move a migration that is not below down to the next
-  // representable time below it. The former fixed "-= DBL_EPSILON" pushed
+  // tie-break (time_below): the former fixed "-= DBL_EPSILON" pushed
   // migrations near a tip (time ~1e-16) below the tip (time conflict) and
   // was below the resolution of times > 2, leaving the tie in place.
   if(migr_table[mm].time >= down->tyme)
     {
       warning("%i> adjusted time of migration because it was identical to internal node\n",myID);
-      migr_table[mm].time = nextafter(down->tyme, -(double) HUGE);
+      migr_table[mm].time = time_below(migr_table[mm].time, down->tyme);
       while(mm>0 && migr_table[mm-1].time >= migr_table[mm].time)
 	{
 	  warning("%i> adjusted time of migration because it was identical to internal node\n",myID);
 	  mm--;
-	  migr_table[mm].time = nextafter(migr_table[mm+1].time, -(double) HUGE);
+	  migr_table[mm].time = time_below(migr_table[mm].time, migr_table[mm+1].time);
 	}
     }
   
@@ -1993,6 +1992,11 @@ insert_migr_node (world_fmt * world, node * up, node * down,
 			      migr_table[i].from, 
 			      migr_table[i].to,
 			      migr_table[i].time - theNode->tyme);
+      // store the exact event time: add_migration() rebuilds it as
+      // t0 + (t - t0), which can round up by one ulp and erase the one-ulp
+      // gap left by the time_below()/time_above() tie-breaks, putting a
+      // migration exactly on its parent's time ("problem with time")
+      theNode->tyme = migr_table[i].time;
     }
     if(down->tyme < migr_table[i-1].time)
       {
@@ -4520,6 +4524,21 @@ double interval_growth(double r, double t0, double theta0, double growth, double
 }
 
 
+
+// time-conflict tie-break: event times are kept exactly as proposed unless
+// they tie with (or fall on the wrong side of) a neighbouring time, in
+// which case they move to the adjacent representable double. This replaces
+// fixed offsets (EPSILON, DBL_EPSILON, EPSILON*UNIF_RANDUM()), which biased
+// short intervals or fell below the resolution of large times.
+double time_above(double t, double lower)
+{
+  return (t > lower) ? t : nextafter(lower, (double) HUGE);
+}
+
+double time_below(double t, double upper)
+{
+  return (t < upper) ? t : nextafter(upper, -(double) HUGE);
+}
 
 double get_time_for_growth(double theta0, double growth, double k, double t0)
 {

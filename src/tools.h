@@ -195,6 +195,8 @@ extern double inverse_cumstd_normal(double p);
 extern double wew ( double x, double *en );
 
 extern double get_time_for_growth(double theta0, double growth, double k, double t0);
+extern double time_above(double t, double lower);
+extern double time_below(double t, double upper);
 extern double interval_growth(double r, double t0, double theta0, double growth, double k, double tmin, double tmax);
 #ifdef CAUTIOUS
 extern boolean cautious;
