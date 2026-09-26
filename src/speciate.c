@@ -798,7 +798,7 @@ MYREAL time_to_speciate_exp(world_fmt *world, long pop, MYREAL t0, char *event, 
   boolean touched=FALSE;
   double mlalpha; // = world->mlalpha;
   //double mlinheritance = world->mlinheritance;
-  boolean has_mlalpha = world->has_mlalpha; //mlalpha < 1.0;
+  boolean has_mlalpha = world->has_mlalpha && world->options->mlalphapops[pop] != 0; //mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -814,7 +814,7 @@ MYREAL time_to_speciate_exp(world_fmt *world, long pop, MYREAL t0, char *event, 
       //double priormax = s->max; 
       if(has_mlalpha)
 	{
-	  mlalpha = world->mlalpha[pop];
+	  mlalpha = world->mlalpha[world->options->mlalphapops[pop]-1];
 	  intervalnew = propose_new_mlftime(1.0/mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	  //intervalnew = interval_mittag_leffler(UNIF_RANDUM(), mlalpha, 1.0/mu,tmin,tmax);
 	}
@@ -863,7 +863,7 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
   long fromi;
   boolean touched=FALSE;
   double mlalpha; // = world->mlalpha;
-  boolean has_mlalpha = world->has_mlalpha;//mlalpha < 1.0;
+  boolean has_mlalpha = world->has_mlalpha && world->options->mlalphapops[pop] != 0;//mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -881,7 +881,7 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
       if (has_mlalpha)
 	{
 	  //r = UNIF_RANDUM();
-	  mlalpha = world->mlalpha[pop];
+	  mlalpha = world->mlalpha[world->options->mlalphapops[pop]-1];
 	  interval = propose_new_mlftime(1.0/mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	    //interval_mittag_leffler_func(r, mlalpha, t0, mu, k, s,priormin,priormax);
 	  tnew = t0 + interval;
@@ -1156,7 +1156,7 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
   long fromi;
   boolean touched=FALSE;
   double mlalpha ; //= world->mlalpha;
-  boolean has_mlalpha = world->has_mlalpha; //mlalpha < 1.0;
+  boolean has_mlalpha = world->has_mlalpha && world->options->mlalphapops[pop] != 0; //mlalpha < 1.0;
 
   *from = -1;
   *to = -1;
@@ -1176,7 +1176,7 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
       //double priormax = s->max;
       if (has_mlalpha)
 	{
-	  mlalpha = world->mlalpha[pop];
+	  mlalpha = world->mlalpha[world->options->mlalphapops[pop]-1];
 	  interval = propose_new_mlftime(mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	  //interval = interval_mittag_leffler_func(r, mlalpha, t0, mu, sigma, s, priormin, priormax);
 	  tnew = t0 + interval;
@@ -1478,7 +1478,7 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 	  else
 	    {
 	      mm =  world->data->geo[i] * world->param0[i] * skyparam[i]/rate;
-	      if(has_mlalpha)
+	      if(has_mlalpha && mlalphapops[tox] != 0)
 		{
 		  mlalpha = mlalphas[mlalphapops[tox]-1];
 		  //DEBUG N^a 		  

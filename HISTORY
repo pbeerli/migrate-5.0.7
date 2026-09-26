@@ -12,6 +12,14 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 26 Migrate 6.1.12 Fixed Mittag-Leffler runs (mittag-leffler-alpha):
+             fixed alpha values crashed at startup and estimated alpha
+             read past arrays. Without population-mlalpha, alpha now
+             applies to all populations (the last value repeats);
+             unlisted populations in population-mlalpha and
+             population-growth follow the last listed one. Fixed "time
+             conflict" crashes from near-zero event times.
+
 September 23 Migrate 6.1.11 Fixed print-tree=ALL and print-tree=LASTCHAIN:
              LASTCHAIN with an increment above 1 never wrote a tree; in
              parallel runs, ALL/LASTCHAIN crashed ("Input/Output problem")

@@ -708,7 +708,18 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  // growth
 	  init_growth(world,numpop);
 	  init_mlalpha(world,numpop);
-	  memcpy(world->mlalpha,options->mlalpha,options->mlalpha_num * sizeof(double));
+	  // world->mlalpha exists only when some population uses mlalpha
+	  // (init_mlalphapop() supplies a default mapping when
+	  // mittag-leffler-alpha is set without population-mlalpha)
+	  if (world->has_mlalpha)
+	    {
+	      // one value per alpha group; fewer given values repeat the last
+	      long nml = MIN(options->mlalpha_num, world->mlalphanum);
+	      long iml;
+	      memcpy(world->mlalpha,options->mlalpha,nml * sizeof(double));
+	      for (iml = nml; iml < world->mlalphanum; iml++)
+		world->mlalpha[iml] = (nml > 0) ? world->mlalpha[nml-1] : 1.0;
+	    }
 	  world->tri_mlalpha = options->tri_mlalpha;
 	  set_numparam(world); //sets world->numparam and world->numparamvec and world->paramcumvec
 		

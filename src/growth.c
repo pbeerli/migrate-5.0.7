@@ -71,16 +71,13 @@ boolean init_growpop(worldoption_fmt * wopt, option_fmt *options, long numpop)
   if (use_growth)
     {
       wopt->growpops = (long*) mycalloc(numpop,sizeof(long));
-      memcpy(wopt->growpops,options->growpops, sizeof(double) * (size_t) options->growpops_numalloc);
-      if (options->growpops_numalloc < numpop)
-	{
-	  long last = options->growpops_numalloc - 1;
-	  if (options->growpops[last]!=0)
-	    {
-	      for (i=last+1;i<numpop;i++)
-		wopt->growpops[i]=i;
-	    }
-	}
+      long ncopy = MIN(options->growpops_numalloc, numpop);
+      memcpy(wopt->growpops,options->growpops, sizeof(long) * (size_t) ncopy);
+      // unlisted populations repeat the last label ({1 2 3}: pop 4 etc
+      // grow in lockstep with pop 3; {1}: all share one rate); the old
+      // wopt->growpops[i]=i gave {1} with 3 populations {1,1,2}
+      for (i=ncopy;i<numpop;i++)
+	wopt->growpops[i]=options->growpops[ncopy-1];
       wopt->growpops_numalloc = numpop; //options->growpops_numalloc;
     }
   else

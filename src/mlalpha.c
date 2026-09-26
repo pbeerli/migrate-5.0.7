@@ -79,17 +79,26 @@ boolean init_mlalphapop(worldoption_fmt * wopt, option_fmt *options, long numpop
     {
       //world->has_mlalpha = TRUE;
       wopt->mlalphapops = (long*) mycalloc(numpop,sizeof(long));
-      memcpy(wopt->mlalphapops,options->mlalphapops, sizeof(double) * (size_t) options->mlalphapops_numalloc);
-      if (options->mlalphapops_numalloc < numpop)
-	{
-	  long last = options->mlalphapops_numalloc - 1;
-	  if (options->mlalphapops[last]!=0)
-	    {
-	      for (i=last+1;i<numpop;i++)
-		wopt->mlalphapops[i]=i;
-	    }
-	}
+      long ncopy = MIN(options->mlalphapops_numalloc, numpop);
+      memcpy(wopt->mlalphapops,options->mlalphapops, sizeof(long) * (size_t) ncopy);
+      // unlisted populations repeat the last label ({1 2 3}: pop 4 etc in
+      // lockstep with pop 3; {1}: all share one alpha); the old
+      // wopt->mlalphapops[i]=i gave {1} with 3 populations {1,1,2}
+      for (i=ncopy;i<numpop;i++)
+	wopt->mlalphapops[i]=options->mlalphapops[ncopy-1];
       wopt->mlalphapops_numalloc = numpop; //options->mlalphapops_numalloc;
+    }
+  else if (options->tri_mlalpha != NO)
+    {
+      // mittag-leffler-alpha without population-mlalpha: ESTIMATE shares
+      // one alpha across all populations ({1}); fixed values go to the
+      // populations in order and the last value repeats for the rest
+      long nval = (options->tri_mlalpha == FIXED) ? MAX(1, options->mlalpha_num) : 1;
+      use_mlalpha = TRUE;
+      wopt->mlalphapops = (long*) mycalloc(numpop,sizeof(long));
+      for (i=0;i<numpop;i++)
+	wopt->mlalphapops[i] = MIN(i, nval-1) + 1;
+      wopt->mlalphapops_numalloc = numpop;
     }
   else
     {
