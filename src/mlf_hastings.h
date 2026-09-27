@@ -7,6 +7,7 @@ Mittag-Leffler Hastings correction for genealogy moves, see mlf_hastings.c
 
 extern boolean mlh_supported(world_fmt *world);
 extern void mlh_set_assignment(long oldpop);
+extern double mlh_probg_treetimes(world_fmt *world);
 extern double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
                                  timelist_fmt *R, boolean assign);
 #ifdef MIGRATE_MLH_VERIFY

@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.21 Mittag-Leffler: every population now uses its own
+             alpha for its coalescences and immigrations (one clock per
+             population); before, all populations shared the alpha of the
+             population where each interval ended. Not yet with skyline,
+             growth, divergence or tip dates.
+
 September 27 Migrate 6.1.20 assign=YES:FREQ: the frequency-based assignment
              proposal now includes its Hastings ratio and stops adapting after
              burn-in; before, assignment probabilities were too extreme
