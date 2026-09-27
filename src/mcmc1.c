@@ -1800,13 +1800,13 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
     double newprobg = 0.0;
     double newp = 0.0;
     double oldp = 0.0;
-    if (!assign && world->has_mlalpha)
+    if (world->has_mlalpha)
       {
 	static boolean warned = FALSE;
 	/* ML Hastings correction, see mlf_hastings.c */
 	if (mlh_supported(world))
 	  {
-	    double lr = mlh_log_correction(world, proposal, tymelist);
+	    double lr = mlh_log_correction(world, proposal, tymelist, assign);
 #ifdef MIGRATE_MLH_VERIFY
 	    mlh_verify_before(world, proposal->origin->tyme);
 #endif
@@ -1831,18 +1831,8 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 	   cancel: the change of assignment is accounted for by the proposal.
 	   Adding probg(new)-probg(old) here counted it twice; with NODATA=YES
 	   Theta came out ~70% and M ~35% too high and assignment probabilities
-	   were too variable. (For Mittag-Leffler alpha<1 the proposal is not
-	   the conditional prior and the p*q correction of the genealogy move
-	   would be needed; not yet implemented for assignment.) */
-	if (world->has_mlalpha)
-	  {
-	    static boolean warned = FALSE;
-	    if (!warned)
-	      {
-		warned = TRUE;
-		warning("Mittag-Leffler correction is not yet implemented for assignment moves; using the uncorrected move\n");
-	      }
-	  }
+	   were too variable. For Mittag-Leffler alpha<1 the proposal is not the
+	   conditional prior; that case is corrected above (mlf_hastings.c). */
       }
     else
       {

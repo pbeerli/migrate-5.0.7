@@ -468,10 +468,21 @@ boolean mlh_supported(world_fmt *world)
     && !world->has_growth && !world->options->has_datefile;
 }
 
+/* population of the reassigned tip before an assignment move */
+static long mlh_assign_oldpop = -1;
+
+void mlh_set_assignment(long oldpop)
+{
+  mlh_assign_oldpop = oldpop;
+}
+
 /* log of p(G')/p(G) * q(G | G')/q(G' | G) for the proposal that is about to
-   be decided in acceptlike(); R is the residual timelist */
+   be decided in acceptlike(); R is the residual timelist. For an assignment
+   move the tip's lineage is not part of R, so the same formula applies with
+   the old path starting in the tip's old population (the choice of the
+   individual and of the new population is symmetric) */
 double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
-                          timelist_fmt *R)
+                          timelist_fmt *R, boolean assign)
 {
   static mlh_list B;
   const long numpop = world->numpop;
@@ -492,7 +503,8 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
       mlh_push_mig(&mlh_oldmig, &mlh_oldmig_alloc, nold++, pt->tyme, pt->pop, pt->actualpop);
     }
   Pold.start = Pnew.start = s;
-  Pold.startpop = Pnew.startpop = proposal->origin->pop;
+  Pnew.startpop = proposal->origin->pop;
+  Pold.startpop = assign ? mlh_assign_oldpop : proposal->origin->pop;
   Pold.n = nold;
   Pold.mig = mlh_oldmig;
   Pold.end = t_old;
