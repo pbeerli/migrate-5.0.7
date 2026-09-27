@@ -33,6 +33,7 @@
 *-----------------------------------------------------------------
 */
 #include "definitions.h"
+extern double alpha_lookup[NROWS];
 extern long nz_lookupa1[NROWS];
 extern long nz_lookupaa[NROWS];
 extern double z_lookupa1[NROWS][NCOLS];

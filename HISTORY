@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 26 Migrate 6.1.14 Mittag-Leffler runs (one population): genealogy moves
+             now use a Hastings correction; the uncorrected move made
+             trees too short and drove Theta to its lower prior bound.
+             Chains can mix slowly in the heavy tail. New, more accurate
+             Mittag-Leffler tables (interpolated in alpha).
+
 September 26 Migrate 6.1.13 Genealogy proposals again draw coalescence and
              migration separately, so growth, Mittag-Leffler, geo and
              skyline apply (time_to_coalmig ignored them); lineages
