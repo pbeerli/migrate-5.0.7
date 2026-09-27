@@ -1873,6 +1873,15 @@ copy_time (world_fmt * world, timelist_fmt * ltl, long from,
 
 /// precalculates values that are needed later during the MCMC chains and maximization process
 /// added speciation processes in 2013 add 2x to the migproblist, first part mig second part spec
+/// M of migration route i into population topop: param0 holds M, or
+/// xNm = Theta_topop * M with use-M=NO
+MYREAL migration_M(world_fmt *world, long i, long topop)
+{
+  if (world->options->usem)
+    return world->param0[i];
+  return world->param0[i] / world->param0[topop];
+}
+
 void
 precalc_world (world_fmt * world)
 {

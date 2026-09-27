@@ -51,6 +51,7 @@ speciation tools
 #include "speciate.h"
 #include "mittag_leffler.h"
 #include "mlf_hastings.h"
+#include "world.h"
 #ifdef MIGRATE_MLH_VERIFY
 extern node *showsister (node * theNode);
 #endif
@@ -1470,7 +1471,7 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 	    }
 	  else
 	    {
-	      mm =  world->data->geo[i] * world->param0[i] * skyparam[i]/rate;
+	      mm =  world->data->geo[i] * migration_M(world, i, tox) * skyparam[i]/rate;
 	      if(has_mlalpha && mlalphapops[tox] != 0)
 		{
 		  mlalpha = mlalphas[mlalphapops[tox]-1];
