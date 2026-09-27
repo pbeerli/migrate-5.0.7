@@ -1662,22 +1662,7 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	    return 0;
 	  }
 	oldpop = proposal->origin->actualpop;
-	newpop = oldpop;
-	if (world->numpop>1)
-	  {
-	    while (newpop == oldpop)
-	      {
-		if (world->has_unassignedfreq)
-		  newpop = assign_bypastfreq(proposal->origin,world->numpop);
-		else
-		  {
-		    if (world->has_unassignedpoplist)
-		      newpop = ( long) world->unassignedpoplist[RANDINT(0,(long) world->unassignedpoplistnum-1)];
-		    else
-		      newpop = RANDINT(0, (long) world->numpop-1);
-		  }
-	      }
-	  }
+	newpop = assign_choose_newpop(world, proposal->origin, oldpop);
 	reassign_individual(proposal->origin,newpop, -1);
       }
     else
