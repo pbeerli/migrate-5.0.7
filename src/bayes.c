@@ -71,6 +71,7 @@
 #else
 extern int myID;
 #endif
+#include "mlf_hastings.h"
 
 // counter for bayesallfile on a per locus basis
 //extern long * mdimfilecount;
@@ -424,6 +425,11 @@ extern long m2mmm(long frompop, long topop, long numpop);
 //MYREAL probg_treetimesSIMPLE(world_fmt* world)
 MYREAL probg_treetimes(world_fmt* world)
 {
+    /* Mittag-Leffler: every population runs its own clock with its own
+       alpha (mlf_hastings.c); skyline, growth, divergence and tip dates
+       still use the interval density below */
+    if (world->has_mlalpha && mlh_supported(world))
+      return mlh_probg_treetimes(world);
     const MYREAL *geo = world->data->geo;
     //const MYREAL *lgeo = world->data->lgeo;
     const  long numpop = world->numpop;

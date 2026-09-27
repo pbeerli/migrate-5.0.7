@@ -226,7 +226,10 @@ static double mlh_logS_mig(world_fmt *world, long pop, double dt)
   return logs;
 }
 
-/* ---- tree density above the origin, as probg_treetimes() ---- */
+#ifdef MIGRATE_MLH_VERIFY
+/* ---- the interval density of probg_treetimes() before the per-population
+   model (one alpha per whole-tree interval); kept as a reference: equal to
+   mlh_logp_perpop() for one population or alpha = 1 ---- */
 static double mlh_interval(world_fmt *world, double dt, const long *k,
                            const mlh_event *e)
 {
@@ -261,6 +264,127 @@ static double mlh_logp_list(world_fmt *world, const mlh_list *L, double s)
       age = L->ev[i].age;
     }
   return logp;
+}
+#endif
+
+/* ---- per-population tree density (docs/mittag_leffler_in_migrate.tex,
+   section "Per-population alpha") ----
+   Every population runs its own ML clock with its own alpha. The clock of
+   pop carries its coalescences and the migrations of its lineages
+   (backwards in time; forwards these are immigrations into pop) and runs
+   over a spell, the stretch during which k[pop] does not change. A spell
+   ends with an event of pop, or is censored when k[pop] changes for another
+   reason (a lineage arriving, a sample); either way the clock restarts. */
+
+/* total rate of pop's clock with kp lineages */
+static double mlh_lambda(world_fmt *world, long pop, long kp)
+{
+  double lam = 0.0;
+  if (kp > 1)
+    lam += kp * (kp - 1) * mlh_pairrate(world, pop) / 2.0;
+  if (kp > 0)
+    lam += kp * mlh_migtotal(world, pop);
+  return lam;
+}
+
+/* log density of the events of L (and of everything L's populations wait
+   through) given the start a[pop] of each population's spell open below the
+   first event of L; a[] is updated. The process stops at the last event. */
+static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
+{
+  const long numpop = L->numpop;
+  long i, pop, x;
+  double logp = 0.0;
+  for (i = 0; i < L->n; i++)
+    {
+      const mlh_event *e = &L->ev[i];
+      const long *kb = L->k + i * numpop;
+      const long *ka = (i + 1 < L->n) ? L->k + (i + 1) * numpop : NULL;
+      x = -1;
+      if (e->type == 'c' || e->type == 'm')
+        {
+          double alpha, dt, lam, rate;
+          x = e->below;
+          alpha = mlh_alpha(world, x);
+          dt = e->age - a[x];
+          lam = mlh_lambda(world, x, kb[x]);
+          rate = (e->type == 'c') ? mlh_pairrate(world, x)
+            : mlh_migrate(world, e->above, x);
+          /* f(dt) * rate / lam */
+          if (alpha >= 1.0)
+            logp += log(rate) - lam * dt;
+          else
+            logp += (alpha - 1.0) * log(dt)
+              + creal(mittag_leffler(alpha, alpha, -lam * pow(dt, alpha))) + log(rate);
+          a[x] = e->age;
+        }
+      for (pop = 0; pop < numpop; pop++)
+        {
+          if (pop == x || (ka != NULL && ka[pop] == kb[pop]) || (ka == NULL && kb[pop] == 0))
+            continue;
+          if (ka != NULL)   /* censored: k[pop] changed by another population's event */
+            logp += mlh_logS(mlh_lambda(world, pop, kb[pop]), mlh_alpha(world, pop),
+                             e->age - a[pop]);
+          a[pop] = e->age;
+        }
+    }
+  return logp;
+}
+
+/* spell starts of all populations at time s, from a timelist whose events
+   at or below s are those of the tree (R or G); pop 'atpop' has an event at
+   s itself (the origin) */
+static void mlh_spellstarts(timelist_fmt *tv, double s, long numpop, long atpop,
+                            double *a)
+{
+  long i, pop;
+  for (pop = 0; pop < numpop; pop++)
+    a[pop] = 0.0;
+  for (i = 0; i + 1 <= tv->T - 2 && tv->tl[i].age < s; i++)
+    for (pop = 0; pop < numpop; pop++)
+      if (tv->tl[i + 1].lineages[pop] != tv->tl[i].lineages[pop])
+        a[pop] = tv->tl[i].age;
+  if (atpop >= 0)
+    a[atpop] = s;
+}
+
+/* probg_treetimes() for Mittag-Leffler runs within mlh_supported() */
+double mlh_probg_treetimes(world_fmt *world)
+{
+  static mlh_list L;
+  static double *a = NULL;
+  static long aalloc = 0;
+  const long numpop = world->numpop;
+  long pop;
+  if (aalloc < numpop)
+    {
+      a = (double *) myrealloc(a, (size_t) numpop * sizeof(double));
+      aalloc = numpop;
+    }
+  mlh_from_tl(&L, world->treetimes, -1.0, numpop);
+  for (pop = 0; pop < numpop; pop++)
+    a[pop] = (L.n > 0) ? L.ev[0].age : 0.0;
+#ifdef MIGRATE_MLH_VERIFY
+  {
+    static double worst = 0.0;
+    boolean alpha1 = TRUE;
+    const double a0 = a[0];
+    double pp = mlh_logp_perpop(world, &L, a);
+    double pi = mlh_logp_list(world, &L, a0);
+    for (pop = 0; pop < numpop; pop++)
+      if (mlh_alpha(world, pop) < 1.0)
+        alpha1 = FALSE;
+    if ((numpop == 1 || alpha1) && fabs(pp - pi) > worst)
+      {
+        worst = fabs(pp - pi);
+        fprintf(stderr, "MLHVERIFY probg per-pop vs interval density: worst |diff| = %g (logp %g)\n",
+                worst, pp);
+      }
+    return pp;
+  }
+#else
+  return mlh_logp_perpop(world, &L, a);
+#endif
 }
 
 /* population of a path just below time t */
@@ -559,8 +683,21 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
   top2 = (mlh_R2.n > 0) ? mlh_R2.ev[mlh_R2.n - 1].age : s;
   h_r = (t_new > top2) ? t_new : top2;
 
-  logp_old = mlh_logp_list(world, &mlh_Gold, s);
-  logp_new = mlh_logp_list(world, &mlh_Gnew, s);
+  /* spells open at s started below s and are the same in G and G' (the
+     tip of an assignment move lies at time 0, where all spells start) */
+  {
+    static double *a = NULL;
+    static long aalloc = 0;
+    if (aalloc < numpop)
+      {
+        a = (double *) myrealloc(a, (size_t) numpop * sizeof(double));
+        aalloc = numpop;
+      }
+    mlh_spellstarts(R, s, numpop, Pold.startpop, a);
+    logp_old = mlh_logp_perpop(world, &mlh_Gold, a);
+    mlh_spellstarts(R, s, numpop, Pnew.startpop, a);
+    logp_new = mlh_logp_perpop(world, &mlh_Gnew, a);
+  }
   logq_new = mlh_path_logq(world, &B, &Pnew, proposal->migr_table2,
                            proposal->migr_table_counter2, h_f);
   logq_old = mlh_path_logq(world, &mlh_R2, &Pold, mlh_dropped, ndrop, h_r);
