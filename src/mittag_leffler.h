@@ -44,6 +44,7 @@ extern void set_mittag_leffler(option_fmt * options);
 extern double interval_mittag_leffler_func(double r, double alpha, double t0, double mu, double sigma, species_fmt *s, double tmin, double tmax);
 extern double propose_new_mlftime_growth(double theta, double alpha, double r1, double r2, double g, double t);
 extern double propose_new_mlftime(double lambda, double alpha, double r1, double r2);
+extern double propose_new_mlftime_growthrate(double lam0, double alpha, double g, double t0);
 extern void change_mittag_leffler(world_fmt* world);
 #endif
 

@@ -177,6 +177,80 @@ double mlh_alpha(world_fmt *world, long pop)
   return 1.0;
 }
 
+/* growth rate of pop (0 without growth): Theta(t) = Theta exp(-g t), so the
+   coalescence rate grows as exp(g t) backwards in time */
+static double mlh_growth(world_fmt *world, long pop)
+{
+  double g;
+  if (!world->has_growth || world->options->growpops[pop] == 0)
+    return 0.0;
+  g = world->growth[world->options->growpops[pop] - 1];
+  return (fabs(g) > EPSILON) ? g : 0.0;
+}
+
+/* ML survival and density of a clock that has run for rescaled time u,
+   u = int lambda(s)^(1/alpha) ds; lam_end is the rate at the end */
+static double mlh_logS_u(double u, double alpha)
+{
+  if (u <= 0.0)
+    return 0.0;
+  if (alpha >= 1.0)
+    return -u;
+  return creal(mittag_leffler(alpha, 1.0, -pow(u, alpha)));
+}
+
+static double mlh_logf_u(double u, double lam_end, double alpha)
+{
+  if (alpha >= 1.0)
+    return log(lam_end) - u;
+  return (alpha - 1.0) * log(u) + log(lam_end) / alpha
+    + creal(mittag_leffler(alpha, alpha, -pow(u, alpha)));
+}
+
+/* u = int_a^b (A exp(g s) + B)^(1/alpha) ds */
+static double mlh_u_growth(double A, double B, double g, double alpha,
+                           double a, double b)
+{
+  static const double x8[4] = {0.1834346424956498, 0.5255324099163290,
+                               0.7966664774136267, 0.9602898564975363};
+  static const double w8[4] = {0.3626837833783620, 0.3137066458778873,
+                               0.2223810344533745, 0.1012285362903763};
+  double u = 0.0, lo, h, mid;
+  long n, j, i;
+  if (b <= a)
+    return 0.0;
+  if (alpha >= 1.0)
+    return (g != 0.0 ? A / g * (exp(g * b) - exp(g * a)) : A * (b - a)) + B * (b - a);
+  if (A <= 0.0)
+    return pow(B, 1.0 / alpha) * (b - a);
+  if (B <= 0.0 || g == 0.0)
+    {
+      if (g == 0.0)
+        return pow(A + B, 1.0 / alpha) * (b - a);
+      return pow(A, 1.0 / alpha) * alpha / g * (exp(g * b / alpha) - exp(g * a / alpha));
+    }
+  /* Gauss-Legendre (8 points) on pieces over which exp(g s / alpha)
+     changes by at most a factor e^0.25 */
+  n = (long) ceil(fabs(g) * (b - a) / alpha / 0.25);
+  if (n < 1)
+    n = 1;
+  if (n > 4000)
+    n = 4000;
+  h = (b - a) / n;
+  for (j = 0; j < n; j++)
+    {
+      lo = a + j * h;
+      mid = lo + 0.5 * h;
+      for (i = 0; i < 4; i++)
+        {
+          double d = 0.5 * h * x8[i];
+          u += w8[i] * (pow(A * exp(g * (mid - d)) + B, 1.0 / alpha)
+                        + pow(A * exp(g * (mid + d)) + B, 1.0 / alpha));
+        }
+    }
+  return 0.5 * h * u;
+}
+
 /* pair coalescence rate in pop: 2/(mu theta) */
 static double mlh_pairrate(world_fmt *world, long pop)
 {
@@ -304,15 +378,26 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
       x = -1;
       if (e->type == 'c' || e->type == 'm')
         {
-          double alpha, dt, lam, rate;
+          double alpha, dt, lam, rate, g;
           x = e->below;
           alpha = mlh_alpha(world, x);
           dt = e->age - a[x];
           lam = mlh_lambda(world, x, kb[x]);
           rate = (e->type == 'c') ? mlh_pairrate(world, x)
             : mlh_migrate(world, e->above, x);
+          g = mlh_growth(world, x);
           /* f(dt) * rate / lam */
-          if (alpha >= 1.0)
+          if (g != 0.0 && kb[x] > 1)
+            {           /* coalescence part of the rate grows as exp(g t) */
+              double A = kb[x] * (kb[x] - 1) * mlh_pairrate(world, x) / 2.0;
+              double B = kb[x] * mlh_migtotal(world, x);
+              double lam_end = A * exp(g * e->age) + B;
+              if (e->type == 'c')
+                rate *= exp(g * e->age);
+              logp += mlh_logf_u(mlh_u_growth(A, B, g, alpha, a[x], e->age), lam_end, alpha)
+                - log(lam_end) + log(rate);
+            }
+          else if (alpha >= 1.0)
             logp += log(rate) - lam * dt;
           else
             logp += (alpha - 1.0) * log(dt)
@@ -324,8 +409,17 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
           if (pop == x || (ka != NULL && ka[pop] == kb[pop]) || (ka == NULL && kb[pop] == 0))
             continue;
           if (ka != NULL)   /* censored: k[pop] changed by another population's event */
-            logp += mlh_logS(mlh_lambda(world, pop, kb[pop]), mlh_alpha(world, pop),
-                             e->age - a[pop]);
+            {
+              const double g = mlh_growth(world, pop);
+              if (g != 0.0 && kb[pop] > 1)
+                logp += mlh_logS_u(mlh_u_growth(kb[pop] * (kb[pop] - 1) * mlh_pairrate(world, pop) / 2.0,
+                                                kb[pop] * mlh_migtotal(world, pop), g,
+                                                mlh_alpha(world, pop), a[pop], e->age),
+                                   mlh_alpha(world, pop));
+              else
+                logp += mlh_logS(mlh_lambda(world, pop, kb[pop]), mlh_alpha(world, pop),
+                                 e->age - a[pop]);
+            }
           a[pop] = e->age;
         }
     }
@@ -387,7 +481,7 @@ double mlh_probg_treetimes(world_fmt *world)
     for (pop = 0; pop < numpop; pop++)
       if (mlh_alpha(world, pop) < 1.0)
         alpha1 = FALSE;
-    if ((numpop == 1 || alpha1) && fabs(pp - pi) > worst)
+    if ((numpop == 1 || alpha1) && !world->has_growth && fabs(pp - pi) > worst)
       {
         worst = fabs(pp - pi);
         fprintf(stderr, "MLHVERIFY probg per-pop vs interval density: worst |diff| = %g (logp %g)\n",
@@ -473,12 +567,21 @@ static long mlh_first(const mlh_list *B, double t)
    which = -1 coalescence, -2 none (survival only), else a migration to
    population 'which' (backwards) */
 static double mlh_clocks(world_fmt *world, long pop, long kcoal, long which,
-                         double dt)
+                         double t0, double dt)
 {
   const double alpha = mlh_alpha(world, pop);
   const double lc = (kcoal > 0) ? kcoal * mlh_pairrate(world, pop) : 0.0;
+  const double g = mlh_growth(world, pop);
   double logq;
-  if (which == -1)
+  if (g != 0.0 && lc > 0.0)
+    {                   /* coalescence rate lc exp(g t) (proposal: time_to_coalescence) */
+      double u = mlh_u_growth(lc, 0.0, g, alpha, t0, t0 + dt);
+      if (which == -1)
+        logq = mlh_logf_u(u, lc * exp(g * (t0 + dt)), alpha);
+      else
+        logq = mlh_logS_u(u, alpha);
+    }
+  else if (which == -1)
     logq = mlh_logf(lc, alpha, dt);
   else
     logq = mlh_logS(lc, alpha, dt);
@@ -518,7 +621,7 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             break;
           if (im < P->n)
             {
-              logq += mlh_clocks(world, pop, kp, P->mig[im].from, e - age);
+              logq += mlh_clocks(world, pop, kp, P->mig[im].from, age, e - age);
               pop = P->mig[im].from;
               im++;
               age = e;
@@ -526,9 +629,9 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             }
           if (kp < 1)
             return (double) -HUGE;
-          return logq + mlh_clocks(world, pop, kp, -1, e - age) - log((double) kp);
+          return logq + mlh_clocks(world, pop, kp, -1, age, e - age) - log((double) kp);
         }
-      logq += mlh_clocks(world, pop, kp, -2, b - age);
+      logq += mlh_clocks(world, pop, kp, -2, age, b - age);
       age = b;
     }
   /* phase 1: the root lineage waits in p2 up to the horizon */
@@ -537,13 +640,13 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
       e = (im < P->n) ? P->mig[im].time : P->end;
       if (e >= h)
         {
-          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, h - age);
+          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, age, h - age);
           age = h;
           break;
         }
       if (im < P->n)
         {
-          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, e - age);
+          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, age, e - age);
           pop = P->mig[im].from;
           im++;
           age = e;
@@ -551,7 +654,7 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
         }
       if (pop != p2)
         return (double) -HUGE;
-      return logq + mlh_clocks(world, pop, 1, -1, e - age);
+      return logq + mlh_clocks(world, pop, 1, -1, age, e - age);
     }
   if (nq > 0 && Q[0].time < age)
     return (double) -HUGE;   /* the root lineage cannot move below h */
@@ -562,10 +665,10 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
       double e2 = (iq < nq) ? Q[iq].time : (double) HUGE;
       if (e1 < e2)
         {
-          logq += mlh_clocks(world, p2, 0, -2, e1 - age);
+          logq += mlh_clocks(world, p2, 0, -2, age, e1 - age);
           if (im < P->n)
             {
-              logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, e1 - age);
+              logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, age, e1 - age);
               pop = P->mig[im].from;
               im++;
               age = e1;
@@ -573,10 +676,10 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             }
           if (pop != p2)
             return (double) -HUGE;
-          return logq + mlh_clocks(world, pop, 1, -1, e1 - age);
+          return logq + mlh_clocks(world, pop, 1, -1, age, e1 - age);
         }
-      logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, e2 - age);
-      logq += mlh_clocks(world, p2, 0, Q[iq].from, e2 - age);
+      logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, age, e2 - age);
+      logq += mlh_clocks(world, p2, 0, Q[iq].from, age, e2 - age);
       p2 = Q[iq].from;
       iq++;
       age = e2;
@@ -602,7 +705,7 @@ static void mlh_push_mig(migr_table_fmt **tab, long *alloc, long n,
 boolean mlh_supported(world_fmt *world)
 {
   return world->timeelements <= 2 && !world->has_speciation
-    && !world->has_growth && !world->options->has_datefile;
+    && !world->options->has_datefile;
 }
 
 /* population of the reassigned tip before an assignment move */

@@ -1357,7 +1357,10 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 	  //a) Log[RandomReal[]]
 	  denom = (double) lines /(rate*timethetarate);
 	  //interval = interval_mittag_leffler(r, mlalpha, denom,priormin,priormax);
-	  interval = propose_new_mlftime(denom, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
+	  if(world->has_growth && growpops[pop]!=0 && fabs(growth[growpops[pop]-1])>EPSILON)
+	    interval = propose_new_mlftime_growthrate(denom, mlalpha, growth[growpops[pop]-1], age);
+	  else
+	    interval = propose_new_mlftime(denom, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	}
       else
 	{
