@@ -48,4 +48,5 @@ extern void print_mighist_output (FILE * out, world_fmt * world, MYREAL *sums, b
 extern void print_event_values(world_fmt * world);
 extern void store_events (world_fmt * world, timelist_fmt * ltl, long np, long rep);
 
+extern long mig_coal_npall(world_fmt * world);
 #endif /*_EVENTUPDATE_*/

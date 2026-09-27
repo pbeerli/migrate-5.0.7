@@ -414,6 +414,15 @@ void calculate_event_values(duo **eventbins, long *eventbinnum, MYREAL eventinte
 }
 
 ///
+/// number of parameter slots of the migration/coalescence event histograms
+/// (migeventbins/migeventbinnum); world->numparam is larger with growth
+/// and Mittag-Leffler, so the MPI transport must use this count
+long mig_coal_npall(world_fmt * world)
+{
+  return world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+}
+
+///
 /// set up the event plot histogram containers, only when also the migration histograms are recorded
 /// this function needs to be called by setup_mighist() function
 void

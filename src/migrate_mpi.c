@@ -35,6 +35,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "assignment.h"
 #include "sighandler.h"
 #include "migrate_mpi.h"
+#include "migevents.h"
 #include "pretty.h"
 #include "options.h"
 #include "tree.h"
@@ -2919,7 +2920,7 @@ unpack_mighist_replicate_buffer(MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = mig_coal_npall(world); /* the event bins' size, not numparam */
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
@@ -3055,7 +3056,7 @@ unpack_mighist_buffer (MYREAL *buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numparam; //world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = mig_coal_npall(world); /* the event bins' size, not numparam */
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
   eventbinnum = aa->migeventbinnum;
@@ -3162,7 +3163,7 @@ long pack_mighist_buffer (MYREAL **buffer, world_fmt * world,
   long         * eventbinnum = NULL;
   duo         ** eventbins;
   mighistloci_fmt *aa;
-  long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+  long npall = mig_coal_npall(world); /* the event bins' size, not numparam */
 
   aa = &world->mighistloci[locus];
   eventbins = aa->migeventbins;
