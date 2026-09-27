@@ -4809,6 +4809,15 @@ void set_bayes_options(char *value, option_fmt *options)
 		{
 		  to = atol(sto) - 1;
 		}
+	      /* population numbers start at 1: "0" would become -1, which means
+		 "*" (all populations), so such a line was silently applied as a
+		 wildcard (or not at all) */
+	      if ((sfrom[0] != '*' && sfrom[0] != '-' && from < 0)
+		  || (sto[0] != '*' && sto[0] != '-' && to < 0))
+		{
+		  warning("bayes-priors: population numbers start at 1; ignoring \"%s\"\n", value);
+		  return;
+		}
 	    }
 	  else
 	    {
