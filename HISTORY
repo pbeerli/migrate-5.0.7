@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 26 Migrate 6.1.16 bayes-priors lines with population number 0 were
+             silently read as "all populations"; they now warn and are
+             ignored (population numbers start at 1).
+
 September 26 Migrate 6.1.15 Assignment (assign=YES) counted the coalescent change
              twice: Theta and M were overestimated and assignment
              probabilities too uncertain. Results of assignment runs
