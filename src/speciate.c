@@ -1870,6 +1870,8 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	//}
         pretendcoalesce1p (proposal);
     }
+    if (assign)
+      mlh_set_assignment(oldpop);
     if (acceptlike (world, proposal, g, timevector, assign))
       {
         if (proposal->time > world->root->tyme)
@@ -1920,7 +1922,7 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	free_masterproposal (proposal);
 #endif
 #ifdef MIGRATE_MLH_VERIFY
-	if (!assign && world->has_mlalpha && mlh_supported(world))
+	if (world->has_mlalpha && mlh_supported(world))
 	  {
 	    /* the residual of the new tree for the same origin */
 	    node *origin = proposal->origin;
