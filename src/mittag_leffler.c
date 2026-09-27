@@ -704,6 +704,22 @@ double propose_new_mlftime_growth(double theta, double alpha, double r1, double 
 // creates too large posteriors for theta and too narrow posteriors at alpha=1 for no data for
 // theta with gamma and for mlf-alpha beta distributions
 // coding remedy for Nan etc from chatgpt 4
+/* waiting time from t0 for an ML clock with rate lam0 * exp(g t): the
+   clock runs in rescaled time u = int lambda(s)^(1/alpha) ds, where it is
+   ML(alpha, 1); for alpha = 1 this is get_time_for_growth() */
+double propose_new_mlftime_growthrate(double lam0, double alpha, double g, double t0)
+{
+  double u = propose_new_mlftime(1.0, alpha, UNIF_RANDUM(), UNIF_RANDUM());
+  double a;
+  if (u >= (double) HUGE || lam0 <= 0.0)
+    return (double) HUGE;
+  a = u * g / (alpha * pow(lam0, 1.0 / alpha) * exp(g * t0 / alpha));
+  if (a <= -1.0 || isnan(a))
+    return (double) HUGE;
+  a = alpha * log1p(a) / g;
+  return (a < 0.0) ? 0.0 : a;
+}
+
 double propose_new_mlftime(double lambda, double alpha, double r1, double r2)
 {
   // comments in here discuss checking distributions when data is all ? one would expect

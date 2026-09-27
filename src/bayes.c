@@ -423,13 +423,47 @@ extern long m2mmm(long frompop, long topop, long numpop);
 }
 */
 //MYREAL probg_treetimesSIMPLE(world_fmt* world)
+static MYREAL probg_treetimes_intervals(world_fmt* world);
+
 MYREAL probg_treetimes(world_fmt* world)
 {
     /* Mittag-Leffler: every population runs its own clock with its own
-       alpha (mlf_hastings.c); skyline, growth, divergence and tip dates
+       alpha (mlf_hastings.c); divergence, tip dates and skyline=PARAM
        still use the interval density below */
     if (world->has_mlalpha && mlh_supported(world))
-      return mlh_probg_treetimes(world);
+      {
+#ifdef MIGRATE_MLH_VERIFY
+        /* for alpha = 1 both densities describe the structured coalescent
+           (with growth) */
+        static MYREAL worst = 0.0;
+        MYREAL pp = mlh_probg_treetimes(world);
+        long pop;
+        boolean alpha1 = TRUE;
+        for (pop = 0; pop < world->numpop; pop++)
+          if (mlh_alpha(world, pop) < 1.0)
+            alpha1 = FALSE;
+        if (alpha1 && world->has_growth)
+          {
+            MYREAL pi = probg_treetimes_intervals(world);
+            if (fabs(pp - pi) > worst)
+              {
+                worst = fabs(pp - pi);
+                fprintf(stderr, "MLHVERIFY probg per-pop vs interval density (growth): worst |diff| = %g (logp %g)\n",
+                        worst, pp);
+              }
+          }
+        return pp;
+#else
+        return mlh_probg_treetimes(world);
+#endif
+      }
+    return probg_treetimes_intervals(world);
+}
+
+/* density over whole-tree intervals; for Mittag-Leffler one alpha per
+   interval (see docs/mittag_leffler_in_migrate.tex) */
+static MYREAL probg_treetimes_intervals(world_fmt* world)
+{
     const MYREAL *geo = world->data->geo;
     //const MYREAL *lgeo = world->data->lgeo;
     const  long numpop = world->numpop;

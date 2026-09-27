@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.24 Mittag-Leffler with population growth: the proposal
+             ignored growth and the tree density ignored alpha for growing
+             populations; both now use the growing rate, and the Hastings
+             correction covers growth.
+
 September 27 Migrate 6.1.23 Mittag-Leffler: the scaler move (default weight 0.1
              for ML since 6.1.17) never ran; it now scales Theta by c^alpha
              and M by c^-alpha and mixes M much faster.
