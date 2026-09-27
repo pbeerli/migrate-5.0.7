@@ -7985,10 +7985,19 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     choices[HAPLOTYPEUPDATE]=options->haplotype_updatefreq;
   else
     choices[HAPLOTYPEUPDATE] = 0.0;
+  // skyline=PARAM: the per-segment multipliers were proposed without ever
+  // entering the tree density used for the parameter updates, while the
+  // genealogy proposal used them, which biased Theta and M; until the
+  // parametric skyline is finished (see migrate-codex-7) the multipliers
+  // stay at 1, so skyline=PARAM gives the results of skyline=YES
+  choices[SKYLINETIMEUPDATE]=0;
   if(options->skyline_param)
-    choices[SKYLINETIMEUPDATE] = options->timeparam_updatefreq;
-  else
-    choices[SKYLINETIMEUPDATE]=0;
+    {
+      static boolean warned = FALSE;
+      if (!warned && myID == MASTER)
+	warning("skyline=PARAM: segment multipliers are not estimated in this version; results are those of skyline=YES\n");
+      warned = TRUE;
+    }
   if(options->has_unassigned)
     choices[ASSIGNMENTUPDATE] = options->unassigned_updatefreq;
   else
