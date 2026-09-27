@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 26 Migrate 6.1.17 Mittag-Leffler runs now use the scaler move by
+             default (updatefreq weight 0.1 unless scaler: is given); it
+             fixes slow mixing of long trees under alpha<1.
+
 September 26 Migrate 6.1.16 bayes-priors lines with population number 0 were
              silently read as "all populations"; they now warn and are
              ignored (population numbers start at 1).
