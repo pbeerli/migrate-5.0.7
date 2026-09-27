@@ -36,7 +36,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
-#define MIGRATEVERSION "6.1.13"
+#define MIGRATEVERSION "6.1.14"
 #define MIGRATESUBVERSION "September-26-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
@@ -386,8 +386,8 @@ typedef int boolean;
 #define NORMALSHORTCUT_DIST 3
 #define PRECISION         0.0000001
 //mittag-leffler lookup tables mittag_leffler_interpoly
-#define NCOLS 38
-#define NROWS 99
+#define NCOLS 203
+#define NROWS 112
 // for alpha estimation
 // variable trialpha takes -1, 0, 1
 #define ESTIMATE -1

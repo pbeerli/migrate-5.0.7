@@ -143,7 +143,24 @@ double interpoly(double x, double alpha, double beta, double z[NCOLS], double ta
   // we assume that nrows is always 99
   // tables has 99 rows for alpha 0.01 ... 0.99
   
-  if ((x<z[0]) || (x>z[ncols-1]))
+  if (x < z[0])
+    {
+      /* far tail (|z| > 2e6): asymptotic series
+	 E_{a,b}(z) ~ -sum_k z^{-k} / Gamma(b - a k); terms with
+	 b - a k at a pole of Gamma vanish. The former fallback called ML()
+	 with Q and X0 swapped and returned log(0) here. */
+      double sum = 0.0, g;
+      long k;
+      for (k = 1; k <= 4; k++)
+	{
+	  g = beta - alpha * (double) k;
+	  if (g <= 0.0 && fabs(g - floor(g + 0.5)) < 1e-12)
+	    continue;
+	  sum -= pow(x, (double) -k) / tgamma(g);
+	}
+      return (sum > 0.0) ? log(sum) : -(double) HUGE;
+    }
+  if (x>z[ncols-1])
     {
 #ifdef WINDOWS
       MYCOMPLEX xx = {x, 0.0};
@@ -184,19 +201,69 @@ double interpoly(double x, double alpha, double beta, double z[NCOLS], double ta
 }
 
 // mlf_lookup and mlf_lookup1 and z_lookup are global static tables
+/* log E from table row r (beta = alpha of that row, or beta = 1) */
+static double mlrow(MYCOMPLEX z, long r, boolean aa, double Q, double X0)
+{
+  if (aa)
+    return interpoly(creal(z), alpha_lookup[r], alpha_lookup[r], z_lookupaa[r], mlf_lookupaa[r], nz_lookupaa[r], Q, X0);
+  return interpoly(creal(z), alpha_lookup[r], 1.0, z_lookupa1[r], mlf_lookupa1[r], nz_lookupa1[r], Q, X0);
+}
+
 MYCOMPLEX MLinterpol(MYCOMPLEX z, double alpha, double beta, double Q, double X0)
 {
-  double b;
-  long aindex = (long) (100. * alpha) - 1;
+  /* log E_{alpha,beta}(z) for beta==alpha or beta==1 from the tables; the
+     table rows have their own alpha values (alpha_lookup, finer near 1) and
+     values in between are interpolated linearly in alpha (formerly alpha was
+     truncated to two digits) */
+  double b, w;
+  long lo, hi, mid;
+  const boolean aa = (fabs(alpha-beta)<PRECISION);
   if (fabs(alpha-1.0)<PRECISION && fabs(beta-1.0)<PRECISION)
     {
       return z;//we return the log of exp(z) (for alpha=1 beta=1)
     }
-  if (fabs(alpha-beta)<PRECISION)
-    b = interpoly(creal(z), alpha, alpha, z_lookupaa[aindex], mlf_lookupaa[aindex], nz_lookupaa[aindex], X0, Q);
+  if (alpha <= alpha_lookup[0])
+    lo = hi = 0;
+  else if (alpha >= alpha_lookup[NROWS-1])
+    lo = hi = NROWS-1;
   else
-    b = interpoly(creal(z), alpha, beta, z_lookupa1[aindex], mlf_lookupa1[aindex], nz_lookupa1[aindex], X0, Q);
-  //b = exp(b);
+    {
+      lo = 0; hi = NROWS-1;
+      while (hi - lo > 1)
+	{
+	  mid = (lo + hi) / 2;
+	  if (alpha_lookup[mid] <= alpha) lo = mid; else hi = mid;
+	}
+    }
+  /* interpolate in u = log(1 - alpha): the tail depends on alpha through
+     log Gamma(1-alpha) ~ -log(1-alpha), which is nearly linear in u but
+     bends sharply in alpha near 1 (interpolating in alpha left errors of
+     1e-2 .. 6e-2 in log E there) */
+  if (hi == lo)
+    b = mlrow(z, lo, aa, Q, X0);
+  else if (lo >= 1 && hi <= NROWS-2)
+    {
+      long r[4] = {lo-1, lo, hi, hi+1};
+      long i, j;
+      double lw, u = log(1.0 - alpha), ur[4];
+      for (i = 0; i < 4; i++)
+	ur[i] = log(1.0 - alpha_lookup[r[i]]);
+      b = 0.0;
+      for (i = 0; i < 4; i++)
+	{
+	  lw = 1.0;
+	  for (j = 0; j < 4; j++)
+	    if (j != i)
+	      lw *= (u - ur[j]) / (ur[i] - ur[j]);
+	  b += lw * mlrow(z, r[i], aa, Q, X0);
+	}
+    }
+  else
+    {
+      w = (log(1.0 - alpha) - log(1.0 - alpha_lookup[lo]))
+	/ (log(1.0 - alpha_lookup[hi]) - log(1.0 - alpha_lookup[lo]));
+      b = (1.0 - w) * mlrow(z, lo, aa, Q, X0) + w * mlrow(z, hi, aa, Q, X0);
+    }
 #ifdef WINDOWS
 #ifdef NMAKE
   return {b, 0.0};
