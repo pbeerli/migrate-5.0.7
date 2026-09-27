@@ -1328,7 +1328,7 @@ MYREAL skyprobWait(world_fmt *world, long *lines, MYREAL *locallparam, long nump
         for (i = msta; i < msto; i++)
         {
             //1229 if (!world->options->custm2[i]=='d')
-            tmp += world->data->geo[i] * world->param0[i] * skyparam[i] * invmu_rate;
+            tmp += world->data->geo[i] * migration_M(world, i, j) * skyparam[i] * invmu_rate;
         }
         probm -= linex * tmp;
     }
@@ -2311,10 +2311,14 @@ long scaler_update(world_fmt *world)
       world->param0[i] *= c;
       P++;
     }
-  for (i = numpop; i < numpop2; i++)
+  // with use-M=NO param0 holds xNm = Theta*M, which the move leaves unchanged
+  if (world->options->usem)
     {
-      world->param0[i] /= c;
-      Q++;
+      for (i = numpop; i < numpop2; i++)
+        {
+          world->param0[i] /= c;
+          Q++;
+        }
     }
   precalc_world(world);   // rebuild the rate tables derived from param0
 

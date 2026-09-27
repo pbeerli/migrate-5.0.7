@@ -52,6 +52,7 @@
 #include "tools.h"
 #include "mittag_leffler.h"
 #include "mlf_hastings.h"
+#include "world.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -190,7 +191,7 @@ static double mlh_migrate(world_fmt *world, long above, long below)
   long i = m2mmm(above, below, world->numpop);
   if (world->options->custm2[i] == '0')
     return 0.0;
-  return world->data->geo[i] * world->param0[i] * world->timek[i]
+  return world->data->geo[i] * migration_M(world, i, below) * world->timek[i]
     / world->options->mu_rates[world->locus];
 }
 
@@ -203,7 +204,7 @@ static double mlh_migtotal(world_fmt *world, long pop)
     {
       if (world->options->custm2[i] == '0')
         continue;
-      sum += world->data->geo[i] * world->param0[i] * world->timek[i];
+      sum += world->data->geo[i] * migration_M(world, i, pop) * world->timek[i];
     }
   return sum / world->options->mu_rates[world->locus];
 }
@@ -220,7 +221,7 @@ static double mlh_logS_mig(world_fmt *world, long pop, double dt)
     {
       if (world->options->custm2[i] == '0')
         continue;
-      logs += mlh_logS(world->data->geo[i] * world->param0[i] * world->timek[i] / mu,
+      logs += mlh_logS(world->data->geo[i] * migration_M(world, i, pop) * world->timek[i] / mu,
                        alpha, dt);
     }
   return logs;

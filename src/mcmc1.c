@@ -1930,7 +1930,7 @@ eventtime (proposal_fmt * proposal, long pop, vtlist * tentry, char *event)
 		error("mismatch with skyparams\n");
 	      }
 	    else
-	      mm += proposal->world->data->geo[i] * proposal->world->param0[i] * skyparam[i]/rate;
+	      mm += proposal->world->data->geo[i] * migration_M(proposal->world, i, pop) * skyparam[i]/rate;
 	  }
 	denom    = mm + (lines * (1.0 / (inheritance*rate*timethetarate)));
       }

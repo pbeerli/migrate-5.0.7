@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.22 use-M=NO: the genealogy proposal used Theta*M
+             as if it were M, so migration events were far too rare and
+             Theta and Theta*M were wrong; fixed (also for skyline and
+             Mittag-Leffler runs and the scaler move).
+
 September 27 Migrate 6.1.21 Mittag-Leffler: every population now uses its own
              alpha for its coalescences and immigrations (one clock per
              population); before, all populations shared the alpha of the
