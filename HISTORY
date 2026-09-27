@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.23 Mittag-Leffler: the scaler move (default weight 0.1
+             for ML since 6.1.17) never ran; it now scales Theta by c^alpha
+             and M by c^-alpha and mixes M much faster.
+
 September 27 Migrate 6.1.22 use-M=NO: the genealogy proposal used Theta*M
              as if it were M, so migration events were far too rare and
              Theta and Theta*M were wrong; fixed (also for skyline and

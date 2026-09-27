@@ -170,7 +170,7 @@ static double mlh_logf(double lambda, double alpha, double t)
     + creal(mittag_leffler(alpha, alpha, -lambda * pow(t, alpha)));
 }
 
-static double mlh_alpha(world_fmt *world, long pop)
+double mlh_alpha(world_fmt *world, long pop)
 {
   if (world->has_mlalpha && world->options->mlalphapops[pop] != 0)
     return world->mlalpha[world->options->mlalphapops[pop] - 1];
@@ -347,6 +347,18 @@ static void mlh_spellstarts(timelist_fmt *tv, double s, long numpop, long atpop,
         a[pop] = tv->tl[i].age;
   if (atpop >= 0)
     a[atpop] = s;
+}
+
+/* number of events (coalescences and migrations) of the current tree; each
+   contributes one event factor to mlh_logp_perpop() */
+long mlh_count_events(world_fmt *world)
+{
+  timelist_fmt *tv = world->treetimes;
+  long i, n = 0;
+  for (i = 0; i <= tv->T - 2; i++)
+    if (mlh_type(tv->tl[i].eventnode->type) != 't')
+      n++;
+  return n;
 }
 
 /* probg_treetimes() for Mittag-Leffler runs within mlh_supported() */
