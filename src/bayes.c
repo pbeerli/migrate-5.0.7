@@ -4751,10 +4751,16 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
 	    bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s_%li","ML-alpha", i+1);
 	  }
     }
-    for(i=0;i<world->options->heated_chains;i++)
-        bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_%f", world->options->heat[i]);
-    if(world->options->heated_chains>1)
+    /* same columns as print_marginal_like(): the heated chains' values and
+       the thermodynamic estimate only with heating (without heating the
+       header named one column too many, so every later column was
+       labelled one to the left) */
+    if(world->options->heating)
+      {
+        for(i=0;i<world->options->heated_chains;i++)
+          bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_%f", world->options->heat[i]);
         bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_thermo");
+      }
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tmL_harmonic");
 #ifdef STEPPINGSTONE
     for(i=0;i<world->options->heated_chains;i++)

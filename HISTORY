@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 28 Migrate 6.1.26 bayesallfile: without heating the header named one
+             marginal-likelihood column too many, so the columns after it
+             were labelled one to the left.
+
 September 27 Migrate 6.1.25 skyline=PARAM biased Theta and M: its segment
              multipliers changed the genealogy proposal but not the tree
              density. They are now kept at 1 (results as with skyline=YES)
