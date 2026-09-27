@@ -2278,7 +2278,12 @@ long scaler_update(world_fmt *world)
   // needs. Found via a real run in migrate-codex-7 and ported back here.
   if (world->options->skyline_param)
     return 0;
-  if (world->has_mlalpha)             // Mittag-Leffler times do not scale linearly
+  // Mittag-Leffler: population p's clock sees Lambda_p * dt^alpha_p, so the
+  // move scales Theta_p by c^alpha_p and the immigration rates into p by
+  // c^-alpha_p; p(G) then changes by exactly c^-n (n events), which the time
+  // Jacobian c^n cancels. p(G) is still evaluated (below), so the move stays
+  // exact where that invariance does not hold.
+  if (world->has_mlalpha && !mlh_supported(world))
     return 0;
   if (world->species_model_size > 0)  // divergence times would have to scale too
     return 0;
@@ -2305,6 +2310,61 @@ long scaler_update(world_fmt *world)
   oldlike     = world->likelihood[world->G];
   oldlogprior = calculate_prior(world);
 
+  if (world->has_mlalpha)
+    {
+      long nev = mlh_count_events(world);
+      MYREAL oldpg = probg_treetimes(world);
+      MYREAL logj = 0.0;
+      boolean usem = world->options->usem;
+      long to, from;
+      for (i = 0; i < numpop; i++)
+        {
+          MYREAL a = mlh_alpha(world, i);
+          world->param0[i] *= EXP(a * logc);
+          logj += a * logc;
+        }
+      // with use-M=NO param0 holds xNm = Theta*M, which the move leaves unchanged
+      if (usem)
+        for (i = numpop; i < numpop2; i++)
+          {
+            MYREAL a;
+            m2mm(i, numpop, &from, &to);
+            a = mlh_alpha(world, to);
+            world->param0[i] *= EXP(-a * logc);
+            logj -= a * logc;
+          }
+      precalc_world(world);
+      recalc_timelist(world, c, 1.0);
+      if (nev != mlh_count_events(world))
+        error("scaler_update(): the number of events changed while rescaling");
+      newlogprior = calculate_prior(world);
+      {
+        MYREAL dlogpg = probg_treetimes(world) - oldpg;
+#ifdef MIGRATE_MLH_VERIFY
+        static MYREAL worst = 0.0;
+        if (fabs(dlogpg + nev * logc) > worst)
+          {
+            worst = fabs(dlogpg + nev * logc);
+            fprintf(stderr, "MLHVERIFY scaler |dlogp(G) + n log c| = %g (n %li, log c %g)\n",
+                    worst, nev, logc);
+          }
+#endif
+        if (world->options->prioralone)
+          {
+            newval = 0.0;
+            oldval = 0.0;
+          }
+        else
+          {
+            newval = world->likelihood[world->G];
+            oldval = oldlike;
+          }
+        hastings = logj + nev * logc + dlogpg + (newlogprior - oldlogprior);
+      }
+      success = bayes_accept(newval, oldval, world->heat, hastings);
+    }
+  else
+    {
   // ---- scale the parameters ----
   for (i = 0; i < numpop; i++)
     {
@@ -2342,6 +2402,7 @@ long scaler_update(world_fmt *world)
   hastings = ((MYREAL) (P - Q)) * logc + (newlogprior - oldlogprior);
 
   success = bayes_accept(newval, oldval, world->heat, hastings);
+    }
 
   if (success)
     {

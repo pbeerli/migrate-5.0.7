@@ -4572,8 +4572,9 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     genealogy moves : tree, assignment");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter, timeparam, seqerror, mlalpha");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c; 0.1 by default with");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       mittag-leffler-alpha, otherwise 0 (off);");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c (Mittag-Leffler: Theta*c^alpha,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); 0.1 by default");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with mittag-leffler-alpha, otherwise 0 (off);");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped for tipdates/growth/skyline/speciation]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
