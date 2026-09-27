@@ -518,7 +518,7 @@ void init_options (option_fmt * options)
 #endif
     options->updateratio = HALF;
     options->tree_updatefreq = 0.2;
-    options->scaler_updatefreq = 0.0; // opt-in: the joint rescaling move is off by default
+    options->scaler_updatefreq = -1.0; // unset: 0.1 for Mittag-Leffler runs, else off (set_updating_choices)
     options->scaler_delta = 0.2;      // multiplier bound b = 1.2
     options->window_updatefreq = 0.0; // opt-in: the windowed joint local-M move is off by default
     options->window_delta = 0.03;     // local-M lognormal-RW step sd
@@ -4572,7 +4572,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     genealogy moves : tree, assignment");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter, timeparam, seqerror, mlalpha");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c; 0 (off) by default and");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c; 0.1 by default with");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       mittag-leffler-alpha, otherwise 0 (off);");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped for tipdates/growth/skyline/speciation]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
@@ -4584,7 +4585,19 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  local-M lognormal-RW step sd for the window move");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-size=VALUE   branches jointly resampled per window move");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f window:%f",
+    // an unset scaler weight is left out so the Mittag-Leffler default still applies
+    if (options->scaler_updatefreq < 0.0)
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f window:%f",
+		       options->tree_updatefreq,
+		       options->parameter_updatefreq,
+		       options->haplotype_updatefreq,
+		       options->timeparam_updatefreq,
+		       options->unassigned_updatefreq,
+		       options->seqerror_updatefreq,
+		       options->mlalpha_updatefreq,
+		       options->window_updatefreq);
+    else
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f window:%f",
 		       options->tree_updatefreq,
 		       options->parameter_updatefreq,
 		       options->haplotype_updatefreq,
@@ -7942,6 +7955,18 @@ int sequence_submodeltype(char *mutmodel)
   return TN;
 }
 
+/// TRUE when the options switch on the Mittag-Leffler coalescent
+static boolean options_use_mlalpha(option_fmt * options)
+{
+  long i;
+  if (options->tri_mlalpha != NO)
+    return TRUE;
+  for (i=0;i<options->mlalphapops_numalloc;i++)
+    if (options->mlalphapops[i] > 0)
+      return TRUE;
+  return FALSE;
+}
+
 void set_updating_choices(double *choices, option_fmt * options, int flag)
 {
   //fprintf(stdout,"%i> @@@@ options->has_unassigned=%li [%f]\n",myID, (long) options->has_unassigned, options->unassigned_updatefreq);
@@ -7976,7 +8001,12 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
   // overruns the array. The move stays disabled (weight 0) to keep the current
   // behaviour; enable by restoring the two lines below.
   choices[MITTAGLEFFLERUPDATE]=0.0;
-  if(options->scaler_updatefreq>0.0)
+  // an unset scaler weight defaults to 0.1 for Mittag-Leffler runs: the
+  // Hastings-corrected ML tree move mixes poorly in the tail of long trees
+  // and the joint rescaling fixes that (NODATA prior recovery); off otherwise
+  if(options->scaler_updatefreq<0.0)
+    choices[SCALERUPDATE] = options_use_mlalpha(options) ? 0.1 : 0.0;
+  else if(options->scaler_updatefreq>0.0)
     choices[SCALERUPDATE]=options->scaler_updatefreq;
   else
     choices[SCALERUPDATE]=0.0;
