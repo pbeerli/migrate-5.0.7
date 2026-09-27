@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.20 assign=YES:FREQ: the frequency-based assignment
+             proposal now includes its Hastings ratio and stops adapting after
+             burn-in; before, assignment probabilities were too extreme
+             (only with three or more populations).
+
 September 27 Migrate 6.1.19 Mittag-Leffler runs with assignment (assign=YES): the
              assignment move now includes the Hastings correction; before,
              Theta was underestimated (about half at alpha=0.7).

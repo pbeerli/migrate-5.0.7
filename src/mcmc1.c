@@ -204,9 +204,13 @@ return 1 if tree was accepted, 0 otherwise
 assign is set for assigning individuals, caller is responsible to reset the 
 origin back to the original state when fail
 */
+    long accepted;
     if (assign && world->unassignednum<2)
       return 0;
-    return newtree_update(world,g,assign);
+    accepted = newtree_update(world,g,assign);
+    if (assign)
+      assign_freq_restore(world);
+    return accepted;
 }
 
 
@@ -1812,6 +1816,8 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 #endif
 	    if (!world->options->prioralone)   /* only the data term is heated */
 	      lr += (world->options->heating ? world->heat : 1.0) * (proposal->likelihood - oldlike);
+	    if (assign)
+	      lr += assign_proposal_logratio;   /* FREQ proposal, 0 otherwise */
 	    if (lr >= 0.0)
 	      return TRUE;
 	    return (LOG (RANDUM ()) < lr) ? TRUE : FALSE;
@@ -1852,32 +1858,16 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
         newp = proposal->likelihood + newprobg;
         oldp = oldlike + oldprobg;
       }
-    if (oldp <= newp) //ratio is > 1
-      {
-        return TRUE;
-    }
-    rr = LOG (RANDUM ());
-    if (!world->options->heating)
+    // the FREQ assignment proposal ratio (0 otherwise) is not heated
     {
-	if (rr < (newp - oldp)) // r < ratio
-        {
-            return TRUE;
-        }
+      double a = (newp - oldp) * (world->options->heating ? world->heat : 1.0)
+	+ (assign ? assign_proposal_logratio : 0.0);
+      if (a >= 0.0)
+	return TRUE;
+      rr = LOG (RANDUM ());
+      if (rr < a)
+	return TRUE;
     }
-    else
-    {
-	if (rr < ((newp - oldp) * world->heat))
-        {
-            return TRUE;
-        }
-    }
-    //#ifdef DEBUG
-    //if (world->heat < 0.1)
-    //  {
-    //warning("weird: %f ?< (%f-%f)*%f\n",rr, proposal->likelihood, world->likelihood[g], 
-    //		world->heat);
-    // }
-    //#endif
     return FALSE;
 }
 

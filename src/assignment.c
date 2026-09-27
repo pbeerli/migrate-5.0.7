@@ -519,6 +519,69 @@ long assign_bypastfreq(node * thenode, long numpop)
   return pop;
 }
 
+/* ---- choice of the new population in an assignment move ----
+   UNIFORM and a population list are symmetric proposals. FREQ
+   (assign=YES:FREQ) draws the new population in proportion to the tip's
+   visit counts (node->freqs, excluding the current population), so the
+   move needs the Hastings ratio
+     q(old|new)/q(new|old) = f_old/f_new * (S - f_old)/(S - f_new),
+   with the counts as they were before the move. The counts adapt only
+   during burn-in: afterwards assign_freq_restore() undoes the update that
+   reassign_individual() made, so the proposal is fixed while sampling. */
+double assign_proposal_logratio = 0.0;
+static node *assign_freq_node = NULL;
+static long assign_freq_pop[2];
+static double assign_freq_val[2];
+
+long assign_choose_newpop(world_fmt *world, node *origin, long oldpop)
+{
+  long newpop = oldpop;
+  long i;
+  assign_proposal_logratio = 0.0;
+  assign_freq_node = NULL;
+  if (world->numpop < 2)
+    return newpop;
+  while (newpop == oldpop)
+    {
+      if (world->has_unassignedfreq)
+	newpop = assign_bypastfreq(origin, world->numpop);
+      else
+	{
+	  if (world->has_unassignedpoplist)
+	    newpop = ( long) world->unassignedpoplist[RANDINT(0,(long) world->unassignedpoplistnum-1)];
+	  else
+	    newpop = RANDINT(0, (long) world->numpop-1);
+	}
+    }
+  if (world->has_unassignedfreq)
+    {
+      double *f = origin->freqs;
+      double sum = 0.0;
+      for (i = 0; i < world->numpop; i++)
+	sum += f[i];
+      assign_proposal_logratio = log(f[oldpop]) - log(f[newpop])
+	+ log(sum - f[oldpop]) - log(sum - f[newpop]);
+      assign_freq_node = origin;
+      assign_freq_pop[0] = oldpop;
+      assign_freq_pop[1] = newpop;
+      assign_freq_val[0] = f[oldpop];
+      assign_freq_val[1] = f[newpop];
+    }
+  return newpop;
+}
+
+/* after an assignment move (accepted or not): keep the visit counts fixed
+   outside burn-in */
+void assign_freq_restore(world_fmt *world)
+{
+  if (assign_freq_node != NULL && !world->in_burnin)
+    {
+      assign_freq_node->freqs[assign_freq_pop[0]] = assign_freq_val[0];
+      assign_freq_node->freqs[assign_freq_pop[1]] = assign_freq_val[1];
+    }
+  assign_freq_node = NULL;
+}
+
 void update_assignment(world_fmt *world)
 {
    long i;
