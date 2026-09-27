@@ -50,6 +50,10 @@ speciation tools
 #include "pretty.h"
 #include "speciate.h"
 #include "mittag_leffler.h"
+#include "mlf_hastings.h"
+#ifdef MIGRATE_MLH_VERIFY
+extern node *showsister (node * theNode);
+#endif
 #include <assert.h>
 
 extern profuncptr *propose_new;
@@ -1914,6 +1918,25 @@ long newtree_update (world_fmt * world, long g, boolean assign)
         free_timevector (timevector);
 #ifndef TESTING2
 	free_masterproposal (proposal);
+#endif
+#ifdef MIGRATE_MLH_VERIFY
+	if (!assign && world->has_mlalpha && mlh_supported(world))
+	  {
+	    /* the residual of the new tree for the same origin */
+	    node *origin = proposal->origin;
+	    proposal_fmt *p2 = NULL;
+	    timelist_fmt *tv2 = NULL;
+	    new_localtimelist (&tv2, &world->treetimes[0], world->numpop);
+	    new_proposal (&p2, &world->treetimes[0], world);
+	    p2->origin = origin;
+	    p2->oback = showtop (crawlback (origin));
+	    p2->osister = showsister (origin);
+	    p2->ocousin = (p2->oback != showtop (crawlback (p2->root->next))) ? showsister (p2->oback) : NULL;
+	    construct_localtimelist (tv2, p2);
+	    mlh_verify_after (world, p2, tv2, origin->tyme);
+	    free_timevector (tv2);
+	    free_masterproposal (p2);
+	  }
 #endif
         return 1;   /* new tree accepted */
       }

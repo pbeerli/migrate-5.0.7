@@ -49,6 +49,7 @@
 #include "speciate.h"
 #include "world.h"
 #include "mittag_leffler.h"
+#include "mlf_hastings.h"
 #ifdef UEP
 #include "uep.h"
 #endif
@@ -1716,138 +1717,6 @@ void free_timevector_new (timelist_fmt * timevector)
  * and an acceptance ratio which is higher the better the
  * likelihood values are (-> Metropolis)
  */
-/* ---- Mittag-Leffler Hastings correction for genealogy moves (stage 1) ----
-   The genealogy move re-simulates one lineage with a fresh ML clock in every
-   slice of the residual tree R. For alpha < 1 that is not the conditional of
-   the whole-tree ML density used by probg_treetimes(): proposed trees are too
-   short (about half the length at alpha = 0.7) and Theta drifts to its lower
-   prior bound. Accepting with
-     p(G')/p(G) * q(old path | R) / q(new path | R)
-   makes the move exact; for alpha = 1 the factor is exactly 1.
-   Stage 1 covers one population without skyline or divergence; see
-   docs/mittag_leffler_in_migrate.tex. */
-static double mlh_logS(double lambda, double alpha, double t)
-{
-  if (t <= 0.0) return 0.0;
-  if (alpha >= 1.0) return -lambda * t;
-  return creal(mittag_leffler(alpha, 1.0, -lambda * pow(t, alpha)));
-}
-
-static double mlh_logf(double lambda, double alpha, double t)
-{
-  if (alpha >= 1.0) return log(lambda) - lambda * t;
-  return log(lambda) + (alpha - 1.0) * log(t)
-    + creal(mittag_leffler(alpha, alpha, -lambda * pow(t, alpha)));
-}
-
-static double mlh_alpha(world_fmt *world, long pop)
-{
-  if (world->has_mlalpha && world->options->mlalphapops[pop] != 0)
-    return world->mlalpha[world->options->mlalphapops[pop] - 1];
-  return 1.0;
-}
-
-/* first entry of R above time t, with newtree_update()'s SMALLEPSILON rule */
-static long mlh_first_slice(timelist_fmt *R, double t)
-{
-  long i = 0;
-  while (i <= R->T - 2 && (R->tl[i].age < t || R->tl[i].age - t < SMALLEPSILON))
-    i++;
-  return i;
-}
-
-/* density with which the proposal places the moving lineage's coalescence at
-   coal_time, starting at start_time on the residual timelist R: one ML
-   coalescence clock per slice (rate 2k/(mu theta)), restarting at each slice,
-   target chosen uniformly among the k lineages; beyond the root of R only the
-   partner line remains, and the clock restarts at the horizon as
-   beyond_last_node() does */
-static double mlh_path_logq(world_fmt *world, timelist_fmt *R, long pop,
-                            double start_time, double coal_time, double horizon)
-{
-  const double mu_rate = world->options->mu_rates[world->locus];
-  const double theta = world->param0[pop] * world->timek[pop];
-  const double alpha = mlh_alpha(world, pop);
-  const long last = R->T - 2;
-  double age = start_time, logq = 0.0, lam;
-  long i, k;
-  for (i = mlh_first_slice(R, start_time); i <= last; i++)
-    {
-      k = R->tl[i].lineages[pop];
-      if (k < 1)
-	{
-	  age = R->tl[i].age;
-	  continue;
-	}
-      lam = 2.0 * k / (mu_rate * theta);
-      if (coal_time < R->tl[i].age)
-	return logq + mlh_logf(lam, alpha, coal_time - age) - log((double) k);
-      logq += mlh_logS(lam, alpha, R->tl[i].age - age);
-      age = R->tl[i].age;
-    }
-  lam = 2.0 / (mu_rate * theta);
-  if (horizon > age && coal_time >= horizon)
-    {
-      logq += mlh_logS(lam, alpha, horizon - age);
-      age = horizon;
-    }
-  return logq + mlh_logf(lam, alpha, coal_time - age);
-}
-
-/* log tree density (as probg_treetimes, one population) of the part above
-   start_time for R plus the moving lineage from start_time to coal_time;
-   intervals below start_time are the same in G and G' and cancel */
-static double mlh_logp_above(world_fmt *world, timelist_fmt *R, long pop,
-                             double start_time, double coal_time)
-{
-  const double mu_rate = world->options->mu_rates[world->locus];
-  const double theta = world->param0[pop] * world->timek[pop];
-  const double rc = 2.0 / (mu_rate * theta);          /* rate of one pair */
-  const double alpha = mlh_alpha(world, pop);
-  const long last = R->T - 2;
-  double age = start_time, logp = 0.0, end, lam, dt;
-  long i, k;
-  boolean added = TRUE;                                /* moving lineage present */
-  for (i = mlh_first_slice(R, start_time); i <= last || added; i++)
-    {
-      k = (i <= last) ? R->tl[i].lineages[pop] : 1;    /* beyond R: root lineage */
-      end = (i <= last) ? R->tl[i].age : (double) HUGE;
-      if (added && coal_time < end)
-	{                                              /* moving lineage coalesces */
-	  k += 1;
-	  dt = coal_time - age;
-	  lam = k * (k - 1) * rc / 2.0;
-	  logp += (alpha - 1.0) * log(dt)
-	    + ((alpha >= 1.0) ? -lam * dt : creal(mittag_leffler(alpha, alpha, -lam * pow(dt, alpha))))
-	    + log(rc);
-	  age = coal_time;
-	  added = FALSE;
-	  k -= 1;
-	  if (i > last)
-	    break;
-	}
-      if (i > last)
-	break;
-      if (added)
-	k += 1;
-      if (k < 1)
-	{
-	  age = end;
-	  continue;
-	}
-      dt = end - age;
-      if (dt > 0.0)
-	{
-	  lam = k * (k - 1) * rc / 2.0;
-	  logp += (alpha - 1.0) * log(dt)
-	    + ((alpha >= 1.0) ? -lam * dt : creal(mittag_leffler(alpha, alpha, -lam * pow(dt, alpha))))
-	    + log(rc);
-	}
-      age = end;
-    }
-  return logp;
-}
-
 boolean
 acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
             timelist_fmt * tymelist, boolean assign)
@@ -1934,24 +1803,13 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
     if (!assign && world->has_mlalpha)
       {
 	static boolean warned = FALSE;
-	/* timeelements == 2 is the no-skyline default (one open segment) */
-	if (world->numpop == 1 && world->timeelements <= 2 && !world->has_speciation
-	    && proposal->migr_table_counter == 0 && proposal->migr_table_counter2 == 0)
+	/* ML Hastings correction, see mlf_hastings.c */
+	if (mlh_supported(world))
 	  {
-	    const long pop = proposal->origin->actualpop;
-	    const double start = proposal->origin->tyme;
-	    const double resid_root = tymelist->tl[tymelist->T - 2].age;
-	    const double t_old = proposal->oback->tyme;
-	    const double t_new = proposal->time;
-	    /* the forward move's horizon is the old coalescence time, the
-	       reverse move's the new one (beyond_last_node()) */
-	    const double logq_new = mlh_path_logq(world, tymelist, pop, start, t_new,
-						  (t_old > resid_root) ? t_old : resid_root);
-	    const double logq_old = mlh_path_logq(world, tymelist, pop, start, t_old,
-						  (t_new > resid_root) ? t_new : resid_root);
-	    const double logp_old = mlh_logp_above(world, tymelist, pop, start, t_old);
-	    const double logp_new = mlh_logp_above(world, tymelist, pop, start, t_new);
-	    double lr = (logp_new - logp_old) + (logq_old - logq_new);
+	    double lr = mlh_log_correction(world, proposal, tymelist);
+#ifdef MIGRATE_MLH_VERIFY
+	    mlh_verify_before(world, proposal->origin->tyme);
+#endif
 	    if (!world->options->prioralone)   /* only the data term is heated */
 	      lr += (world->options->heating ? world->heat : 1.0) * (proposal->likelihood - oldlike);
 	    if (lr >= 0.0)
@@ -1961,7 +1819,7 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 	else if (!warned)
 	  {
 	    warned = TRUE;
-	    warning("Mittag-Leffler genealogy correction is not yet implemented for this model (several populations, skyline, or divergence); using the uncorrected move\n");
+	    warning("Mittag-Leffler genealogy correction is not yet implemented for this model (skyline, divergence, growth, or tip dates); using the uncorrected move\n");
 	  }
       }
     if (assign)

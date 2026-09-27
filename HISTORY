@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 27 Migrate 6.1.18 Mittag-Leffler runs with several populations: the
+             genealogy move now includes the Hastings correction for
+             migration; before, M was overestimated (~40% at alpha=0.7).
+
 September 26 Migrate 6.1.17 Mittag-Leffler runs now use the scaler move by
              default (updatefreq weight 0.1 unless scaler: is given); it
              fixes slow mixing of long trees under alpha<1.
