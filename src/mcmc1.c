@@ -1967,10 +1967,24 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
     if (assign)
       {
 	fix_timelist(tymelist, proposal);
-	//calc probg(theta|g,an)
-	oldprobg =  probg_treetimes(world);
-	newprobg =  probg_treetimes_local(world, tymelist);
-	
+	/* The reassigned individual's lineage is re-simulated from the
+	   conditional coalescent given the residual tree and its new
+	   population, so q(G|G')/q(G'|G) = p(G)/p(G') and the coalescent terms
+	   cancel: the change of assignment is accounted for by the proposal.
+	   Adding probg(new)-probg(old) here counted it twice; with NODATA=YES
+	   Theta came out ~70% and M ~35% too high and assignment probabilities
+	   were too variable. (For Mittag-Leffler alpha<1 the proposal is not
+	   the conditional prior and the p*q correction of the genealogy move
+	   would be needed; not yet implemented for assignment.) */
+	if (world->has_mlalpha)
+	  {
+	    static boolean warned = FALSE;
+	    if (!warned)
+	      {
+		warned = TRUE;
+		warning("Mittag-Leffler correction is not yet implemented for assignment moves; using the uncorrected move\n");
+	      }
+	  }
       }
     else
       {
