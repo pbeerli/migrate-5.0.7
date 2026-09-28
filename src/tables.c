@@ -61,6 +61,18 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 
   fprintf(file,"\n\n\nLog-Probability of the data given the model (marginal likelihood = log(P(D|thisModel))\n");
   fprintf(file,"--------------------------------------------------------------------\n[Use this value for Bayes factor calculations:\nBF = Exp[log(P(D|thisModel) - log(P(D|otherModel)]\nshows the support for thisModel]\n\n");
+  /* adaptive heating changes the chain temperatures during the run, but the
+     thermodynamic integration assumes each chain stayed at one temperature;
+     in tests this favoured overparameterized models (e.g. growth on data
+     without growth) by 10-40 log units, static heating did not */
+  if (options->heating && options->adaptiveheat != NOTADAPTIVE)
+    {
+      fprintf(file,"WARNING: these marginal likelihoods come from ADAPTIVE heating. Adapting the\n");
+      fprintf(file,"         temperatures during the run biases thermodynamic integration; for\n");
+      fprintf(file,"         model comparison rerun with static heating, e.g.\n");
+      fprintf(file,"         heating=YES:1:{1.0,1.5,3.0,1000000.0}\n\n");
+      warning("marginal likelihoods from adaptive heating are unreliable for model comparison; use static heating (heating=YES:...)\n");
+    }
   if(options->heating)
     {
       pdf_bayes_factor_header(world,options);

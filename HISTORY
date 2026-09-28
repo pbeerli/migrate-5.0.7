@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 28 Migrate 6.1.31 Warning in outfile, PDF and log when marginal
+             likelihoods come from adaptive heating: it biases thermodynamic
+             integration (it favoured growth models on data without growth);
+             use static heating for model comparison.
+
 September 28 Migrate 6.1.30 PDF: fixed mittag-leffler-alpha values were printed
              run together (1.000.70).
 
