@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 28 Migrate 6.1.30 PDF: fixed mittag-leffler-alpha values were printed
+             run together (1.000.70).
+
 September 28 Migrate 6.1.29 MPI runs with a fixed mittag-leffler-alpha ran the
              workers with alpha = 1: the option was written over several
              lines for the workers, which then ignored the values. Fixed;
