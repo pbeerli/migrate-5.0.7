@@ -3724,12 +3724,12 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	break;
       case FIXED:
 	slen = mysnprintf(s,LINESIZE,"{%.2f",options->mlalpha[0]);
-	for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
-	  slen = mysnprintf(s+slen,STRSIZE,"%.2f", options->mlalpha[i]);
-	if (options->mlalpha_numalloc>1)
-	  slen = mysnprintf(s+slen,STRSIZE, "%.2f}", options->mlalpha[options->mlalpha_numalloc-1]);
-	else
-	  slen = snprintf(s+slen, STRSIZE, "}");
+	{
+	  int i;
+	  for (i=1; i < options->mlalpha_numalloc; i++)
+	    slen += mysnprintf(s+slen,STRSIZE,", %.2f", options->mlalpha[i]);
+	}
+	slen += snprintf(s+slen, STRSIZE, "}");
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
 	break;
       default:
