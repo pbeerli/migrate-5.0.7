@@ -2300,6 +2300,16 @@ void pdf_bayes_factor_header(world_fmt *world, option_fmt *options)
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L', "shows the support for thisModel]");
     pdf_advance(&page_height);
+    if (options->heating && options->adaptiveheat != NOTADAPTIVE)
+      {   /* see the note in tables.c */
+        pdf_advance(&page_height);
+        pdf_printf(left_margin, page_height,'L', "WARNING: these values come from ADAPTIVE heating, which biases thermodynamic");
+        pdf_advance(&page_height);
+        pdf_printf(left_margin, page_height,'L', "integration; for model comparison rerun with static heating,");
+        pdf_advance(&page_height);
+        pdf_printf(left_margin, page_height,'L', "e.g. heating=YES:1:{1.0,1.5,3.0,1000000.0}");
+        pdf_advance(&page_height);
+      }
     pdf_advance(&page_height);
     pdf_draw_line(50, page_height, page_width-50, page_height);
     pdf_advance(&page_height);
