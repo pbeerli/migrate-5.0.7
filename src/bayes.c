@@ -2150,6 +2150,21 @@ void traverse_adjust(node *theNode, MYREAL new_old_ratio)
     //}
 #endif
     age = theNode->tyme * new_old_ratio;
+    /* the children were rescaled first: keep the node strictly above them.
+       Two times one ulp apart (the tie-break of time_above()) can round to
+       the same value when both are multiplied by the ratio, and a tie
+       between a node and its child breaks the lineage counts of the
+       timelist ("extracting lineages from timelist failed") */
+    if (theNode->type != 't')
+      {
+        right = theNode->next;
+        while (!right->top)
+          {
+            if (right->back != NULL)
+              age = time_above(age, right->back->tyme);
+            right = right->next;
+          }
+      }
     adjust_time_all (theNode, age);
 }
 

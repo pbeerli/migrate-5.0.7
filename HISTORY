@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 28 Migrate 6.1.28 Rescaling all tree times (scaler move, rate updates)
+             could round a node and its child to the same time, which
+             aborted runs with "extracting lineages from timelist failed";
+             nodes are now kept strictly above their children.
+
 September 28 Migrate 6.1.27 MPI runs with mig-histogram and growth or
              Mittag-Leffler read past the migration-event histograms
              (crash, or wrong event histograms); fixed.
