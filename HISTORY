@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+September 28 Migrate 6.1.29 MPI runs with a fixed mittag-leffler-alpha ran the
+             workers with alpha = 1: the option was written over several
+             lines for the workers, which then ignored the values. Fixed;
+             MPI results with a fixed alpha from earlier versions should be
+             rerun.
+
 September 28 Migrate 6.1.28 Rescaling all tree times (scaler move, rate updates)
              could round a node and its child to the same time, which
              aborted runs with "extracting lineages from timelist failed";

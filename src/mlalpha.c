@@ -275,17 +275,19 @@ void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option
   switch(options->tri_mlalpha)
     {
     case FIXED:
-      print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:");
-      print_parm_mutable(bufsize, buffer, allocbufsize, "{%.2f",
-			 options->mlalpha[0]);
-      for (int i=1; i < options->mlalpha_numalloc-1; i++)	  
-	print_parm_mutable(bufsize, buffer, allocbufsize, "%.2f",
-			   options->mlalpha[i]);
-      if (options->mlalpha_numalloc>1)
-	print_parm_mutable(bufsize, buffer, allocbufsize, "%.2f}",
-			   options->mlalpha[options->mlalpha_numalloc-1]);
-      else
-	print_parm_mutable(bufsize, buffer, allocbufsize, "}");
+      /* one line: print_parm_mutable() ends every call with a newline, and
+         MPI workers read their options from this text, so the former
+         piecewise output (YES: / {a / b}) left the workers with alpha = 1 */
+      {
+        long i, pos;
+        char *line = (char *) mycalloc(64 + 16 * options->mlalpha_numalloc, sizeof(char));
+        pos = sprintf(line, "mittag-leffler-alpha=YES:{%.6g", options->mlalpha[0]);
+        for (i = 1; i < options->mlalpha_numalloc; i++)
+          pos += sprintf(line + pos, ", %.6g", options->mlalpha[i]);
+        sprintf(line + pos, "}");
+        print_parm_mutable(bufsize, buffer, allocbufsize, "%s", line);
+        myfree(line);
+      }
       break;
     case NO:	
       print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=NO");
