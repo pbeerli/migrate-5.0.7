@@ -4002,7 +4002,8 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_comment(&bufsize, buffer, allocbufsize, "               the optional totalsites will be used to calculate");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               invariant sites if the datatype is snps, otherwise it will not be used.");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         ttratio=<RATIO1 RATIO2 ....> Default is 2.0,");
-  print_parm_comment(&bufsize, buffer, allocbufsize, "               ratio between transitions and transversions.");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               kappa, the transition/transversion RATE ratio (K2P, F84, HKY,");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               TN: kappa1 kappa2); not the expected Ts/Tv count ratio.");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         seqerror-rate=<{VALUE,VALUE,VALUE,VALUE}|Estimate:1|4> Default is 0.0, typical values for ABI 3700 ");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               sequencers after base calling are around 0.001 (1/650)");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         categories=<VALUE:CATFILE> The categories are integers or letters");
@@ -5850,6 +5851,9 @@ numbercheck (option_fmt * options, char *var, char *value)
         if (strtol (tmp2, (char **) NULL, 10) /*;atoi (tmp) */  > 1)
         {   /* rate categories */
             options->rcategs = strtol (tmp2, (char **) NULL, 10);
+            if (options->rcategs > MAXCATEGS)
+              usererror ("rates=%li: at most %d rate categories are supported\n",
+                         options->rcategs, MAXCATEGS);
             options->rrate =
                 (MYREAL *) myrealloc (options->rrate,
 				      sizeof (MYREAL) * (size_t) (options->rcategs + 1));
@@ -5870,6 +5874,9 @@ numbercheck (option_fmt * options, char *var, char *value)
         if (strtol (tmp2, (char **) NULL, 10) > 1)
         {   /* probabilities for each rate category */
             options->rcategs = strtol (tmp2, (char **) NULL, 10);
+            if (options->rcategs > MAXCATEGS)
+              usererror ("prob-rates=%li: at most %d rate categories are supported\n",
+                         options->rcategs, MAXCATEGS);
             options->probcat =
                 (MYREAL *) myrealloc (options->probcat,
 				      sizeof (MYREAL) * (size_t) (options->rcategs + 1));
