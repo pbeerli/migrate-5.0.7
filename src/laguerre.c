@@ -200,6 +200,10 @@ root_hermite (long n, MYREAL *hroot)
     {
         /* search only upwards */
         hroot[ii] = halfroot (hermite, n, hroot[ii - 1] + EPSILON, 1. / n);
+        /* halfroot() stops at |H_n(x)| < EPSILON; polish with Newton,
+           H_n'(x) = 2n H_(n-1)(x) */
+        for (long k = 0; k < 5; k++)
+            hroot[ii] -= hermite (n, hroot[ii]) / (2. * n * hermite (n - 1, hroot[ii]));
         hroot[start - z] = -hroot[ii];
         z++;
     }
@@ -319,7 +323,7 @@ inithermitcat (long categs, MYREAL alpha, MYREAL theta1,
     for (i = 0; i < categs; i++) // set rates
     {
         rate[i] = theta1 + std * hroot[i];
-        probcat[i] = LOG (probcat[i]);
+        probcat[i] = LOG (probcat[i] / SQRTPI); /* Gauss-Hermite weights sum to sqrt(pi) */
     }
     myfree(hroot);
 }
@@ -367,7 +371,9 @@ roots_laguerre (long m, MYREAL b, MYREAL **lgroot)
                 upperl = x;
             }
             count = 0;
-            while (upperl - lower > 0.000000001 && count++  < 1000)
+            /* relative tolerance: for small gamma shape the lowest root is
+               far below any fixed absolute tolerance */
+            while (upperl - lower > 1e-14 * upperl && count++  < 1000)
             {
                 x = (upperl + lower) / 2.0;
                 if (glaguerre (m, b, x) > 0.0)
@@ -417,6 +423,10 @@ initlaguerrecat (long categs, MYREAL alpha, MYREAL theta1, MYREAL *rate,
     long i;
     MYREAL **lgroot;  /* roots of GLaguerre polynomials */
     MYREAL f, x, xi, y;
+    /* Gamma(shape alpha) has density ~ x^(alpha-1) e^-x, so the quadrature
+       needs the generalized Laguerre polynomials L^(alpha-1); using
+       L^(alpha) gave the rule for shape alpha+1 (fixed 2026-10-01) */
+    const MYREAL a = alpha - 1.0;
 
     lgroot = (MYREAL **) mycalloc (categs + 1, sizeof (MYREAL *));
     lgroot[0] =
@@ -425,21 +435,21 @@ initlaguerrecat (long categs, MYREAL alpha, MYREAL theta1, MYREAL *rate,
     {
         lgroot[i] = lgroot[0] + i * (categs + 1);
     }
-    lgroot[1][1] = 1.0 + alpha;
+    lgroot[1][1] = 1.0 + a;
     for (i = 2; i <= categs; i++)
-        roots_laguerre (i, alpha, lgroot); /* get roots for L^(a)_n */
+        roots_laguerre (i, a, lgroot); /* get roots for L^(a)_n */
     /* here get weights */
     /* Gamma weights are
        (1+a)(1+a/2) ... (1+a/n)*x_i/((n+1)^2 [L_{n+1}^a(x_i)]^2)  */
     f = 1;
     for (i = 1; i <= categs; i++)
-        f *= (1.0 + alpha / i);
+        f *= (1.0 + a / i);
     for (i = 1; i <= categs; i++)
     {
         xi = lgroot[categs][i];
-        y = glaguerre (categs + 1, alpha, xi);
+        y = glaguerre (categs + 1, a, xi);
         x = f * xi / ((categs + 1) * (categs + 1) * y * y);
-        rate[i - 1] = xi / (1.0 + alpha);
+        rate[i - 1] = xi / alpha;
         probcat[i - 1] = x;
     }
     for (i = 0; i < categs; i++)

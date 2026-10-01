@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 1    Migrate 6.1.32 Gamma site-rate fixes: the menu's gamma alpha
+             produced rate categories for shape alpha+1, now alpha; for
+             alpha>=100 the rate probabilities summed to 1.77, now 1;
+             5-9 rate categories gave wrong likelihoods on non-AVX
+             machines (e.g. Apple Silicon); more than 9 categories in a
+             parmfile is now an error. ttratio help: it is kappa.
+
 September 28 Migrate 6.1.31 Warning in outfile, PDF and log when marginal
              likelihoods come from adaptive heating: it biases thermodynamic
              integration (it favoured growth models on data without growth);

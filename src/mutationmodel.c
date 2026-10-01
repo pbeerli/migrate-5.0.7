@@ -2065,8 +2065,8 @@ void nuview_tn93 (mutationmodel_fmt *s, long sublocus, long xs, node * mother, w
       prob_tn93(p2[rate], s->siterates[rate] * u2, s->parameters[0], s->parameters[1], s->parameters[2], s);
     }
 #ifndef AVX
-  MYREAL h1[4][4];
-  MYREAL h2[4][4];
+  MYREAL h1[4]; /* was h1[4][4] indexed by rate: overflow for >= 5 rate categories */
+  MYREAL h2[4];
   const long numstates    = s->numstates;
 #else
   const long numstates    = s->numstates;
@@ -2084,11 +2084,11 @@ void nuview_tn93 (mutationmodel_fmt *s, long sublocus, long xs, node * mother, w
 #ifdef AVX
 	  avx_like(p1[rate],p2[rate],*xx1,*xx2,mother->x[xs].s[site][rate]);
 #else
-	  multiply_add(p1[rate], *xx1, h1[rate], numstates); 
-	  multiply_add(p2[rate], *xx2, h2[rate], numstates);
+	  multiply_add(p1[rate], *xx1, h1, numstates); 
+	  multiply_add(p2[rate], *xx2, h2, numstates);
 	  for(nuc=0; nuc < numstates; nuc++)
 	    {	     
-	      mother->x[xs].s[site][rate][nuc] = h1[rate][nuc] * h2[rate][nuc];
+	      mother->x[xs].s[site][rate][nuc] = h1[nuc] * h2[nuc];
 	    }
 #endif
 	  MYREAL ss=0.0;
