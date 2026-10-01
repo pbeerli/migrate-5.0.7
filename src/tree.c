@@ -868,11 +868,13 @@ treelikelihood (world_fmt * world)
 	    break;
 	  case 'a':
 	    aterm = 0.0;
-	    for (a = 0; a < s->maxalleles - 1; a++)
+	    /* the K-allele chain is uniform at stationarity: every class,
+	       including the last ("unseen") one, has root weight s->freq;
+	       s->freqlast was never set (0) -- fixed 2026-10-01 */
+	    for (a = 0; a < s->maxalleles; a++)
 	      {
 		aterm += (s->freq * nn->x[xs].a[a]);
 	      }
-	    aterm += (s->freqlast * nn->x[xs].a[a]);
 	    term += (aterm != 0.0) ? (LOG (aterm) + nn->scale[xs][0]) : -MYREAL_MAX;
 	    break;
 	  case 'm':
@@ -952,12 +954,10 @@ pseudotreelikelihood (world_fmt * world, proposal_fmt * proposal)
 	      break;
 	    case 'a':
 	      aterm = 0.0;
-	      for (a = 0; a < s->maxalleles - 1; a++)
+	      for (a = 0; a < s->maxalleles; a++) /* see treelikelihood() */
 		{
 		  aterm += (s->freq * xxf.a[a]);
-		  //printf("%f ",term);
 		}
-	      aterm += (s->freqlast * xxf.a[a]);
 	      //printf("%f ",term);
 	      if (aterm == 0.0)
 		term = -MYREAL_MAX;
@@ -1170,14 +1170,15 @@ pseudonu_micro (mutationmodel_fmt *s, proposal_fmt *proposal, xarray_fmt *xxx1,
   xx3 = (MYREAL *) mymalloc(sizeof(MYREAL) * (size_t) smax);
   vv1 = v1;
   vv2 = v2;
-  pm1 = (MYREAL *) mymalloc(sizeof(MYREAL) * (size_t) (2 * margin));
-    pm2 = pm1 +  margin;
+  /* signed step tables, pm[margin - 1 + d] = P(parent ss -> child ss + d);
+     the multistep model is asymmetric when upchance != 0.5 */
+  pm1 = (MYREAL *) mymalloc(sizeof(MYREAL) * (size_t) (2 * (2 * margin - 1)));
+    pm2 = pm1 + 2 * margin - 1;
 
-    for (diff = 0; diff < margin; diff++)
+    for (diff = 1 - margin; diff < margin; diff++)
       {
-	pm1[diff] = (*prob_micro[xs]) (vv1, diff, world, s, helper);
-	pm2[diff] = (*prob_micro[xs]) (vv2, diff, world, s, helper);
-	//printf("%li: pm1=%10.10f pm2=%10.10f\n", diff, pm1[diff], pm2[diff]);
+	pm1[margin - 1 + diff] = (*prob_micro[xs]) (vv1, diff, world, s, helper);
+	pm2[margin - 1 + diff] = (*prob_micro[xs]) (vv2, diff, world, s, helper);
       }
     
     for (ss = 0; ss < smax; ss++)
@@ -1188,17 +1189,17 @@ pseudonu_micro (mutationmodel_fmt *s, proposal_fmt *proposal, xarray_fmt *xxx1,
 	for (a = aa1; a < aa2; a++)
 	  //for (a = 0; a < smax; a++)
         {
-            diff = labs (ss - a);
-	    if(diff >= margin)
+            diff = a - ss;
+	    if(labs (diff) >= margin)
 	      continue;
 
             if (xx1[a] > 0)
             {
-                pija1s += pm1[diff] * xx1[a];
+                pija1s += pm1[margin - 1 + diff] * xx1[a];
             }
             if (xx2[a] > 0)
             {
-                pija2s += pm2[diff] * xx2[a];
+                pija2s += pm2[margin - 1 + diff] * xx2[a];
             }
         }
 	//	printf("%li: pija1s=%10.10f pija2s=%10.10f\n", ss, pija1s,pija2s);
@@ -1246,16 +1247,17 @@ void pseudonu_brownian (mutationmodel_fmt *s, proposal_fmt *proposal, xarray_fmt
         mean = f1 * mean1 + f2 * mean2;
         diff = mean1 - mean2;
         c12 = diff * diff * rvtot;
+        /* the log density is capped at 0 on purpose (author's choice) */
         x1[2] = x1[2] + x2[2] + MIN (0, -0.5 * (LOG (vtot) + c12) + LOG2PIHALF);
         x1[1] = vv1 * f1;
         x1[0] = mean;
     }
     else
     {
-        //xcode rvtot = HUGE;
-        //xcode vtot = SMALL_VALUE;
+        /* zero total variance: as in nuview_brownian(), a vanishing
+           likelihood, not +HUGE (fixed 2026-10-01) */
         f1 = 0.5;
-        x1[2] = (double) HUGE;
+        x1[2] = x1[2] + x2[2] - 0.5 * (double) HUGE;
         x1[1] = vv1 * f1;
         x1[0] = f1 * (mean1 + mean2);
     }
@@ -3544,13 +3546,16 @@ which_nuview (world_fmt *world, boolean fastlike, boolean use_gaps, int watkins)
 void
 nuview_allele (mutationmodel_fmt *s, long sublocus, long xs, node * mother, world_fmt * world, const long locus)
 {
-  (void) s;
   (void) sublocus;
+  (void) world;
+  (void) locus;
   long a;
   long aa;
-  long mal = world->data->maxalleles[locus];
+  /* same allele count and frequency as pseudonu_allele() and the root sum
+     (world->data->maxalleles[] is indexed by sublocus, not locus) */
+  long mal = s->maxalleles;
 
-  MYREAL freq = world->data->freq;
+  MYREAL freq = s->freq;
   //  MYREAL freqlast = world->data->freqlast; see pseudonuview
   MYREAL w1;
   MYREAL w2;
@@ -3676,6 +3681,7 @@ nuview_brownian (mutationmodel_fmt *s, long sublocus, long xs, node * mother, wo
     mean = f1 * mean1 + f2 * mean2;
 
 
+    /* the log density is capped at 0 on purpose (author's choice) */
     mother->x[xs].a[2] =
         xx1 + xx2 + MIN (0.0, -0.5 * (LOG (vtot) + c12) + LOG2PIHALF);
     /*
@@ -3723,14 +3729,14 @@ nuview_micro (mutationmodel_fmt *s, long sublocus, long xs, node * mother, world
     lx1 = d1->scale[xs][0];
     lx2 = d2->scale[xs][0];
 
-    pm1 = (MYREAL *) mymalloc(sizeof(MYREAL) * (size_t) (4 * margin));
-    pm2 = pm1 +  2 * margin;
+    /* signed step tables, see pseudonu_micro() */
+    pm1 = (MYREAL *) mymalloc(sizeof(MYREAL) * (size_t) (2 * (2 * margin - 1)));
+    pm2 = pm1 + 2 * margin - 1;
 
-    for (diff = 0; diff < margin; diff++)
+    for (diff = 1 - margin; diff < margin; diff++)
       {
-	pm1[diff] = (*prob_micro[xs]) (vv1, diff, world, s, helper);
-	pm2[diff] = (*prob_micro[xs]) (vv2, diff, world, s, helper);
-	//fprintf(stdout,"pm[diff=%li]=(%g %g)\n",diff,pm1[diff],pm2[diff]);
+	pm1[margin - 1 + diff] = (*prob_micro[xs]) (vv1, diff, world, s, helper);
+	pm2[margin - 1 + diff] = (*prob_micro[xs]) (vv2, diff, world, s, helper);
       }
 
     for (ss = 0; ss < smax; ss++)
@@ -3740,17 +3746,16 @@ nuview_micro (mutationmodel_fmt *s, long sublocus, long xs, node * mother, world
 	aa2 = MIN(ss + margin,smax);
 	for (a = aa1; a < aa2; a++)
 	  {
-            diff = labs (ss - a);
-	    if(diff>=margin)
+            diff = a - ss;
+	    if(labs (diff) >= margin)
 	      continue;
-	    //	    fprintf(stdout,"***pm[diff=%li]=(%g %g) xx[a=%li]=(%f %f)\n",diff,pm1[diff],pm2[diff],a,xx1[a],xx2[a]);
             if (xx1[a] > 0)
             {
-                pija1s += pm1[diff] * xx1[a];
+                pija1s += pm1[margin - 1 + diff] * xx1[a];
             }
             if (xx2[a] > 0)
             {
-                pija2s += pm2[diff] * xx2[a];
+                pija2s += pm2[margin - 1 + diff] * xx2[a];
             }
         }
         xx3[ss] = pija1s * pija2s;
@@ -3784,42 +3789,30 @@ prob_micro_singlestep(MYREAL t, long diff, world_fmt * world, mutationmodel_fmt 
   (void) world;
   (void) helper;
   // helper is a dummy so that the call is the same as for prob_micro_watkins
+  // exp(-t) I_d(t) = Sum_k exp(-t + (d + 2k) log(t/2) - log((d+k)! k!)).
+  // Fixed 2026-10-01: the sum over k used to stop after micro_threshold
+  // terms, which loses probability for t > ~15 (28% at t = 40); it now
+  // runs until the terms are negligible. micro_threshold still bounds
+  // the step difference d.
   const long stepnum = s->micro_threshold;
-  //const long locus = world->locus;
-  const MYREAL *steps = s->steps[diff];
-  long k;
-  long k2;
-
-  MYREAL temp1;
-  MYREAL temp2;
-  MYREAL temp3;
-  MYREAL temp4;
-  MYREAL const_part;
-  MYREAL summ = 0.0;
-  // MYREAL oldsum = 0.0;
-  const MYREAL logt = LOG (t) - LOG2;
-  const MYREAL logt2 = 2 * logt;
+  if (diff < 0)
+    diff = -diff;
   if (diff >= stepnum)
-    return summ;
-  // linking to precalculated "denominator" Log[(i+k)! k!]
-  // was precalculated in calculate_steps()
-  //  steps = world->options->steps[locus][diff];
-  const_part = -t + logt * diff;
-  // loop unrolling to remove possible stalls
-  // assumes stepnum is even
-  for (k = 0; k < stepnum; k += 2)
+    return 0.0;
+  if (t <= 0.0)
+    return diff == 0 ? 1.0 : 0.0;
+  const MYREAL logt = LOG (t) - LOG2;
+  MYREAL lterm = -t + logt * (MYREAL) diff - logfac (diff);
+  MYREAL summ = EXP (lterm);
+  for (long k = 1; ; k++)
     {
-      k2 = k + 1;
-      temp1 = const_part + logt2 * k - steps[k];
-      temp2 = const_part + logt2 * k2 - steps[k2];
-      temp3 = EXP(temp1);
-      temp4 = EXP(temp2);
-      summ += temp3 + temp4;
-      //      if (fabs (oldsum - summ) < eps)
-      //	break;
-      //oldsum = summ;
+      lterm += 2.0 * logt - LOG ((MYREAL) k) - LOG ((MYREAL) (k + diff));
+      const MYREAL term = EXP (lterm);
+      summ += term;
+      if (k > t && term < 1e-17 * summ)
+	break;
     }
-    return summ;
+  return summ;
 }
 
 ///
@@ -3842,7 +3835,9 @@ prob_micro_watkins (MYREAL t, long diff, world_fmt * world, mutationmodel_fmt *s
   const MYREAL upchance = (*helper)[1]; 
   MYREAL x;
   MYREAL summ = 0.0;
-  const MYREAL delta = 2. * PI / 100.;
+  /* the integrand narrows like (1 - tune): scale the number of points */
+  const long npoints = 100 * (long) ceil (1. / MAX (1. - (*helper)[0], 0.01));
+  const MYREAL delta = 2. * PI / (MYREAL) npoints;
   const MYREAL expt = EXP(-t);
   MYREAL oneplustunesq;
   MYREAL tunep;
@@ -3856,18 +3851,28 @@ prob_micro_watkins (MYREAL t, long diff, world_fmt * world, mutationmodel_fmt *s
   //if (diff >= stepnum)
   //  return summ;
 
+  /* step sizes are geometric, P(|step| = k) = (1-tune) tune^(k-1), up with
+     probability upchance; with phi(x) the step characteristic function
+     P(d,t) = 1/(2 pi) Int exp(t (Re phi - 1)) cos(t Im phi - d x) dx,
+     Re phi = (1-tune)(cos x - tune)/D, Im phi = (1-tune)(2 upchance - 1) sin x / D,
+     D = 1 + tune^2 - 2 tune cos x. Fixed 2026-10-01: Re phi lacked the
+     "- tune" (probabilities did not sum to 1 for tune > 0) and the sign of
+     d was lost. */
   oneplustunesq = 1 + tune * tune;
   tunep = (1.0 - tune) * (2.0 * upchance - 1.0) * t; 
   oneminustunet = (1.0 - tune) * t;
-  for (x = -PI; x < PI; x += delta)
+  /* integer counter: accumulating x += delta sometimes added an extra point */
+  for (long i = 0; i < npoints; i++)
     {
+      x = -PI + (MYREAL) i * delta;
       cosx = cos(x);
       sinx = sin(x);
       invdenom = (oneplustunesq - 2. * tune * cosx);
       if(invdenom < SMALL_VALUE)
-	invdenom = 1. / SMALL_VALUE;
-      first = (diff * x + tunep * sinx) * invdenom;
-      second = oneminustunet * cosx * invdenom;
+	invdenom = SMALL_VALUE;
+      invdenom = 1. / invdenom;
+      first = (tunep * sinx) * invdenom - diff * x;
+      second = oneminustunet * (cosx - tune) * invdenom;
       summ += cos(first) * EXP(second);
     }
 #ifdef DEBUG

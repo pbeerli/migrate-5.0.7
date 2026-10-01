@@ -12,6 +12,16 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 1    Migrate 6.1.33 Mutation model fixes: JC69 and K2P now use equal
+             base frequencies (they used the data's, i.e. ran as F81/HKY);
+             datamodel=F81 was read as F84; TN with one ttratio value now
+             uses it for both kappas; menu and infile (#$) F84/TN/K2P
+             parameters were mis-assigned; multistep microsatellite
+             probabilities were wrong for tune>0 and ignored the up/down
+             bias; single-step probabilities lost mass on long branches;
+             infinite-allele root ignored the unseen allele class; crash
+             parsing two or more ttratio values fixed.
+
 October 1    Migrate 6.1.32 Gamma site-rate fixes: the menu's gamma alpha
              produced rate categories for shape alpha+1, now alpha; for
              alpha>=100 the rate probabilities summed to 1.77, now 1;

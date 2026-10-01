@@ -2946,9 +2946,9 @@ void print_parm_ttratio(long *bufsize, char **buffer,  long *allocbufsize, optio
   if(options->datamodel != MSM && options->datamodel != SSM && options->datamodel != BM && options->datamodel != IAM)
     {
       if (options->datamodel == TN)
-	print_parm_mutable(bufsize, buffer,  allocbufsize, "ttratio=%f %f %f\n", options->ttratio[0],options->ttratio[1],options->ttratio[1]);
+	print_parm_mutable(bufsize, buffer,  allocbufsize, "ttratio=%f %f\n", options->sequence_model_parameters[0],options->sequence_model_parameters[1]);
       else
-	print_parm_mutable(bufsize, buffer,  allocbufsize, "ttratio=%f\n", options->ttratio[0]); 
+	print_parm_mutable(bufsize, buffer,  allocbufsize, "ttratio=%f\n", options->sequence_model_parameters[0]); 
     }
 }
 
@@ -5613,12 +5613,15 @@ numbercheck (option_fmt * options, char *var, char *value)
         temp = strtok (value, " :,;\n\0");
         while (temp != NULL)
         {
-            options->ttratio[z] = atof (temp);
-            //options->ttratio[z] = 0.0;
-	    options->sequence_model_parameters[z] = options->ttratio[z];
-	    z++;
+            /* grow before writing (the old code shrank the array to z
+               values and then wrote value z -- a heap overflow for TN's
+               two kappas); keep at least 3, the menu writes ttratio[0..2] */
             options->ttratio =
-	      (MYREAL *) myrealloc (options->ttratio, sizeof (MYREAL) * (size_t) z);
+	      (MYREAL *) myrealloc (options->ttratio, sizeof (MYREAL) * (size_t) MAX (z + 1, 3));
+            options->ttratio[z] = atof (temp);
+            if (z < NUMMUTATIONPARAMETERS)
+	      options->sequence_model_parameters[z] = options->ttratio[z];
+	    z++;
             temp = strtok (NULL, " ,;\n\0");
         }
         break;
@@ -6169,7 +6172,12 @@ numbercheck (option_fmt * options, char *var, char *value)
         }
         break;
     case 35:   /* datamodel: JC, K2P, F84, F81 (D), HKY, TN  */
-      options->datamodel = get_mutationmodel(value[0]);
+      /* F81 and F84 share their first letter: F81 used to be read as F84
+         (and the menu writes datamodel=F81); fixed 2026-10-01 */
+      if (toupper ((unsigned char) value[0]) == 'F')
+        options->datamodel = (value[1] == '8' && value[2] == '1') ? F81 : F84;
+      else
+        options->datamodel = get_mutationmodel((char) toupper ((unsigned char) value[0]));
       options->sequence_model = options->datamodel;
         break;
     case 36:   /* logfile=<YES:logfile | NO> do we write a logfile or not */

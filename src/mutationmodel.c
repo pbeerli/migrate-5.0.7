@@ -224,7 +224,7 @@ void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options)
 	      if (options->sequence_model_parameters[1] > 0.0)
 		s->parameters[1] = options->sequence_model_parameters[1]; //kappa2
 	      else
-		s->parameters[1] = 1.0;
+		s->parameters[1] = s->parameters[0]; // one value given: repeat it
 	      s->parameters[2] = 1.0;
 	      break;
 	    case F84:
@@ -567,6 +567,14 @@ void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, opt
 #else
       // handled with request_locus_data() / parse_dataondemand_item() (see migrate_mpi.c)
 #endif /*MPI_ONDEMAND*/
+      if (s->model == JC69 || s->model == K2P)
+	{
+	  /* equal base frequencies by definition; these used to take the
+	     empirical or parmfile frequencies, which made JC69 an F81 and
+	     K2P an HKY model (fixed 2026-10-01) */
+	  s->basefreqs[NUC_A] = s->basefreqs[NUC_C] = 0.25;
+	  s->basefreqs[NUC_G] = s->basefreqs[NUC_T] = 0.25;
+	}
       freqa = s->basefreqs[NUC_A];
       freqc = s->basefreqs[NUC_C];
       freqg = s->basefreqs[NUC_G];
@@ -900,83 +908,23 @@ void set_mutationmodel_eigenmaterial(long z, world_fmt *world) //eigenvectormatr
       case 'U':
       case 'F':
       case 'f':
-	switch(named_model)//this should be through option!
+	/* every model is TN93 with the rates and frequencies the pipeline
+	   already set (adjust_mutationmodel()/set_subloci_basefrequencies_seq());
+	   the old per-model formulas here disagreed with them (F84 swapped
+	   purine/pyrimidine frequencies); fixed 2026-10-01 */
+	if (named_model == GTR)
+	  error("not implemented yet");
+	if (named_model == JC69 || named_model == K2P || named_model == F81
+	    || named_model == F84 || named_model == HKY || named_model == TN)
 	  {
-	  case JC69:
-	    //memcpy(mumod->eigenvalues,jc69eval,sizeof(double) * 4);
-	    //memcpy(mumod->eigenvectormatrix,jc69evec,sizeof(double) * 16);
-	    //memcpy(mumod->inverseeigenvectormatrix,jc69ivec,sizeof(double) * 16);
-	    a1 = 1.0;
-	    a2 = 1.0;
-	    b  = 1.0;
-	    pia = 0.25;
-	    pic = 0.25;
-	    pig = 0.25;
-	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case K2P:
-	    kappa = mumod->ttratio;//mumod->parameters[0];
-	    a1 = kappa;
-	    a2 = kappa;
-	    b  = 1.0;
-	    pia = 0.25;
-	    pic = 0.25;
-	    pig = 0.25;
-	    //mumod->eigenvalues[0] = -1.0;
-	    //mumod->eigenvalues[1] = 0.0;
-	    //mumod->eigenvalues[2] = mumod->eigenvalues[3] = -0.5 * (kappa + 1.0);
-	    //memcpy(mumod->eigenvectormatrix,k2pevec,sizeof(double) * 16);
-	    //memcpy(mumod->inverseeigenvectormatrix,k2pivec,sizeof(double) * 16);
-	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case F81:
-	    a1 = 1.0;
-	    a2 = 1.0;
-	    b  = 1.0;
-	    pia = mumod->basefreqs[0];
-	    pic = mumod->basefreqs[1];
-	    pig = mumod->basefreqs[2];
-	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case F84:
-	    //	    kappa = mumod->parameters[0];
-	    kappa = mumod->ttratio;
-	    pia = mumod->basefreqs[0];
-	    pic = mumod->basefreqs[1];
-	    pig = mumod->basefreqs[2];
-	    piy = pia + pig;//pic
-	    pir = 1.0 - piy;
-	    b  = 1.0;
-	    a1 = (1.0 + kappa) * piy * b;
-	    a2 = (1.0 + kappa) * pir * b;
-	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case HKY:
-	    //	    kappa = mumod->parameters[0];
-	    kappa = mumod->ttratio;
-	    a1 = kappa;
-	    a2 = kappa;
-	    b  = 1.0;
-	    pia = mumod->basefreqs[0];
-	    pic = mumod->basefreqs[1];
-	    pig = mumod->basefreqs[2];
-	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case TN:
 	    a1  = mumod->parameters[0];
 	    a2  = mumod->parameters[1];
 	    b   = mumod->parameters[2];
-	    pia = mumod->basefreqs[0];
-	    pic = mumod->basefreqs[1];
-	    pig = mumod->basefreqs[2];
+	    pia = mumod->basefreqs[NUC_A];
+	    pic = mumod->basefreqs[NUC_C];
+	    pig = mumod->basefreqs[NUC_G];
 	    set_tn_model(a1,a2,b,pia,pic,pig,mumod);
-	    break;
-	  case GTR:
-	    error("not implemented yet");
-	    //    break;
-	  default:
-	    break;
-	}
+	  }
       break;
       }
   // Sinlge nucleotide is the same as sequence but needs to calculate values for constant site patterns
@@ -1090,9 +1038,12 @@ void read_mutationmodel_comments(char *input, data_fmt * data, world_fmt *world)
 	      readpos += read_word_delim(input+readpos, word, " ", TRUE);
 	      double kappa = atof(word);
 	      s->ttratio = kappa;
-	      s->parameters[2] = 1.0;//FIXME 
-	      s->parameters[0] = (1.0 + kappa)  /* * s->basefreqs[NUC_Y]*/ * s->parameters[2]; 
-	      s->parameters[1] = (1.0 + kappa)  /* * s->basefreqs[NUC_R]*/ * s->parameters[2]; 
+	      /* raw kappa, turned into 1+kappa/piR, 1+kappa/piY by
+		 set_subloci_basefrequencies_seq(); this used to store 1+kappa,
+		 which was then transformed a second time (fixed 2026-10-01) */
+	      s->parameters[2] = 1.0;
+	      s->parameters[0] = kappa;
+	      s->parameters[1] = 1.0;
 	    }
 	}
       if(modelname[0]=='K') //
@@ -1104,7 +1055,7 @@ void read_mutationmodel_comments(char *input, data_fmt * data, world_fmt *world)
 	  s->ttratio = kappa;
 	  s->parameters[2] = 1.0;
 	  s->parameters[0] = kappa;
-	  s->parameters[1] = 1.0;
+	  s->parameters[1] = kappa; /* was 1.0: kappa applies to both transitions */
 	}
       if(modelname[0]=='H') //
 	{
@@ -1127,9 +1078,15 @@ void read_mutationmodel_comments(char *input, data_fmt * data, world_fmt *world)
 	  double kappa1 = atof(word);
 	  readpos += read_word_delim(input+readpos, word, " ", TRUE);
 	  double kappa2 = atof(word);
-	  s->parameters[2] = (MYREAL) kappa2;
+	  readpos += read_word_delim(input+readpos, word, " ", TRUE);
+	  double tv = atof(word);
+	  /* ar ay [b] as documented above: purine and pyrimidine transition
+	     rate, optional transversion rate (default 1); the second value
+	     used to land in b with ay forced to 1 (fixed 2026-10-01) */
+	  s->ttratio = kappa1;
 	  s->parameters[0] = (MYREAL) kappa1;
-	  s->parameters[1] = 1.0;
+	  s->parameters[1] = (MYREAL) (kappa2 > 0.0 ? kappa2 : kappa1);
+	  s->parameters[2] = (MYREAL) (tv > 0.0 ? tv : 1.0);
 	  
 	}
       if(modelname[0]=='J')
