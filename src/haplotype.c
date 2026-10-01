@@ -925,7 +925,8 @@ long swap_haplotypes(world_fmt *world)
     }
   else
     {
-      if(LOG(RANDUM()) < (newlike - oldlike))
+      /* power posterior: the data likelihood is heated (fixed 2026-10-01) */
+      if(LOG(RANDUM()) < (newlike - oldlike) * (world->options->heating ? world->heat : 1.0))
 	{
 	  //accept
 	  world->likelihood[world->G] = newlike;

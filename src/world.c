@@ -3677,17 +3677,14 @@ clone_polish (world_fmt * original, world_fmt * kopie)
 static MYREAL
 heated_swap_score(world_fmt *world)
 {
-  // NODATA=yes: exclude the sequence-likelihood term so that heated-chain swap
-  // acceptance is governed only by the coalescent-genealogy prior, matching
-  // acceptlike() in mcmc1.c (which already excludes it from tree-move acceptance).
-  MYREAL score = world->options->prioralone ? 0.0 : world->likelihood[world->G];
-
-  if (world->options->bayes_infer)
-    {
-      score += probg_treetimes(world);
-      score += calculate_prior(world);
-    }
-  return score;
+  // Heated chains sample the power posterior L^heat * p(G|params) * prior, so
+  // only the data likelihood enters the swap ratio; p(G|params) and the prior
+  // are the same function in every chain and cancel. Fixed 2026-10-01: the
+  // score also contained probg_treetimes() + calculate_prior(), the swap rule
+  // for a fully heated posterior that no chain samples, which pulled the cold
+  // chain off its posterior. The full chain state is still exchanged.
+  // NODATA=yes: no data term, all chains share one target, nothing to swap.
+  return world->options->prioralone ? 0.0 : world->likelihood[world->G];
 }
 
 static void
