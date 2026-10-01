@@ -3837,8 +3837,10 @@ void  display_F84(option_fmt * options)
 	  options->sequence_model_parameters[0]);
   fflush(stdout);
   FGETS(input,LINESIZE,stdin);
-  options->sequence_model_parameters[0] = 1.0 + atof(input); 
-  options->sequence_model_parameters[1] =   1.0 + options->sequence_model_parameters[0];
+  /* raw kappa: set_subloci_basefrequencies_seq() turns it into the
+     TN93 rates 1+kappa/piR, 1+kappa/piY (this used to store 1+kappa) */
+  options->sequence_model_parameters[0] = atof(input); 
+  options->sequence_model_parameters[1] = 1.0;
   options->sequence_model_parameters[2] = 1.0; 
   options->ttratio[0] = options->sequence_model_parameters[0];
   options->ttratio[1] = options->sequence_model_parameters[1];
@@ -3911,12 +3913,15 @@ void   display_TN(option_fmt * options)
   options->sequence_model = TN;
   options->datamodel = TN;
   options->sequence_model_numparam = 3;
-  fprintf(stdout,"Enter the transition-tranversion ratio and the ratio of transitions for the Tamura-Nei model\n[Current values: Tv/Tt=%f, Ti=%f]\n===> ", 
-	  options->sequence_model_parameters[0],options->sequence_model_parameters[2]);
+  fprintf(stdout,"Enter the purine and the pyrimidine transition/transversion rate ratio (kappa1 kappa2) for the Tamura-Nei model\n[Current values: kappa1=%f, kappa2=%f]\n===> ", 
+	  options->sequence_model_parameters[0],options->sequence_model_parameters[1]);
   fflush(stdout);
   FGETS(input,LINESIZE,stdin);
-  sscanf(input,"%lf%lf",  &options->sequence_model_parameters[0],  &options->sequence_model_parameters[2]); 
-  options->sequence_model_parameters[1] = 1.0; 
+  /* kappa2 used to be read into the transversion rate [2] and [1] forced
+     to 1.0 */
+  if (sscanf(input,"%lf%lf",  &options->sequence_model_parameters[0],  &options->sequence_model_parameters[1]) < 2)
+    options->sequence_model_parameters[1] = options->sequence_model_parameters[0];
+  options->sequence_model_parameters[2] = 1.0; 
   options->ttratio[0] = options->sequence_model_parameters[0];
   options->ttratio[1] = options->sequence_model_parameters[1];
   options->ttratio[2] = options->sequence_model_parameters[2];
