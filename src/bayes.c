@@ -1375,11 +1375,13 @@ boolean
 bayes_accept (MYREAL newval, MYREAL oldval, MYREAL heat, MYREAL hastingsratio)
 {
     MYREAL r;
-    MYREAL diff = (newval - oldval + hastingsratio) * heat;
-    // for thermodynamic integration we should not heat this
-    // for the standard heating scheme we perhaps should but there is no visible improvement in the runs
-    // when we heat this portion for swapping, if we will find some differences I will need to add a flag
-    // that differentiates between thermodynamic integration and standard heating.
+    // Heated chains sample the power posterior L^heat * p(G|params) * prior:
+    // only the data-likelihood difference (newval - oldval, which callers set
+    // to the data likelihood, or to p(G|params) with heat = 1) is heated, never
+    // the Hastings, prior or genealogy terms (fixed 2026-10-01; heating those
+    // too, together with a whole-posterior swap score, pulled the cold chain
+    // away from its posterior).
+    MYREAL diff = (newval - oldval) * heat + hastingsratio;
     if (diff >= 0.0)
         return TRUE;
     r = LOG (RANDUM ());
@@ -2038,7 +2040,8 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
       newval = -HUGE;
     }
     //Acceptance or rejection of the new value
-  *success = bayes_accept(newval, oldval,world->heat, hastingsratio);
+  /* newval/oldval are p(G|params): not heated (power posterior) */
+  *success = bayes_accept(newval, oldval, 1.0, hastingsratio);
   if(*success)
     {
       if(verbose)

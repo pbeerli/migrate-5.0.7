@@ -66,7 +66,8 @@ MYREAL bayes_update_timeparam(world_fmt * world, boolean *success)
     skyparam[w] = newparam;
     newval = probg_treetimes(world);
     //Acceptance or rejection of the new value
-    *success = bayes_accept(newval, oldval,world->heat, hastingsratio);
+    /* p(G|params): not heated under the power posterior */
+    *success = bayes_accept(newval, oldval, 1.0, hastingsratio);
     if(*success)
       {
 	return newval;

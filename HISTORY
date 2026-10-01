@@ -12,6 +12,14 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 1    Migrate 6.1.34 Heated chains now sample the power posterior (only the
+             data likelihood is heated). The swap rule also heated the
+             genealogy and parameter priors, which pulled the cold chain off
+             its posterior (on simulated two-population data, M went to the
+             prior maximum with static heating). Parameter updates no longer
+             heat the prior; haplotype switches heat the data likelihood.
+             The thermodynamic marginal likelihood is unchanged.
+
 October 1    Migrate 6.1.33 Mutation model fixes: JC69 and K2P now use equal
              base frequencies (they used the data's, i.e. ran as F81/HKY);
              datamodel=F81 was read as F84; TN with one ttratio value now
