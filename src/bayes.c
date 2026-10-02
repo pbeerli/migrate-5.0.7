@@ -3137,6 +3137,14 @@ long setup_bayes_map(longpair *map, world_fmt *world, long size)
 	  }
       }
   set_map_groups(numpop, t, size, map, old);
+  /* the estimated rate modifier (index numpop2, before the split
+     parameters) was never mapped: mycalloc's {0,0} aliased it onto
+     Theta_1, so shortcut() skipped it and mutation=ESTIMATE never moved */
+  if (world->bayes->mu && numpop2 < size)
+    {
+      map[numpop2][0] = numpop2;
+      map[numpop2][1] = numpop2;
+    }
 #ifdef DEBUG
   fprintf(stdout,"%i> bayes map\n",myID);
   for (i=0;i<size;i++)
