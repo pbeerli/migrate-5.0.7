@@ -1,4 +1,4 @@
-AC_INIT([migrate-n], [6.1.35], [beerli@fsu.edu])
+AC_INIT([migrate-n], [6.1.36], [beerli@fsu.edu])
 AC_CONFIG_SRCDIR([src/main.c])
 AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE([foreign subdir-objects])

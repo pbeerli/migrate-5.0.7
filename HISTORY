@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 2    Migrate 6.1.36 Prior fixes (from codex-7 7.0.55): NORMAL priors ignored
+             the given std; BETA priors are now rescaled to [min, max]
+             (usable beyond 0..1); the slice and multiplier proposals
+             ignored exponential, gamma, beta and normal priors.
+
 October 2    Migrate 6.1.35 Bayesian 50% and 95% intervals are now the shortest
              intervals holding that much posterior mass. For broad or flat
              posteriors the old intervals (the part of the HPD set around
