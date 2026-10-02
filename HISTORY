@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 2    Migrate 6.1.38 mutation=ESTIMATE never moved the rate modifier (its
+             parameter was aliased onto Theta_1); fixed (from codex-7 7.0.57).
+
 October 2    Migrate 6.1.37 Fixes from codex-7 7.0.56: inheritance scalars now act on
              the locus Theta in the genealogy proposal and densities and
              all loci report Theta on the reference scale; dated tips: the
