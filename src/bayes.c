@@ -521,6 +521,9 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
+    /* coalescence runs at the locus Theta: inheritance scalar x Theta of the
+       reference locus (param0); migration (M = m/mu) does not depend on Ne */
+    const MYREAL theta_rate = mu_rate * world->options->inheritance_scalars[world->locus];
     double mlalpha;// = world->mlalpha;
     // DIAGNOSTIC (remove after finding bug)
 #ifdef DEBUGMIG
@@ -607,13 +610,9 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 	  // migrate-codex-7, which never had it (already commented out).
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
-      if(type == 't')
-        {
-	  //eventprob = 0.0;
-	  //  waitprob = 0.0;
-	  continue;
-        }
-      else
+      /* an interval ending at a tip has its waiting terms but no event:
+         with dated tips these intervals have length (skipping them, as
+         before, dropped part of p(G) and biased Theta low) */
         {
 	  waitprobcoal = 0.0;
 	  waitprobmig = 0.0;
@@ -626,7 +625,7 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 		{
 		  if (world->has_growth && growpops[pop]!=0 && (fabs(growth[growpops[pop]-1])>EPSILON))
 		    {
-		      x = mu_rate * param0[pop];
+		      x = theta_rate * param0[pop];
 		      g = growth[growpops[pop]-1];
 		      //		  waitprob += kpop * (kpop - 1) / (x * exp(-g * t1));
 		      waitprobcoal +=  -kpop * (kpop - 1) * (exp(g * (t1)) - exp(g * (t0)))/(x * g);
@@ -636,7 +635,7 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 		    }
 		  else
 		    {
-		      waitprobcoal += deltatime * kpop * (kpop - 1) / (mu_rate * param0[pop]);
+		      waitprobcoal += deltatime * kpop * (kpop - 1) / (theta_rate * param0[pop]);
 		      assert(!isnan(waitprobcoal));
 		      // BUG FIX: another leftover from the same abandoned
 		      // diagnostic (095d4ef) -- deltatime==0 is a legitimate
@@ -711,7 +710,7 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 	    case 'i':
 	      if (world->has_growth && growpops[xpop]!= 0 && (fabs(growth[growpops[xpop]-1])>EPSILON))
 		{
-		  x = mu_rate * param0[xpop];
+		  x = theta_rate * param0[xpop];
 		  g = growth[growpops[xpop]-1];
 		  eventprob = LOG2 + g * (t1) - LOG(x);
 		  assert(!isnan(eventprob));
@@ -719,7 +718,7 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 		}
 	      else
 		{
-		  x = mu_rate * param0[xpop];
+		  x = theta_rate * param0[xpop];
 		  eventprob = LOG2 - log(x);
 		  assert(!isnan(eventprob));
 		}
@@ -758,6 +757,9 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 	      eventprob = (*log_point_prob_speciate)(tx,mu,sigma,s);//-log(k[s->to]) no 1/ necessary;
 	      assert(!isnan(eventprob));
 	      break;
+	    case 't':
+	      eventprob = 0.0;
+	      break;
 	    default:
 	      error("point prob failed");
 	    }
@@ -780,6 +782,14 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 #endif
 	  double mlfval = creal(mlfc);    
 	  double mittag_result = LOG(deltatime2)*(mlalpha-1.0) + mlfval + eventprob;
+	  if (type == 't')
+	    {   /* no event: survival E_alpha(pw) instead of the density */
+#ifdef WINDOWS
+	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pwc));
+#else
+	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pw));
+#endif
+	    }
 	  sumprob += mittag_result;
 	  assert(!isnan(sumprob));
 	  //fprintf(stderr,"%i> locus %li sumprob=%f\n",myID,locus,sumprob);
@@ -869,6 +879,9 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     double kpopmurate;
     double sum;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
+    /* coalescence runs at the locus Theta: inheritance scalar x Theta of the
+       reference locus (param0); migration (M = m/mu) does not depend on Ne */
+    const MYREAL theta_rate = mu_rate * world->options->inheritance_scalars[world->locus];
     double * mlalphas = world->mlalpha;
     long * mlalphapops = world->options->mlalphapops;
     //double mlinheritance = world->mlinheritance;
@@ -919,13 +932,9 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	  deltatime = -pow(deltatime2,mlalpha);
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
 	}
-      if(type == 't')
-        {
-	  //eventprob = 0.0;
-	  //  waitprob = 0.0;
-	  continue;
-        }
-      else
+      /* an interval ending at a tip has its waiting terms but no event:
+         with dated tips these intervals have length (skipping them, as
+         before, dropped part of p(G) and biased Theta low) */
         {
 	  waitprobcoal = 0.0;
 	  waitprobmig = 0.0;
@@ -938,7 +947,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		{
 		  if (world->has_growth && growpops[pop]!=0 && (fabs(growth[growpops[pop]-1])>EPSILON))
 		    {
-		      x = mu_rate * param0[pop];
+		      x = theta_rate * param0[pop];
 		      g = growth[growpops[pop]-1];
 		      //		  waitprob += kpop * (kpop - 1) / (x * exp(-g * t1));
 		      waitprobcoal +=  -kpop * (kpop - 1) * (exp(g * (t1)) - exp(g * (t0)))/(x * g);
@@ -948,7 +957,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		    }
 		  else
 		    {
-		      waitprobcoal += deltatime * kpop * (kpop - 1) / (mu_rate * param0[pop]);
+		      waitprobcoal += deltatime * kpop * (kpop - 1) / (theta_rate * param0[pop]);
 		      assert(!isnan(waitprobcoal));
 		    }
 		}
@@ -1015,7 +1024,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	    case 'i':
 	      if (world->has_growth && growpops[from]!= 0 && (fabs(growth[growpops[from]-1])>EPSILON))
 		{
-		  x = mu_rate * param0[from];
+		  x = theta_rate * param0[from];
 		  g = growth[growpops[from]-1];
 		  eventprob = LOG2 + g * (t1) - LOG(x);
 		  assert(!isnan(eventprob));
@@ -1023,7 +1032,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		}
 	      else
 		{
-		  x = mu_rate * param0[from];
+		  x = theta_rate * param0[from];
 		  eventprob = LOG2 - log(x);
 		  assert(!isnan(eventprob));
 		}
@@ -1052,6 +1061,9 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	      eventprob = (*log_point_prob_speciate)(tx,mu,sigma,s);//-log(k[s->to]) no 1/ necessary;
 	      assert(!isnan(eventprob));
 	      break;
+	    case 't':
+	      eventprob = 0.0;
+	      break;
 	    default:
 	      error("point prob failed");
 	    }
@@ -1070,6 +1082,14 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 #endif
 	  double mlfval = creal(mlfc);    
 	  double mittag_result = LOG(deltatime2)*(mlalpha-1.0) + mlfval + eventprob;
+	  if (type == 't')
+	    {   /* no event: survival E_alpha(pw) instead of the density */
+#ifdef WINDOWS
+	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pwc));
+#else
+	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pw));
+#endif
+	    }
 	  sumprob += mittag_result;
 	  assert(!isnan(sumprob));
 	  //fprintf(stderr,"%i> locus %li sumprob=%f\n",myID,locus,sumprob);
@@ -2683,7 +2703,6 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     boolean mu        = world->bayes->mu;
     //  MYREAL murate     = world->options->meanmu[world->locus] * world->options->mu_rates[world->locus];
     MYREAL murate     = world->options->mu_rates[world->locus];
-    MYREAL inheritance_scalar = world->options->inheritance_scalars[world->locus];
     MYREAL * param0   = world->param0;
     worldoption_fmt *wopt = world->options;
     bayes_fmt * bayes = world->bayes;
@@ -2693,14 +2712,9 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
 
     //assums that all parameter vallues are consistentin the param0 vector
     //growth and mlalpha may be problematic with this
+    /* Theta is recorded on the reference-locus scale (param0) for every
+       locus, whatever its inheritance scalar, so that loci combine */
     memcpy(bayes->params+(nnpnum+2), param0,sizeof(MYREAL) * (size_t) n);
-    if(inheritance_scalar != 1.0)
-    {
-        for(i = 0; i < numpop; i++)
-        {
-            (bayes->params+(nnpnum + 2))[i] = param0[i] * inheritance_scalar;
-        }
-    }
     if(mu)
     {
         // we only write one rate per record because the locus is known

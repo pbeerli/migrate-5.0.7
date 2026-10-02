@@ -1185,9 +1185,16 @@ propose_mult_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
     np = multiplier * param;
     (*r) = multiplier;
     
-    while(np > maxparam)
+    /* reflect at both bounds in log space (symmetric in u = log x): a
+       value below the minimum was clamped to it by the caller, a point
+       mass there */
+    long bounce = 0;
+    while((np > maxparam || (minparam > 0.0 && np < minparam)) && bounce++ < 100)
       {
-	np = maxparam * maxparam / np;
+	if (np > maxparam)
+	  np = maxparam * maxparam / np;
+	else
+	  np = minparam * minparam / np;
       }
     //while (!rule_check(np,which, world))
     //{

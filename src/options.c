@@ -4153,7 +4153,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
 
 #ifdef PRETTY
     print_parm_comment(&bufsize, buffer, allocbufsize, "Print output to a PDF file [default is outfile.pdf]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax pdf-outfile=outfilename.pdf");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax pdf-outfile=outfilename.pdf   [pdf-outfile=NO: no PDF]");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "pdf-outfile=%s", options->pdfoutfilename);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);	

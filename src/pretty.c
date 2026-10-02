@@ -1465,7 +1465,10 @@ int pdf_master_title(char *title)
 
 int pdf_write_file(option_fmt *options)
 {
-    HPDF_SaveToFile(doc, options->pdfoutfilename);
+    /* pdf-outfile=NO: no PDF report (not a file named NO) */
+    const char *pn = options->pdfoutfilename;
+    if (!((pn[0] == 'N' || pn[0] == 'n') && (pn[1] == 'O' || pn[1] == 'o') && pn[2] == '\0'))
+      HPDF_SaveToFile(doc, options->pdfoutfilename);
     return 0;
 }
 

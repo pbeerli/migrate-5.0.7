@@ -2193,6 +2193,11 @@ fix_times (world_fmt * world, option_fmt * options)
 #ifdef TREEDEBUG1
       printf("%i> %s %g\n",myID, "end timelist ---------------------", age+10000 );
 #endif
+      /* dated tips got their ages in their old slots: the timelist is no
+         longer sorted and its lineage counts are stale, so rebuild it from
+         the tree (the first genealogy move walks it slice by slice) */
+      if (world->options->has_datefile)
+        construct_tymelist (world, world->treetimes);
     }
     set_v (world->root->next->back);
 }
