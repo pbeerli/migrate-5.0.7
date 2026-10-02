@@ -85,7 +85,7 @@ extern MYREAL log_prior_wbeta1(world_fmt *world, long numparam, MYREAL val);
 extern MYREAL log_prior_wnormal1(world_fmt *world, long numparam, MYREAL val);
 
 extern MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL xmin, MYREAL xmax, MYREAL x);
-extern MYREAL logpdf_truncbeta(MYREAL a, MYREAL b, MYREAL xmin, MYREAL xmax, MYREAL x);
+extern MYREAL logpdf_scaledbeta(MYREAL a, MYREAL b, MYREAL xmin, MYREAL xmax, MYREAL x);
 
 extern MYREAL hastings_ratio_uni(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r,
 				 bayes_fmt * bayes, long whichparam);

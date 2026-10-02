@@ -433,7 +433,7 @@ MYREAL sliceRatio (MYREAL *startval, long which, world_fmt * world, MYREAL  (*fu
 ///
 /// slice() calculates a new parameter value  that comes from the proposal distribution
 /// returns the log(probability) and changes startval]
-MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func) (MYREAL, MYREAL, bayes_fmt *, long))
+MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func) (world_fmt *, long, MYREAL))
 {
   register long w;
   bayes_fmt * bayes = world-> bayes;
@@ -484,7 +484,7 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
     fprintf(stdout,"    In bound new value =%f\n", newstartval);
   }
   x = newstartval;
-  priorratio = (MYREAL) func(newstartval, -1. , bayes, w);
+  priorratio = (MYREAL) func(world, w, newstartval);
   set_slice_param(newstartval,which, world);
   // calculate the function
   fx = probg_treetimes(world)+ priorratio;
@@ -497,10 +497,10 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
   zl = x - r;
   zr = zl + stick;
   // extend the stick until it crosses the function
-  priorratio = func(zl, -1. , bayes, w);
+  priorratio = func(world, w, zl);
   set_slice_param(zl,which, world);
   fzl= probg_treetimes(world) + priorratio;
-  priorratio = func(zr, -1. , bayes, w);
+  priorratio = func(world, w, zr);
   set_slice_param(zr,w, world);
   fzr= probg_treetimes(world) + priorratio;
   // 
@@ -509,7 +509,7 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
       stick *= stick_expand;
       zl -= stick;
       //      ezl = EXP(zl);
-      priorratio = func(zl, -1. , bayes, w);
+      priorratio = func(world, w, zl);
       set_slice_param(zl,which, world);
       fzl= probg_treetimes(world) + priorratio;
       count++;
@@ -522,7 +522,7 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
       stick *= stick_expand;
       zr += stick;
       //      ezr = EXP(zr);
-      priorratio = func(zr, -1. ,bayes, w);
+      priorratio = func(world, w, zr);
       set_slice_param(zr,which, world);
       fzr= probg_treetimes(world) + priorratio;
       count++;
@@ -534,7 +534,7 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
   ra = RANDUM();
   x  = ra * (zr - zl) + zl;
   //  ex = EXP(x);
-  priorratio = func(x, -1. , bayes, w);
+  priorratio = func(world, w, x);
   set_slice_param(x,which, world);
   fx = probg_treetimes(world) + priorratio;
   count++;
@@ -561,7 +561,7 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
 	}
       ra = RANDUM();
       x  = ra * (zr-zl)+ zl;
-      priorratio = func(x, -1. , bayes, w);
+      priorratio = func(world, w, x);
       set_slice_param(x,which, world);
       fx = probg_treetimes(world) + priorratio;
 #ifdef SLICEREPORTER

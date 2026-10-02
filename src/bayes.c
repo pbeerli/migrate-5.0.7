@@ -336,6 +336,23 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
           {
             propose_new[i] = (MYREAL (*) (MYREAL, long, world_fmt *, MYREAL *)) propose_mult_newparam;
             hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_mult;
+            /* the independence-draw priors' ratios are 0 (their own proposal
+               cancels the prior); with another proposal the density ratio is
+               needed, which the windowed variants compute */
+            switch (kind)
+              {
+              case EXPPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, bayes_fmt *, long)) log_prior_ratio_wexp;
+                break;
+              case GAMMAPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, bayes_fmt *, long)) log_prior_ratio_wgamma;
+                break;
+              case NORMALPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, bayes_fmt *, long)) log_prior_ratio_wnormal;
+                break;
+              default:
+                break;
+              }
           }
     }
 }
@@ -1644,8 +1661,8 @@ MYREAL log_prior_wbeta1(world_fmt *world, long numparam, MYREAL value)
 
 //
 // Log Prior distribution ratio for the WINDOWED normal prior (WNORMALPRIOR).
-// log_prior_normal1() uses a fixed standard-normal kernel (std=1, see there),
-// so the ratio is the difference of squared deviations from the mean; the
+// Normal(mean, std) prior (std stored in alphaparam): the ratio is the
+// difference of squared standardized deviations from the mean; the
 // truncation normalizer is identical for newparam/oldparam (same [min,max])
 // and cancels.
 MYREAL log_prior_ratio_wnormal(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
@@ -1655,8 +1672,9 @@ MYREAL log_prior_ratio_wnormal(MYREAL newparam, MYREAL oldparam, bayes_fmt * bay
     else
       {
         MYREAL mean = bayes->meanparam[which];
-        MYREAL xn = newparam - mean;
-        MYREAL xo = oldparam - mean;
+        MYREAL std = bayes->alphaparam[which];
+        MYREAL xn = (newparam - mean) / std;
+        MYREAL xo = (oldparam - mean) / std;
         return (xo*xo - xn*xn) / 2.0;
       }
 }
@@ -2567,7 +2585,9 @@ bayes_update (world_fmt * world)
     if(world->options->slice_sampling[type])
     {
       //warning("SLICE sampler does not work with MLF and GROWTH\n");
-        newval = expslice(&paramval, which, world, log_prior_ratio[w]);
+        /* the slice sampler needs the prior density itself; the ratio
+           functions of the independence-draw priors are 0 */
+        newval = expslice(&paramval, which, world, log_prior_1[w]);
         success = TRUE;
     }
     else
@@ -3281,8 +3301,11 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
             bayes->alphaparam[i] = prior->alpha;
             bayes->alphaorigparam[i] = prior->alpha;
             bayes->delta[i] =  prior->delta; //(prior->min + prior->max)/(20.); // 1/10 of the max span
+	    /* Beta(a, b) rescaled to [min, max], with the prior mean */
 	    a = prior->alpha;
-	    m = prior->mean ;/// (bayes->maxparam[i] - bayes->minparam[i]);
+	    m = (prior->mean - prior->min) / (prior->max - prior->min);
+	    if (m <= 0.0 || m >= 1.0)
+	      error("BETAPRIOR: the mean must lie strictly between min and max");
 	    bayes->betaparam[i] = (a - a*m)/m;
 	    break;
         case GAMMAPRIOR:

@@ -93,7 +93,7 @@ MYREAL log_prior_gamma1(world_fmt *world, long numparam, MYREAL val);
 MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val);
 
 MYREAL logpdf_beta(MYREAL a, MYREAL b, MYREAL x);
-MYREAL logpdf_truncbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x);
+MYREAL logpdf_scaledbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x);
 MYREAL logpdf_truncgamma(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x);
 
 MYREAL hastings_ratio_uni(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
@@ -332,7 +332,7 @@ static float trunc_random_beta(float *p)
 {
   MYREAL alpha = (double) p[2];
   MYREAL beta = (double) p[3];
-  return  (float) trunc_beta_rand(alpha,beta,(double) p[0],(double) p[1]);
+  return  (float) ((double) p[0] + ((double) p[1] - (double) p[0]) * random_beta(alpha,beta));
 }
 
 static double bisection(int n, double a, double b, double tol, float p[], float x) {
@@ -400,52 +400,36 @@ MYREAL logpdf_beta(MYREAL a, MYREAL b, MYREAL x)
     return (double) -HUGE;
 }
 
-// truncated logpdf_beta function
-
-// truncated logpdf_beta function
-MYREAL logpdf_truncbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
+// beta prior rescaled to [xmin, xmax]: Beta(a, b) of y = (x - xmin)/(xmax - xmin)
+MYREAL logpdf_scaledbeta(MYREAL a, MYREAL b, MYREAL  xmin, MYREAL xmax, MYREAL x)
 {
-  //boolean simple=TRUE;
-  //double norm_const = 0;
-  double numerator=1.0;
-  double val = 0.;
-
-  static double norm_const = 1.0;
-  static boolean done = FALSE;
-  if (done == FALSE)
-    {
-      int n=100;
-      norm_const = log(-incompletebeta(xmin,a,b,n) + incompletebeta(xmax,a,b,n)) + lgamma(a+b) - (lgamma(a) + lgamma(b)) ;
-      done = TRUE;
-    }
-  
-  //if (xmax-xmin < 1.0)
-  // {
-  //  simple=FALSE;
-  //  //printf("NOT SiMPLE %f\n",xmax-xmin);
-  //}
-  if (x>=1.0)
-    x -= EPSILON;
-  //if (xmax==1.0)
-  //  xmax -= EPSILON;
-  if (xmin==0.0)
-    xmin += EPSILON;
-  if (x<xmin)
-    x = xmin;
-  if((x >= xmin) && (x <= xmax))
-    {
-      numerator = logpdf_beta(a, b, x);
-      val = numerator - norm_const;
-      return val;
-    }
-  return (double) -HUGE;
+  const double span = xmax - xmin;
+  if (x < xmin || x > xmax || span <= 0.0)
+    return (double) -HUGE;
+  double y = (x - xmin) / span;
+  /* the end points have measure zero; keep the logs finite there */
+  if (y < 1e-12)
+    y = 1e-12;
+  if (y > 1.0 - 1e-12)
+    y = 1.0 - 1e-12;
+  return logpdf_beta(a, b, y) - log(span);
 }
 
 
+/* quantile x of the rescaled beta (used for start values) */
 static float trunc_cdf_beta(float x, float *p)
 {
-  //double delta = x / (p[1] - p[0]);
-  return(float) beta_cdf((double) p[2],(double) p[3],(double) x);
+  double lo = 0.0, hi = 1.0;
+  int i;
+  for (i = 0; i < 60; i++)
+    {
+      const double y = 0.5 * (lo + hi);
+      if (beta_cdf((double) p[2], (double) p[3], y) < (double) x)
+        lo = y;
+      else
+        hi = y;
+    }
+  return (float) ((double) p[0] + ((double) p[1] - (double) p[0]) * 0.5 * (lo + hi));
 }
 
 static float trunc_cdf_gamma(float x, float *p)
@@ -757,7 +741,7 @@ propose_beta_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
   MYREAL maxparam = bayes->maxparam[which];
   MYREAL alpha = bayes->alphaparam[which];
   MYREAL beta = bayes->betaparam[which];
-  MYREAL np = trunc_beta_rand(alpha,beta,minparam,maxparam);
+  MYREAL np = minparam + (maxparam - minparam) * random_beta(alpha,beta);
   //printf("betaprior: %f %f - %f %f %f\n",np,minparam,maxparam,alpha, beta);
   return np;
 }
@@ -829,8 +813,8 @@ MYREAL hastings_ratio_beta(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREA
     {
       double a = bayes->alphaparam[i];
       double b = bayes->betaparam[i];
-      return logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
-      	logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
+      return logpdf_scaledbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam) -
+      	logpdf_scaledbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam);
     }
 }
 
@@ -873,18 +857,10 @@ MYREAL log_prior_ratio_beta(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes,
     {
       double a = bayes->alphaparam[i];
       double b = bayes->betaparam[i];
-      double val = logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam) -
-      		logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam);
-      ////printf("%f ", val);
-      if (newparam > 0.9999)
-	newparam = 0.9999;
-      if (oldparam > 0.9999)
-	oldparam = 0.9999;
-      double num = (a - 1.) * LOG(newparam) + (b - 1.0) * LOG(1. - newparam);
-      double den = (a - 1.) * LOG(oldparam) + (b - 1.0) * LOG(1. - oldparam);
-      val = num - den;
-      return val;
-      //return 0.;
+      /* the same density as hastings_ratio_beta(), so an independence
+         draw from the prior is always accepted */
+      return logpdf_scaledbeta(a,b,bayes->minparam[i],bayes->maxparam[i],newparam) -
+        logpdf_scaledbeta(a,b,bayes->minparam[i],bayes->maxparam[i],oldparam);
     }
 }
 
@@ -962,12 +938,11 @@ MYREAL log_prior_gamma1(world_fmt *world, long numparam, MYREAL val)
 
 ///
 /// Beta prior distribution for theta or migration rate used in heating acceptance
-/// uses logpdf_truncbeta(a,b,min,max,x)
+/// uses logpdf_scaledbeta(a,b,min,max,x)
 MYREAL log_prior_beta(world_fmt *world, long numparam)
 {
   //  long frompop;
   //long topop;
-  error("do not call this, needs review!");
   MYREAL p0;
   long numpop = world->numpop;
   long start = ((numparam <= numpop || numpop==1) ? 0 : numpop);
@@ -990,7 +965,7 @@ MYREAL log_prior_beta(world_fmt *world, long numparam)
 	    {
 	      a = bayes->alphaparam[i];
 	      b = bayes->betaparam[i];
-	      val += logpdf_truncbeta(a,b,bayes->minparam[i],bayes->maxparam[i],p0);
+	      val += logpdf_scaledbeta(a,b,bayes->minparam[i],bayes->maxparam[i],p0);
 	      //old!! val += -p0 * ib + a * log(ib) + (a - 1.) * log(p0) - LGAMMA(a);
 	    }
 	}
@@ -1006,7 +981,7 @@ MYREAL log_prior_beta1(world_fmt *world, long numparam, MYREAL val)
   MYREAL retval;
   MYREAL a = bayes->alphaparam[numparam];
   MYREAL b = bayes->betaparam[numparam]; 
-  retval =  logpdf_truncbeta(a,b,bayes->minparam[numparam],bayes->maxparam[numparam],val);
+  retval =  logpdf_scaledbeta(a,b,bayes->minparam[numparam],bayes->maxparam[numparam],val);
   return retval;
 }
 
@@ -1278,24 +1253,20 @@ MYREAL log_prior_normal(world_fmt *world, long numparam)
     return log_prior_normal1(world,numparam,val);
 }
 ///
-/// normal prior distribution, returns 1/(sqrt(Pi*1) exp(-(x-mu)^2/2)
+/// normal prior distribution truncated to [min, max]: the log density of
+/// Normal(mean, std) divided by its mass in [min, max]
 MYREAL log_prior_normal1(world_fmt *world, long numparam, MYREAL val)
 {
     bayes_fmt * bayes = world->bayes;
     long i = numparam;
-    MYREAL retval = (double) -HUGE;
-    MYREAL p0 = val;
-    MYREAL mean = bayes->meanparam[i];
-    MYREAL x;
-    if((p0 <= bayes->maxparam[i]) && (p0 >= bayes->minparam[i]))
-    {
-        x = p0 - mean;
-        retval = LOG2PIHALF - x*x/2.0;
-        // bayes->maxparam[i] - bayes->minparam[i];
-        if (retval > 0.0)
-            return retval;
-    }
-    return retval;
+    const MYREAL mean = bayes->meanparam[i];
+    const MYREAL std = bayes->alphaparam[i];
+    if((val > bayes->maxparam[i]) || (val < bayes->minparam[i]) || std <= 0.0)
+      return (double) -HUGE;
+    const MYREAL x = (val - mean) / std;
+    const MYREAL q = 1.0 / (std * SQRT2);
+    const MYREAL mass = 0.5 * (erf((bayes->maxparam[i] - mean) * q) - erf((bayes->minparam[i] - mean) * q));
+    return LOG2PIHALF - log(std) - x*x/2.0 - log(mass);
 }
 
 MYREAL hastings_ratio_normal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
@@ -1312,19 +1283,25 @@ MYREAL hastings_ratio_normal(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYR
 MYREAL
 propose_normal_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
 {
-  (void) param;
   bayes_fmt *bayes = world->bayes;
     MYREAL rr = (*r) - 0.5;
     MYREAL lower = bayes->minparam[which];
     //MYREAL meanparam = bayes->meanparam[which];
     MYREAL upper = bayes->maxparam[which];
-    MYREAL std = 1.0;
+    MYREAL std = bayes->alphaparam[which]; /* the prior's std (parser stores it in alpha) */
   MYREAL mean = bayes->meanparam[which];
   if (bayes->hyperprior && bayes->hypercount++ % bayes->hyperinterval == 0)
     {
-      hyper_normal(&mean, &std, mean, 1.0, lower, upper, 1.0);
+      hyper_normal(&mean, &std, mean, bayes->alphaorigparam[which], lower, upper, 1.0);
     }
-    rr = normal_rand(mean,std);
+    /* an independence draw from the truncated normal: an out-of-range draw
+       would be clamped to the bound by the caller (a point mass there) */
+    long tries = 0;
+    do
+      rr = normal_rand(mean,std);
+    while ((rr < lower || rr > upper) && ++tries < 100000);
+    if (rr < lower || rr > upper)
+      rr = param; /* [min, max] holds almost no prior mass: stay */
   return rr;
 }
 
@@ -1798,8 +1775,9 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 	  options->bayes_priors[j0].cdf = trunc_cdf_exp;
 	  break;
 	case BETAPRIOR:
-	  //m = options->bayes_priors[j].mean / (options->bayes_priors[j].max - options->bayes_priors[j].min);
-	  m = options->bayes_priors[j].mean;
+	  /* the beta is rescaled to [min, max] */
+	  m = (options->bayes_priors[j].mean - options->bayes_priors[j].min)
+	    / (options->bayes_priors[j].max - options->bayes_priors[j].min);
 	  a1 = options->bayes_priors[j].alpha;
 	  beta = (a1 - a1*m)/m;
 	  options->bayes_priors[j0].beta = beta;
