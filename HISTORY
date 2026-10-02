@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 2    Migrate 6.1.35 Bayesian 50% and 95% intervals are now the shortest
+             intervals holding that much posterior mass. For broad or flat
+             posteriors the old intervals (the part of the HPD set around
+             the mode) held far less mass than stated, e.g. growth rates
+             undercovered in calibration tests. Unimodal posteriors are
+             unchanged.
+
 October 1    Migrate 6.1.34 Heated chains now sample the power posterior (only the
              data likelihood is heated). The swap rule also heated the
              genealogy and parameter priors, which pulled the cold chain off
