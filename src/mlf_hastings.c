@@ -53,6 +53,7 @@
 #include "mittag_leffler.h"
 #include "mlf_hastings.h"
 #include "world.h"
+#include "speciate.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -63,7 +64,7 @@
 typedef struct
 {
   double age;
-  char type;      /* 'c' coalescence, 'm' migration, 't' other */
+  char type;      /* 'c' coalescence, 'm' migration, 'd' divergence, 't' other */
   long below;     /* population below the event */
   long above;     /* population above the event */
 } mlh_event;
@@ -128,8 +129,9 @@ static char mlh_type(char nodetype)
     case 'i':
       return 'c';
     case 'm':
-    case 'd':
       return 'm';
+    case 'd':
+      return 'd';
     default:
       return 't';
     }
@@ -186,6 +188,63 @@ static double mlh_growth(world_fmt *world, long pop)
     return 0.0;
   g = world->growth[world->options->growpops[pop] - 1];
   return (fabs(g) > EPSILON) ? g : 0.0;
+}
+
+/* ---- divergence (normal split-time hazard, independent of alpha) ----
+   a lineage in a derived population pop moves to its ancestral population
+   at a time with a truncated-normal distribution; conditioned on survival
+   to t0 this is what time_to_speciate_normalorig() draws */
+
+/* log survival from t0 to t1 of a lineage in pop */
+static double mlh_div_wait(world_fmt *world, long pop, double t0, double t1)
+{
+  long i;
+  double v = 0.0;
+  if (!world->has_speciation || t1 <= t0)
+    return 0.0;
+  for (i = 0; i < world->species_model_size; i++)
+    {
+      species_fmt *sp = &world->species_model[i];
+      if (sp->to != pop)
+        continue;
+      v += log_prob_wait_speciate_normalorig(t0, t1, world->param0[sp->paramindex_mu],
+                                             world->param0[sp->paramindex_sigma], sp);
+    }
+  return v;
+}
+
+/* log hazard of the split of a lineage of 'below' into 'above' at t */
+static double mlh_div_point(world_fmt *world, long below, long above, double t)
+{
+  species_fmt *sp = get_fixed_species_model(above, below, world->species_model,
+                                            world->species_model_size);
+  if (sp == NULL)
+    return (double) -HUGE;
+  return log_point_prob_speciate_normalorig(t, world->param0[sp->paramindex_mu],
+                                            world->param0[sp->paramindex_sigma], sp);
+}
+
+/* divergence terms of the events of L above 'start': every lineage of a
+   derived population waits, and each split event has its hazard */
+static double mlh_div_logp(world_fmt *world, const mlh_list *L, double start)
+{
+  const long numpop = L->numpop;
+  long i, pop;
+  double logp = 0.0, t0 = start;
+  if (!world->has_speciation)
+    return 0.0;
+  for (i = 0; i < L->n; i++)
+    {
+      const mlh_event *e = &L->ev[i];
+      const long *kb = L->k + i * numpop;
+      for (pop = 0; pop < numpop; pop++)
+        if (kb[pop] > 0)
+          logp += (double) kb[pop] * mlh_div_wait(world, pop, t0, e->age);
+      if (e->type == 'd')
+        logp += mlh_div_point(world, e->below, e->above, e->age);
+      t0 = e->age;
+    }
+  return logp;
 }
 
 /* ML survival and density of a clock that has run for rescaled time u,
@@ -255,6 +314,7 @@ static double mlh_u_growth(double A, double B, double g, double alpha,
 static double mlh_pairrate(world_fmt *world, long pop)
 {
   return 2.0 / (world->options->mu_rates[world->locus]
+                * world->options->inheritance_scalars[world->locus]
                 * world->param0[pop] * world->timek[pop]);
 }
 
@@ -476,12 +536,12 @@ double mlh_probg_treetimes(world_fmt *world)
     static double worst = 0.0;
     boolean alpha1 = TRUE;
     const double a0 = a[0];
-    double pp = mlh_logp_perpop(world, &L, a);
+    double pp = mlh_logp_perpop(world, &L, a) + mlh_div_logp(world, &L, a0);
     double pi = mlh_logp_list(world, &L, a0);
     for (pop = 0; pop < numpop; pop++)
       if (mlh_alpha(world, pop) < 1.0)
         alpha1 = FALSE;
-    if ((numpop == 1 || alpha1) && !world->has_growth && fabs(pp - pi) > worst)
+    if ((numpop == 1 || alpha1) && !world->has_growth && !world->has_speciation && fabs(pp - pi) > worst)
       {
         worst = fabs(pp - pi);
         fprintf(stderr, "MLHVERIFY probg per-pop vs interval density: worst |diff| = %g (logp %g)\n",
@@ -490,7 +550,10 @@ double mlh_probg_treetimes(world_fmt *world)
     return pp;
   }
 #else
-  return mlh_logp_perpop(world, &L, a);
+  {
+    const double a0 = a[0];
+    return mlh_logp_perpop(world, &L, a) + mlh_div_logp(world, &L, a0);
+  }
 #endif
 }
 
@@ -534,7 +597,8 @@ static void mlh_merge(mlh_list *G, const mlh_list *B, const mlh_path *P,
           k[pop] += 1;
           if (im < P->n)
             {
-              mlh_push(G, tm, 'm', P->mig[im].to, P->mig[im].from, k);
+              mlh_push(G, tm, P->mig[im].event == 'd' ? 'd' : 'm',
+                       P->mig[im].to, P->mig[im].from, k);
               im++;
             }
           else
@@ -599,6 +663,23 @@ static double mlh_clocks(world_fmt *world, long pop, long kcoal, long which,
   return logq;
 }
 
+/* one step of a lineage in pop over [t0, t0 + dt]: its ML clocks (kcoal
+   partners) and its split clock; it ends in event ev (NULL: survives, a
+   coalescence when coal) */
+static double mlh_step(world_fmt *world, long pop, long kcoal, const migr_table_fmt *ev,
+                       boolean coal, double t0, double dt)
+{
+  const double w = mlh_div_wait(world, pop, t0, t0 + dt);
+  if (coal)
+    return mlh_clocks(world, pop, kcoal, -1, t0, dt) + w;
+  if (ev == NULL)
+    return mlh_clocks(world, pop, kcoal, -2, t0, dt) + w;
+  if (ev->event == 'd')
+    return mlh_clocks(world, pop, kcoal, -2, t0, dt) + w
+      + mlh_div_point(world, pop, ev->from, t0 + dt);
+  return mlh_clocks(world, pop, kcoal, ev->from, t0, dt) + w;
+}
+
 /* q(P, Q | B, h): moving path P on background B (the residual tree), root
    lineage events Q above the horizon h */
 static double mlh_path_logq(world_fmt *world, const mlh_list *B,
@@ -621,7 +702,7 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             break;
           if (im < P->n)
             {
-              logq += mlh_clocks(world, pop, kp, P->mig[im].from, age, e - age);
+              logq += mlh_step(world, pop, kp, &P->mig[im], FALSE, age, e - age);
               pop = P->mig[im].from;
               im++;
               age = e;
@@ -629,9 +710,9 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             }
           if (kp < 1)
             return (double) -HUGE;
-          return logq + mlh_clocks(world, pop, kp, -1, age, e - age) - log((double) kp);
+          return logq + mlh_step(world, pop, kp, NULL, TRUE, age, e - age) - log((double) kp);
         }
-      logq += mlh_clocks(world, pop, kp, -2, age, b - age);
+      logq += mlh_step(world, pop, kp, NULL, FALSE, age, b - age);
       age = b;
     }
   /* phase 1: the root lineage waits in p2 up to the horizon */
@@ -640,13 +721,13 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
       e = (im < P->n) ? P->mig[im].time : P->end;
       if (e >= h)
         {
-          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, age, h - age);
+          logq += mlh_step(world, pop, pop == p2 ? 1 : 0, NULL, FALSE, age, h - age);
           age = h;
           break;
         }
       if (im < P->n)
         {
-          logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, age, e - age);
+          logq += mlh_step(world, pop, pop == p2 ? 1 : 0, &P->mig[im], FALSE, age, e - age);
           pop = P->mig[im].from;
           im++;
           age = e;
@@ -654,7 +735,7 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
         }
       if (pop != p2)
         return (double) -HUGE;
-      return logq + mlh_clocks(world, pop, 1, -1, age, e - age);
+      return logq + mlh_step(world, pop, 1, NULL, TRUE, age, e - age);
     }
   if (nq > 0 && Q[0].time < age)
     return (double) -HUGE;   /* the root lineage cannot move below h */
@@ -665,10 +746,10 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
       double e2 = (iq < nq) ? Q[iq].time : (double) HUGE;
       if (e1 < e2)
         {
-          logq += mlh_clocks(world, p2, 0, -2, age, e1 - age);
+          logq += mlh_step(world, p2, 0, NULL, FALSE, age, e1 - age);
           if (im < P->n)
             {
-              logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, P->mig[im].from, age, e1 - age);
+              logq += mlh_step(world, pop, pop == p2 ? 1 : 0, &P->mig[im], FALSE, age, e1 - age);
               pop = P->mig[im].from;
               im++;
               age = e1;
@@ -676,10 +757,10 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
             }
           if (pop != p2)
             return (double) -HUGE;
-          return logq + mlh_clocks(world, pop, 1, -1, age, e1 - age);
+          return logq + mlh_step(world, pop, 1, NULL, TRUE, age, e1 - age);
         }
-      logq += mlh_clocks(world, pop, pop == p2 ? 1 : 0, -2, age, e2 - age);
-      logq += mlh_clocks(world, p2, 0, Q[iq].from, age, e2 - age);
+      logq += mlh_step(world, pop, pop == p2 ? 1 : 0, NULL, FALSE, age, e2 - age);
+      logq += mlh_step(world, p2, 0, &Q[iq], FALSE, age, e2 - age);
       p2 = Q[iq].from;
       iq++;
       age = e2;
@@ -688,7 +769,7 @@ static double mlh_path_logq(world_fmt *world, const mlh_list *B,
 
 /* ---- the move ---- */
 static void mlh_push_mig(migr_table_fmt **tab, long *alloc, long n,
-                         double time, long from, long to)
+                         double time, long from, long to, char event)
 {
   if (n >= *alloc)
     {
@@ -698,14 +779,29 @@ static void mlh_push_mig(migr_table_fmt **tab, long *alloc, long n,
   (*tab)[n].time = time;
   (*tab)[n].from = from;
   (*tab)[n].to = to;
-  (*tab)[n].event = 'm';
+  (*tab)[n].event = event;
 }
 
-/* timeelements == 2 is the no-skyline default (one open segment) */
+/* divergence is covered for the normal split-time distribution and
+   untied splits (custom-migration d/D) */
+static boolean mlh_div_supported(world_fmt *world)
+{
+  long i;
+  if (!world->has_speciation)
+    return TRUE;
+  if (world->species_model_dist != NORMAL_DIST)
+    return FALSE;
+  for (i = 0; i < world->species_model_size; i++)
+    if (world->species_model[i].type != 'd')
+      return FALSE;
+  return TRUE;
+}
+
+/* timeelements == 2 is the no-skyline default (one open segment); tip
+   dates and normal-distribution divergence are included */
 boolean mlh_supported(world_fmt *world)
 {
-  return world->timeelements <= 2 && !world->has_speciation
-    && !world->options->has_datefile;
+  return world->timeelements <= 2 && mlh_div_supported(world);
 }
 
 /* population of the reassigned tip before an assignment move */
@@ -740,7 +836,8 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
   for (p = proposal->origin->back; p->type == 'm' || p->type == 'd'; p = p->next->back)
     {
       node *pt = showtop(p);
-      mlh_push_mig(&mlh_oldmig, &mlh_oldmig_alloc, nold++, pt->tyme, pt->pop, pt->actualpop);
+      mlh_push_mig(&mlh_oldmig, &mlh_oldmig_alloc, nold++, pt->tyme, pt->pop, pt->actualpop,
+                   p->type == 'd' ? 'd' : 'm');
     }
   Pold.start = Pnew.start = s;
   Pnew.startpop = proposal->origin->pop;
@@ -762,7 +859,7 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
      root lineage's events of R above max(t_new, top coalescence of R) are
      removed */
   ctop = B.n - 1;
-  while (ctop >= 0 && B.ev[ctop].type == 'm')
+  while (ctop >= 0 && (B.ev[ctop].type == 'm' || B.ev[ctop].type == 'd'))
     ctop--;
   mlh_R2.n = 0;
   mlh_reserve(&mlh_R2, B.n + proposal->migr_table_counter2 + 1, numpop);
@@ -774,7 +871,7 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
           if (ndrop == 0)
             mlh_R2.rootpop = B.ev[i].below;
           mlh_push_mig(&mlh_dropped, &mlh_dropped_alloc, ndrop++,
-                       B.ev[i].age, B.ev[i].above, B.ev[i].below);
+                       B.ev[i].age, B.ev[i].above, B.ev[i].below, B.ev[i].type);
         }
       else
         mlh_push(&mlh_R2, B.ev[i].age, B.ev[i].type, B.ev[i].below,
@@ -787,7 +884,8 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
       {
         memset(k, 0, (size_t) numpop * sizeof(long));
         k[proposal->migr_table2[i].to] = 1;
-        mlh_push(&mlh_R2, proposal->migr_table2[i].time, 'm',
+        mlh_push(&mlh_R2, proposal->migr_table2[i].time,
+                 proposal->migr_table2[i].event == 'd' ? 'd' : 'm',
                  proposal->migr_table2[i].to, proposal->migr_table2[i].from, k);
         mlh_R2.rootpop = proposal->migr_table2[i].from;
       }
@@ -810,9 +908,9 @@ double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
         aalloc = numpop;
       }
     mlh_spellstarts(R, s, numpop, Pold.startpop, a);
-    logp_old = mlh_logp_perpop(world, &mlh_Gold, a);
+    logp_old = mlh_logp_perpop(world, &mlh_Gold, a) + mlh_div_logp(world, &mlh_Gold, s);
     mlh_spellstarts(R, s, numpop, Pnew.startpop, a);
-    logp_new = mlh_logp_perpop(world, &mlh_Gnew, a);
+    logp_new = mlh_logp_perpop(world, &mlh_Gnew, a) + mlh_div_logp(world, &mlh_Gnew, s);
   }
   logq_new = mlh_path_logq(world, &B, &Pnew, proposal->migr_table2,
                            proposal->migr_table_counter2, h_f);

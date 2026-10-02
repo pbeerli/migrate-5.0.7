@@ -966,15 +966,26 @@ MYREAL trunc_gamma_rand(MYREAL alpha, MYREAL beta, MYREAL lower, MYREAL upper)
 	    return x;
 	}
     }
-  if (x<lower)
-    return lower;
-  else
-    {
-      if (x>upper)
-	return upper;
-      else
-	return x;
-    }
+  /* [lower, upper] holds little mass: invert the truncated CDF (clamping
+     to a bound would put a point mass there) */
+  {
+    extern MYREAL cdf_gamma(MYREAL a, MYREAL b, MYREAL x);
+    const double c0 = cdf_gamma(alpha, beta, lower), c1 = cdf_gamma(alpha, beta, upper);
+    const double target = c0 + UNIF_RANDUM() * (c1 - c0);
+    double lo = lower, hi = upper;
+    long i;
+    if (!(c1 > c0))
+      return lower + UNIF_RANDUM() * (upper - lower);
+    for (i = 0; i < 100; i++)
+      {
+        const double mid = 0.5 * (lo + hi);
+        if (cdf_gamma(alpha, beta, mid) < target)
+          lo = mid;
+        else
+          hi = mid;
+      }
+    return 0.5 * (lo + hi);
+  }
 }
 
 MYREAL trunc_beta_rand(MYREAL a, MYREAL b, MYREAL lower, MYREAL upper)

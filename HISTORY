@@ -12,6 +12,14 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 2    Migrate 6.1.37 Fixes from codex-7 7.0.56: inheritance scalars now act on
+             the locus Theta in the genealogy proposal and densities and
+             all loci report Theta on the reference scale; dated tips: the
+             density skipped intervals ending at a tip (Theta biased low)
+             and the start tree was unsorted; Mittag-Leffler correction
+             covers divergence and tip dates; multiplier proposal reflects
+             at the lower bound; pdf-outfile=NO writes no PDF.
+
 October 2    Migrate 6.1.36 Prior fixes (from codex-7 7.0.55): NORMAL priors ignored
              the given std; BETA priors are now rescaled to [min, max]
              (usable beyond 0..1); the slice and multiplier proposals

@@ -1249,7 +1249,8 @@ MYREAL time_to_coalmig(world_fmt * world, long pop, double age, long timeslice, 
   *to = -1;
   //timeslice=tentry->timeslice;
   timepop = (w->numpop2+addition)*timeslice + pop;
-  timethetarate = w->timek[timepop] * w->param0[pop];
+  /* the locus Theta: inheritance scalar x reference Theta (param0) */
+  timethetarate = w->timek[timepop] * w->param0[pop] * inheritance;
   lines    =   2 * (lineages[pop]); 
   
   r = UNIF_RANDUM ();
@@ -1335,7 +1336,8 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
   *to = -1;
   //timeslice=tentry->timeslice;
   timepop = (w->numpop2+addition)*timeslice + pop;
-  timethetarate = w->timek[timepop] * w->param0[pop];
+  /* the locus Theta: inheritance scalar x reference Theta (param0) */
+  timethetarate = w->timek[timepop] * w->param0[pop] * inheritance;
   //double priormin = -10.;//w->bayes->minparam[pop];
   //double priormax = 10;//w->bayes->maxparam[pop];
   // /Users/beerli/Documents/Work/manuscripts/manuscripts-working/fractional-ML/fractional-ML-pipeline/training-pipeline/mcmc-old-factor2
