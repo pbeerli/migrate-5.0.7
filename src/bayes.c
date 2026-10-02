@@ -4969,6 +4969,27 @@ void bayes_smooth(double *x, long xelem, long el, boolean lastfirst, boolean bou
 //
 // find the credibility set by using the Highest Posterior Probability Density(HPD) and the standard point
 // descriptors. the statistics are filled into the statistics part of the bayes structure (datastore)
+/// shortest run of contiguous bins [*lo, *hi] of x[0..n-1] whose mass is at
+/// least target (two pointers; the first one wins ties)
+static void shortest_interval(const double *x, long n, double target, long *lo, long *hi)
+{
+  long i = 0, j;
+  double sum = 0.0;
+  *lo = 0;
+  *hi = n > 0 ? n - 1 : 0;
+  for (j = 0; j < n; j++)
+    {
+      sum += x[j];
+      while (i < j && sum - x[i] >= target)
+        sum -= x[i++];
+      if (sum >= target && j - i < *hi - *lo)
+        {
+          *lo = i;
+          *hi = j;
+        }
+    }
+}
+
 void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numparam)
 {
   (void) numpop2;
@@ -4996,6 +5017,7 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
     MYREAL cdf;
     MYREAL cutoff95;
     MYREAL cutoff50;
+    long lo50, hi50, lo95, hi95;
     MYREAL delta;
     MYREAL tmp;
     
@@ -5194,23 +5216,20 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         }
         // fill the innermost 50% levels, smooth over adjacent bins
         //
-        // start at the modus and go left
-        li = numbins + locmedian;
-        while (set50[li] == '1' && li > numbins)
-            --li;
-        cred50[pa] = mini[rpa] + (li-numbins) * delta;// + delta/2.;
-        while (set95[li] == '1' && li > numbins)
-            --li;
-        cred95[pa] = mini[rpa] + (li-numbins) * delta;// + delta/2.;
-
-        // start at the modus and go right
-        li = numbins + locmedian;
-        while (set50[li] == '1' && li < numbins + bins[rpa]-1)
-            ++li;
-        cred50[pa + numparam] = maxi[rpa] - (bins[rpa] - li + numbins) * delta;// - delta/2.;
-        while (set95[li] == '1' && li < numbins + bins[rpa]-1)
-            ++li;
-        cred95[pa + numparam] = maxi[rpa] - (bins[rpa] - li + numbins) * delta;// - delta/2.;
+        // Reported bounds: the shortest run of contiguous bins holding at least
+        // 50% / 95% of the mass (fixed 2026-10-02). These used to be the run
+        // of set50/set95 bins around the mode; for broad, flat or noisy
+        // posteriors the HPD set breaks into pieces and that run held far
+        // less than the nominal mass (a uniform posterior on [0,200] got
+        // "95%" intervals 55-148 wide, and growth undercovered in calibration
+        // tests). For a unimodal posterior both agree. The set itself
+        // (set50/set95, used for plotting) is unchanged.
+        shortest_interval(results + numbins, bins[rpa], total * alpha50, &lo50, &hi50);
+        shortest_interval(results + numbins, bins[rpa], total * alpha95, &lo95, &hi95);
+        cred50[pa] = mini[rpa] + lo50 * delta;
+        cred50[pa + numparam] = mini[rpa] + (hi50 + 1) * delta;
+        cred95[pa] = mini[rpa] + lo95 * delta;
+        cred95[pa + numparam] = mini[rpa] + (hi95 + 1) * delta;
 #ifdef DEBUG
 	printf("pa=%li cred50=%f..%f [%li]\n",rpa,cred50[pa],cred50[pa+numparam],numparam);
 	printf("pa=%li cred95=%f..%f [%li]\n",rpa,cred95[pa],cred95[pa+numparam],numparam);
