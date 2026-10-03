@@ -197,6 +197,10 @@ void calculate_BF(world_fmt **universe, option_fmt *options)
 	  xx = universe[i]->likelihood[universe[i]->G];
 	  if (world->am[locus] > 0.0 || xx > (double) -HUGE)
 	    world->bf[ii] += (xx - world->bf[ii])/ (world->am[locus]);
+	  else
+	    {
+	      warning("[%i] locus %li chain %li: TI sample skipped (am=%f, log L=%g)\n", myID, locus, i, world->am[locus], xx);
+	    }
 	  if (options->adaptiveheat != NOTADAPTIVE && xx > (double) -HUGE)
 	    {   /* the chain's temperature changes: bin the sample by its beta */
 	      const double beta = universe[i]->heat;
@@ -210,10 +214,6 @@ void calculate_BF(world_fmt **universe, option_fmt *options)
 	      tb[0] += 1.0;
 	      tb[1] += xx;
 	      tb[2] += beta;
-	    }
-	  else
-	    {
-	      warning("am or likelihood failed: am=%f",myID, locus, i,world->am[locus]);
 	    }
 	  /* stepping stones (Xie et al. 2011): for every chain but the cold
 	     one, the running mean of L^(beta_{i-1} - beta_i) from the hotter
@@ -392,4 +392,105 @@ boolean ti_binned (world_fmt *world, long locus, double *ti, double *bti)
   if (n >= 3)
     *bti = *ti - last + sumbezier (100L, b[n - 1], l[n - 1], b[n - 2], l[n - 2], b[n - 3], l[n - 3], &ratio2);
   return TRUE;
+}
+
+/* ---- locus-level checkpoint of the marginal-likelihood accumulators ----
+   With bayes-allfile and recover=YES a restarted run skips the loci whose
+   samples are all in the bayes-allfile; their posterior histograms are read
+   back from it, and the running TI means are in its records, but not the
+   stepping-stone sums or the beta bins of adaptive heating. Whoever finishes
+   a locus (serial run, MPI locus worker after merging the replicates)
+   therefore writes them to "<bayesallfile>.ckpt.<locus>"; a recovered run
+   reads them back for the loci it skipped (ckpt_restore(), called before
+   the marginal-likelihood tables, after the MPI results arrived). */
+static void ckpt_filename (option_fmt *options, long locus, char *name)
+{
+  snprintf (name, LINESIZE, "%s.ckpt.%li", options->bayesmdimfilename, locus);
+}
+
+/// TRUE when a recovered run skipped every replicate of this locus
+boolean ckpt_locus_skipped (option_fmt *options, long locus)
+{
+  const long repmax = number_replicates2 (options);
+  long r;
+  if (!options->checkpointing || options->unfinished == NULL)
+    return FALSE;
+  for (r = 0; r < repmax; r++)
+    if (options->unfinished[locus][r] < options->lsteps - 1)
+      return FALSE;
+  return TRUE;
+}
+
+/// writes the marginal-likelihood accumulators of a finished locus
+void ckpt_write_locus (world_fmt *world, option_fmt *options, long locus)
+{
+  const long hc = world->options->heated_chains;
+  char name[LINESIZE];
+  FILE *f;
+  long i;
+  if (!options->has_bayesmdimfile || !options->heating || ckpt_locus_skipped (options, locus))
+    return;
+  ckpt_filename (options, locus, name);
+  if ((f = fopen (name, "w")) == NULL)
+    return;
+  fprintf (f, "migrate-ckpt 1 %li %li %d\n", locus, hc, TI_NBINS);
+  fprintf (f, "%.17g %.17g %.17g\n", world->am[locus], world->hmscale[locus], world->hm[locus]);
+  for (i = 0; i < hc; i++)
+    fprintf (f, "%.17g %.17g %.17g\n", world->bf[locus * hc + i], world->steppingstones[locus * hc + i],
+             world->steppingstone_scalars[locus * hc + i]);
+  for (i = 0; i < 3 * TI_NBINS; i++)
+    fprintf (f, "%.17g\n", world->tibins[3 * TI_NBINS * locus + i]);
+  fclose (f);
+}
+
+/// a fresh run (no recover) removes checkpoint files of an earlier run
+void ckpt_remove_all (option_fmt *options, long loci)
+{
+  char name[LINESIZE];
+  long locus;
+  if (!options->has_bayesmdimfile || options->checkpointing)
+    return;
+  for (locus = 0; locus < loci; locus++)
+    {
+      ckpt_filename (options, locus, name);
+      remove (name);
+    }
+}
+
+/// a recovered run: the accumulators of the skipped loci from their files
+void ckpt_restore (world_fmt *world, option_fmt *options)
+{
+  const long hc = world->options->heated_chains;
+  char name[LINESIZE];
+  long locus, i;
+  if (!options->checkpointing || !options->heating)
+    return;
+  for (locus = 0; locus < world->loci; locus++)
+    {
+      FILE *f;
+      long l2, hc2, nb2, version;
+      if (!ckpt_locus_skipped (options, locus))
+        continue;
+      ckpt_filename (options, locus, name);
+      if ((f = fopen (name, "r")) == NULL
+          || fscanf (f, "migrate-ckpt %li %li %li %li", &version, &l2, &hc2, &nb2) != 4
+          || l2 != locus || hc2 != hc || nb2 != TI_NBINS)
+        {
+          if (f != NULL)
+            fclose (f);
+          warning ("recover: no checkpoint of the marginal-likelihood sums for locus %li (%s);"
+                   " its stepping-stone value is not available\n", locus + 1, name);
+          continue;
+        }
+      if (fscanf (f, "%lf %lf %lf", &world->am[locus], &world->hmscale[locus], &world->hm[locus]) != 3)
+        warning ("recover: %s is incomplete\n", name);
+      for (i = 0; i < hc; i++)
+        if (fscanf (f, "%lf %lf %lf", &world->bf[locus * hc + i], &world->steppingstones[locus * hc + i],
+                    &world->steppingstone_scalars[locus * hc + i]) != 3)
+          warning ("recover: %s is incomplete\n", name);
+      for (i = 0; i < 3 * TI_NBINS; i++)
+        if (fscanf (f, "%lf", &world->tibins[3 * TI_NBINS * locus + i]) != 1)
+          warning ("recover: %s is incomplete\n", name);
+      fclose (f);
+    }
 }

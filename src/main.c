@@ -572,6 +572,8 @@ main (int argc, char **argv)
     // sampling phase
     if (!options->readsum && !options->checkpointing) // all go here except when reading old runs
       {
+        if (myID == MASTER)
+          ckpt_remove_all (options, EARTH->loci); /* checkpoints of an earlier run */
         run_sampler (options, data, universe, usize, &outfilepos, &Gmax);
       }
     else
@@ -714,6 +716,7 @@ main (int argc, char **argv)
 	if(EARTH->has_estimateseqerror)
 	  seqerror_report(EARTH,"seqerror");
 	
+	ckpt_restore (EARTH, options); /* recover=YES: loci skipped in this run */
 	print_bayesfactor(universe,options);
 	print_mcmc_run_character(EARTH);
 
@@ -1781,6 +1784,9 @@ run_locus (world_fmt ** universe, int usize, option_fmt * options,
 	    }
 	}
     }    
+  /* locus checkpoint: the marginal-likelihood sums of this finished locus
+     (recover=YES restores them, marginallike.c) */
+  ckpt_write_locus (EARTH, options, locus);
 #ifdef UEP
   if (options->uep)
     show_uep_store (EARTH);
