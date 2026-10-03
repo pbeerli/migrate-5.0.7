@@ -2649,12 +2649,9 @@ void parse_dataondemand_item(char **buf_cursor, char **input_ptr, long *inputsiz
 	{
 	  len = 2;
 	}
-      for(site=0;site<numsites;site++)
-	{
-	  (*datapart)[0][site] = (site_fmt) mycalloc (len, sizeof (char));
-	  if(!strchr(SEQUENCETYPES,options->datatype) && options->datatype!='@')
-	    (*datapart)[1][site] = (site_fmt) mycalloc (len, sizeof (char));
-	}
+      alloc_sites ((*datapart)[0], numsites, len, s->dataclass == SITECHARACTER);
+      if(!strchr(SEQUENCETYPES,options->datatype) && options->datatype!='@')
+	alloc_sites ((*datapart)[1], numsites, len, s->dataclass == SITECHARACTER);
     }
   else
     {

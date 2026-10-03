@@ -72,6 +72,8 @@ extern void print_variable_sites_summary (FILE * file, world_fmt * world,
 extern long find_missing(data_fmt *data, long pop, long locus);
 extern short findAllele (data_fmt * data, char s[], long locus);
 extern void free_datapart (data_fmt * data, world_fmt *world,long locus);
+extern void alloc_sites (site_fmt *sitearray, long sites, long len, boolean character);
+extern void free_sites (site_fmt *sitearray, long sites, boolean character);
 extern void read_distance_fromfile (FILE * dfile, long tips, long nmlength,
                                  MYREAL **m);
 extern void read_geofile (data_fmt * data, option_fmt * options, long numpop);

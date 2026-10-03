@@ -707,7 +707,6 @@ init_data_structure2 (data_fmt ** data, option_fmt * options, world_fmt *world, 
 #endif
       long sublocus;
       long len;
-      long site;
       long sites;
 
       for(sublocus=0; sublocus < (*data)->allsubloci;sublocus++)
@@ -732,12 +731,9 @@ init_data_structure2 (data_fmt ** data, option_fmt * options, world_fmt *world, 
 	      len = 2;
 	    }
 	  
-	  for(site=0;site<sites;site++)
-	    {
-	      (*data)->yy[pop][ind][sublocus][0][site] = (site_fmt) mycalloc (len, sizeof (char));
-	      if(!strchr(SEQUENCETYPES,options->datatype) && options->datatype!='@')
-		(*data)->yy[pop][ind][sublocus][1][site] = (site_fmt) mycalloc (len, sizeof (char));
-	    }
+	  alloc_sites ((*data)->yy[pop][ind][sublocus][0], sites, len, s->dataclass == SITECHARACTER);
+	  if(!strchr(SEQUENCETYPES,options->datatype) && options->datatype!='@')
+	    alloc_sites ((*data)->yy[pop][ind][sublocus][1], sites, len, s->dataclass == SITECHARACTER);
 	}
 #ifdef MPIDATAONDEMAND
 	}
@@ -754,6 +750,44 @@ findAllele (data_fmt * data, char s[], long locus)
             && data->allele[locus][found][0] != '\0'))
         found++;
     return found;
+}
+
+/* the site strings of one individual and sublocus; character data
+   (one state and '\0' per site) share one block, because a separate
+   allocation per site costs about 20 times the data (1000 loci x 10000
+   sites needed 8 GB on the MPI master); word data keep one allocation per
+   site. sitearray has room for sites pointers */
+void
+alloc_sites (site_fmt *sitearray, long sites, long len, boolean character)
+{
+  long site;
+  if (sites <= 0)
+    return;
+  if (character)
+    {
+      char *block = (char *) mycalloc ((size_t) (sites * len), sizeof (char));
+      for (site = 0; site < sites; site++)
+	sitearray[site] = block + site * len;
+    }
+  else
+    {
+      for (site = 0; site < sites; site++)
+	sitearray[site] = (site_fmt) mycalloc ((size_t) len, sizeof (char));
+    }
+}
+
+/* frees what alloc_sites() allocated; sites is only needed for word data */
+void
+free_sites (site_fmt *sitearray, long sites, boolean character)
+{
+  long site;
+  if (character)
+    {
+      myfree (sitearray[0]);    /* the block, NULL without sites */
+      return;
+    }
+  for (site = 0; site < sites; site++)
+    myfree (sitearray[site]);
 }
 
 void
@@ -777,15 +811,9 @@ free_datapart (data_fmt * data, world_fmt * world , long locus)
 	      long sites = s->numsites;
 	      if (s->baseref_used)
 		sites -= 4; //snps + ref sequence derived invariants -- to avoid memory smash
-	      long site;
-	      for(site=0;site<sites;site++)
-		{
-		  myfree(data->yy[pop][ind][sublocus][0][site]);
-		  if(xxxx)
-		    {
-		      myfree(data->yy[pop][ind][sublocus][1][site]);
-		    }
-		}
+	      free_sites (data->yy[pop][ind][sublocus][0], sites, s->dataclass == SITECHARACTER);
+	      if(xxxx)
+		free_sites (data->yy[pop][ind][sublocus][1], sites, s->dataclass == SITECHARACTER);
 	      myfree(data->yy[pop][ind][sublocus][0]);
 	      if(xxxx)
 		myfree(data->yy[pop][ind][sublocus][1]);
@@ -2575,7 +2603,12 @@ long read_ind_seq_oneliner (FILE * infile, data_fmt * data, option_fmt * options
 	      if (j>=startsite)
 		{
 		  //printf(".");
-		  memcpy(data->yy[pop][ind][sublocus][0][j-startsite], site, sizeof(char) * strlen(site));
+		  /* a character site holds one state; the buffer may still
+		     hold the tail of a longer word read before it */
+		  if (world->mutationmodels[sublocus].dataclass == SITECHARACTER)
+		    data->yy[pop][ind][sublocus][0][j-startsite][0] = site[0];
+		  else
+		    memcpy(data->yy[pop][ind][sublocus][0][j-startsite], site, sizeof(char) * strlen(site));
 		}
 	      j++;
 	    }
