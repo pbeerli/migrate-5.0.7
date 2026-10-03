@@ -11,6 +11,18 @@
 #include "reporter.h"
 #include "migrate_mpi.h"
 
+/* the stepping-stone value for the table: n/a without fixed temperatures
+   (adaptive heating) */
+static const char *
+ss_str (double v, char *buf)
+{
+  if (isnan (v))
+    snprintf (buf, 32, "n/a");
+  else
+    snprintf (buf, 32, "%.2f", v);
+  return buf;
+}
+
 void print_bayesfactor(world_fmt **universe, option_fmt * options);
 void print_burnin_autostop(world_fmt * world);
 void print_heatingreport(world_fmt **universe, option_fmt* options);
@@ -38,6 +50,7 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
   MYREAL lsum0;
   MYREAL ratio = 0.0;
   MYREAL sratio = 0.0;
+  char ssb[32];
   MYREAL allratio = 0.0;
   MYREAL sallratio = 0.0;
   MYREAL scaling_factor = 0.0;
@@ -62,17 +75,18 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 
   fprintf(file,"\n\n\nLog-Probability of the data given the model (marginal likelihood = log(P(D|thisModel))\n");
   fprintf(file,"--------------------------------------------------------------------\n[Use this value for Bayes factor calculations:\nBF = Exp[log(P(D|thisModel) - log(P(D|otherModel)]\nshows the support for thisModel]\n\n");
-  /* adaptive heating changes the chain temperatures during the run, but the
-     thermodynamic integration assumes each chain stayed at one temperature;
-     in tests this favoured overparameterized models (e.g. growth on data
-     without growth) by 10-40 log units, static heating did not */
+  /* adaptive heating changes the chain temperatures during the run: TI and
+     BTI integrate over the samples binned by their temperature
+     (ti_binned(), marginallike.c); one mean per chain at its average
+     temperature had favoured overparameterized models by 30-45 log units,
+     the binned integral left a few log units in tests (codex-7 7.0.66);
+     stepping stones need fixed temperatures */
   if (options->heating && options->adaptiveheat != NOTADAPTIVE)
     {
-      fprintf(file,"WARNING: these marginal likelihoods come from ADAPTIVE heating. Adapting the\n");
-      fprintf(file,"         temperatures during the run biases thermodynamic integration; for\n");
-      fprintf(file,"         model comparison rerun with static heating, e.g.\n");
-      fprintf(file,"         heating=YES:1:{1.0,1.5,3.0,1000000.0}\n\n");
-      warning("marginal likelihoods from adaptive heating are unreliable for model comparison; use static heating (heating=YES:...)\n");
+      fprintf(file,"NOTE: these marginal likelihoods come from ADAPTIVE heating: TI and BTI integrate\n");
+      fprintf(file,"      over the samples binned by their temperature, SS is not available. In\n");
+      fprintf(file,"      tests a bias of a few log units remained; for close model comparisons use\n");
+      fprintf(file,"      static heating, e.g. heating=YES:1:{1.0,1.5,3.0,1000000.0}\n\n");
     }
   if(options->heating)
     {
@@ -155,8 +169,19 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 				 heat0, val0, 
 				 heat2, val2, &ratio2);
 	  ratio += val1;
+	  {   /* adaptive heating: integrate over the samples binned by beta */
+	    double ti_b, bti_b;
+	    if (options->adaptiveheat != NOTADAPTIVE && ti_binned (world, locus, &ti_b, &bti_b))
+	      {
+		lsum = locusweight[locus] * ti_b;
+		lsum0 = 0.0;
+		approxlsum = locusweight[locus] * (bti_b - ti_b);
+	      }
+	  }
 	  /* stepping stones (Xie et al. 2011), see ss_locus_logml() */
 	  sratio = locusweight[locus] * ss_locus_logml (world, locus);
+	  if (options->adaptiveheat != NOTADAPTIVE)
+	    sratio = NAN;   /* stepping stones need fixed temperatures */
 
 	  /* the per-locus harmonic mean (this column used to print a raw
 	     single-chain value under the HS label) */
@@ -180,8 +205,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 	    }
 	  else
 	    {
-	      fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
-		      sratio, hs);
+	      fprintf(file,"  %5li  %12.2f  %12.2f  %12s  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
+		      ss_str (sratio, ssb), hs);
 	      pdf_bayes_factor_rawscores(locus, lsum, lsum-lsum0+approxlsum, sratio, hs);
 	    }
 	  bfsum2 += approxlsum + lsum - lsum0;  	  
@@ -192,8 +217,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 
       if (options->tersepdf)
 	{
-	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f  %12.2f\n", "Lowest", min_bf, min_bfb, min_ss, min_hs);
-	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f  %12.2f\n", "Highest", max_bf, max_bfb, max_ss, max_hs);
+	  fprintf(file,"  %s %12.2f  %12.2f  %12s  %12.2f\n", "Lowest", min_bf, min_bfb, ss_str (min_ss, ssb), min_hs);
+	  fprintf(file,"  %s %12.2f  %12.2f  %12s  %12.2f\n", "Highest", max_bf, max_bfb, ss_str (max_ss, ssb), max_hs);
 	  pdf_bayes_factor_rawscores_minmax(BFMIN, min_bf, min_bfb, min_ss, min_hs);
 	  pdf_bayes_factor_rawscores_minmax(BFMAX, max_bf, max_bfb, max_ss, max_hs);
 	}
@@ -208,8 +233,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
       if(world->loci>1)
 	{
 	  fprintf(file,"---------------------------------------------------------------\n");
-	  fprintf(file,"  All    %12.2f  %12.2f  %12.2f  %12.2f\n[Scaling factor = %f]\n",
-		  bfsum, bfsum2, sallratio, hsum, scaling_factor);
+	  fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f\n[Scaling factor = %f]\n",
+		  bfsum, bfsum2, ss_str (sallratio, ssb), hsum, scaling_factor);
 	}
       if(world->loci>1)
 	{

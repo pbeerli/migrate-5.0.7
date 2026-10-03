@@ -197,6 +197,20 @@ void calculate_BF(world_fmt **universe, option_fmt *options)
 	  xx = universe[i]->likelihood[universe[i]->G];
 	  if (world->am[locus] > 0.0 || xx > (double) -HUGE)
 	    world->bf[ii] += (xx - world->bf[ii])/ (world->am[locus]);
+	  if (options->adaptiveheat != NOTADAPTIVE && xx > (double) -HUGE)
+	    {   /* the chain's temperature changes: bin the sample by its beta */
+	      const double beta = universe[i]->heat;
+	      long bin = (long) (pow (beta > 0.0 ? beta : 0.0, 0.25) * TI_NBINS);
+	      double *tb;
+	      if (bin >= TI_NBINS)
+		bin = TI_NBINS - 1;
+	      if (bin < 0)
+		bin = 0;
+	      tb = world->tibins + 3 * (locus * TI_NBINS + bin);
+	      tb[0] += 1.0;
+	      tb[1] += xx;
+	      tb[2] += beta;
+	    }
 	  else
 	    {
 	      warning("am or likelihood failed: am=%f",myID, locus, i,world->am[locus]);
@@ -344,4 +358,38 @@ double ss_locus_logml (world_fmt *world, long locus)
   if (hc > 0 && world->options->heat[hc - 1] > 0.0)
     sum += world->bf[locus * hc + hc - 1] / world->options->heat[hc - 1];
   return sum;
+}
+
+/// adaptive heating: thermodynamic integration over the samples binned by
+/// their beta (the chains' temperatures change during the run, so one mean
+/// of log L per chain, placed at its average temperature, is biased): the
+/// trapezoid over the bin means from beta 1 down to the hottest bin, and the
+/// Bezier version that replaces the hottest segment as sumbezier() does
+/// with the chains. FALSE with fewer than two occupied bins.
+boolean ti_binned (world_fmt *world, long locus, double *ti, double *bti)
+{
+  double b[TI_NBINS], l[TI_NBINS], last = 0.0, ratio2 = 0.0;
+  long k, n = 0;
+  for (k = TI_NBINS - 1; k >= 0; k--)   /* from beta 1 down */
+    {
+      const double *tb = world->tibins + 3 * (locus * TI_NBINS + k);
+      if (tb[0] > 0.0)
+        {
+          b[n] = tb[2] / tb[0];
+          l[n] = tb[1] / tb[0];
+          n++;
+        }
+    }
+  if (n < 2)
+    return FALSE;
+  *ti = 0.0;
+  for (k = 0; k + 1 < n; k++)
+    {
+      last = (b[k] - b[k + 1]) * 0.5 * (l[k] + l[k + 1]);
+      *ti += last;
+    }
+  *bti = *ti;
+  if (n >= 3)
+    *bti = *ti - last + sumbezier (100L, b[n - 1], l[n - 1], b[n - 2], l[n - 2], b[n - 3], l[n - 3], &ratio2);
+  return TRUE;
 }

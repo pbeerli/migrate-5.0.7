@@ -962,6 +962,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
       world->steppingstones = world->am + world->loci;
       world->steppingstone_scalars = world->steppingstones + options->heated_chains * world->loci;
       world->steppingstone_counters = world->steppingstone_scalars + options->heated_chains * world->loci; 
+      world->tibins = (double *) mycalloc((size_t) (3 * TI_NBINS * world->loci), sizeof(double));
       for(locus=0;locus < world->loci; locus++)
 	{
 	  world->hmscale[locus] = 0.0;//HUGE
@@ -1443,6 +1444,7 @@ free_world(world_fmt *world, option_fmt *options)
 
     // free the marginal likelihood
     myfree(world->bfscale);
+    myfree(world->tibins);
     // free the autocorrelation material
     myfree(world->autocorrelation);
     if(world->cold)

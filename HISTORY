@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.40 Adaptive heating: thermodynamic integration over the samples
+             binned by temperature (the old per-chain mean favoured
+             overparameterized models by 30-45 log units); SS shown as n/a
+             (from codex-7 7.0.66).
+
 October 3    Migrate 6.1.39 Stepping-stone marginal likelihood fixed (it was not the Xie
              et al. estimator) and shown again in the outfile and PDF; the
              per-locus HS column showed a raw single-chain value (from

@@ -2306,11 +2306,11 @@ void pdf_bayes_factor_header(world_fmt *world, option_fmt *options)
     if (options->heating && options->adaptiveheat != NOTADAPTIVE)
       {   /* see the note in tables.c */
         pdf_advance(&page_height);
-        pdf_printf(left_margin, page_height,'L', "WARNING: these values come from ADAPTIVE heating, which biases thermodynamic");
+        pdf_printf(left_margin, page_height,'L', "NOTE: ADAPTIVE heating: TI and BTI integrate over the samples binned by their");
         pdf_advance(&page_height);
-        pdf_printf(left_margin, page_height,'L', "integration; for model comparison rerun with static heating,");
+        pdf_printf(left_margin, page_height,'L', "temperature, SS is not available. A bias of a few log units can remain; for close");
         pdf_advance(&page_height);
-        pdf_printf(left_margin, page_height,'L', "e.g. heating=YES:1:{1.0,1.5,3.0,1000000.0}");
+        pdf_printf(left_margin, page_height,'L', "comparisons use static heating, e.g. heating=YES:1:{1.0,1.5,3.0,1000000.0}");
         pdf_advance(&page_height);
       }
     pdf_advance(&page_height);
@@ -2354,7 +2354,10 @@ void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo,
         pdf_printf_right(left_margin+20, page_height,"%5li", locus+1);
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
-    pdf_printf_right(407, page_height,"   %12.2f", ss);
+    if (isnan(ss))   /* adaptive heating: no stepping stones */
+      pdf_printf_right(407, page_height,"   %12s", "n/a");
+    else
+      pdf_printf_right(407, page_height,"   %12.2f", ss);
     pdf_printf_right(520, page_height,"   %12.2f", harmo);
     pdf_advance(&page_height);
 }
@@ -2370,7 +2373,10 @@ void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL bezie
       pdf_printf_right(left_margin+20, page_height,"Highest");
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
-    pdf_printf_right(407, page_height,"   %12.2f", ss);
+    if (isnan(ss))   /* adaptive heating: no stepping stones */
+      pdf_printf_right(407, page_height,"   %12s", "n/a");
+    else
+      pdf_printf_right(407, page_height,"   %12.2f", ss);
     pdf_printf_right(520, page_height,"   %12.2f", harmo);
     pdf_advance(&page_height);
 }
@@ -2413,11 +2419,11 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     switch(world->options->adaptiveheat)
     {
         case STANDARD:
-            pdf_printf(left_margin, page_height,'L',"%s","Adaptive heating was ON, therefore the values of (1) may be incorrect),");
+            pdf_printf(left_margin, page_height,'L',"%s","Adaptive heating was ON: (1) integrates over the samples binned by temperature.");
             pdf_advance(&page_height);
             break;
         case BOUNDED:
-            pdf_printf(left_margin, page_height,'L',"%s","Adaptive heating with bounds was ON, therefore the values of (1) may be incorrect),");
+            pdf_printf(left_margin, page_height,'L',"%s","Bounded adaptive heating was ON: (1) integrates over the samples binned by temperature.");
             pdf_advance(&page_height);
             break;
     }
