@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.39 Stepping-stone marginal likelihood fixed (it was not the Xie
+             et al. estimator) and shown again in the outfile and PDF; the
+             per-locus HS column showed a raw single-chain value (from
+             codex-7 7.0.65).
+
 October 2    Migrate 6.1.38 mutation=ESTIMATE never moved the rate modifier (its
              parameter was aliased onto Theta_1); fixed (from codex-7 7.0.57).
 

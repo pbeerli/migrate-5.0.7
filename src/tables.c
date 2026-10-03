@@ -29,8 +29,6 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
   MYREAL heat2 = 1.0;
   MYREAL val0  = 0.;
   MYREAL val1  = 0.;
-  MYREAL sval0  = 0.;
-  MYREAL sval1  = 0.;
   MYREAL val2  = 0.;
   MYREAL bfsum = 0.;
   MYREAL bfsum2 = 0.;
@@ -44,12 +42,15 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
   MYREAL sallratio = 0.0;
   MYREAL scaling_factor = 0.0;
   MYREAL *locusweight = world->data->locusweight;//invariant loci treatment
-  double min_bf = -HUGE;
-  double min_bfb = -HUGE;
-  double min_ratio = -HUGE;
+  /* minimum trackers start at +HUGE (with -HUGE they never updated) */
+  double min_bf = HUGE;
+  double min_bfb = HUGE;
+  double min_ss = HUGE;
+  double min_hs = HUGE;
   double max_bf = -HUGE;
   double max_bfb = -HUGE;
-  double max_ratio = -HUGE;
+  double max_ss = -HUGE;
+  double max_hs = -HUGE;
     
   // calculate the harmonic mean score
   for(locus=0;locus < world->loci; locus++)
@@ -76,10 +77,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
   if(options->heating)
     {
       pdf_bayes_factor_header(world,options);
-      //fprintf(file,"\n\nLocus          TI(1a)       BTI(1b)         SS(2)         HS(3)\n");
-      //fprintf(file,"---------------------------------------------------------------\n");
-      fprintf(file,"\n\nLocus          TI(1a)       BTI(1b)         HS(2)\n");
-      fprintf(file,    "-------------------------------------------------\n");
+      fprintf(file,"\n\nLocus          TI(1a)       BTI(1b)         SS(2)         HS(3)\n");
+      fprintf(file,"---------------------------------------------------------------\n");
       pdf_bayes_factor_rawscores_header(world,options);
       allratio = 0.0;
       for(locus=0;locus<world->loci;locus++)
@@ -123,11 +122,7 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 	      //printf("\"log mL:\", %i, %f, %f, %f, %f\n", myID, heat0, heat1, val0, val1); 
 	      ratio += val0 - val1;
 
-	      // stepping stones
-	      sval0 = locusweight[locus] * log(world->steppingstones[locus * hc + t-1]) + world->steppingstone_scalars[locus * hc + t-1];
-	      sval1 = locusweight[locus] * log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t];
-	      //printf("\"log mL:\", %i, %f, %f, %f, %f\n", myID, heat0, heat1, sval0, sval1); 
-	      sratio += sval0 - sval1;
+
 	      //if(isnan(sratio))
 	      //{
 	      //  fprintf(stderr,"Steppingstone calculation failed:\n");
@@ -160,30 +155,34 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 				 heat0, val0, 
 				 heat2, val2, &ratio2);
 	  ratio += val1;
+	  /* stepping stones (Xie et al. 2011), see ss_locus_logml() */
+	  sratio = locusweight[locus] * ss_locus_logml (world, locus);
 
-	  //fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
-	  //	  sratio, ratio);
+	  /* the per-locus harmonic mean (this column used to print a raw
+	     single-chain value under the HS label) */
+	  const MYREAL hs = world->hmscale[locus] - log (world->hm[locus]);
 	  if (options->tersepdf)
 	    {
 	      if (min_bf > (lsum - lsum0+approxlsum))
 		{
 		  min_bf  = lsum;
 		  min_bfb = lsum - lsum0+approxlsum;
-		  min_ratio = ratio;
+		  min_ss  = sratio;
+		  min_hs  = hs;
 		}
 	      if (max_bf < (lsum - lsum0+approxlsum))
 		{
 		  max_bf  = lsum;
 		  max_bfb = lsum - lsum0+approxlsum;
-		  max_ratio = ratio;
+		  max_ss  = sratio;
+		  max_hs  = hs;
 		}
-	      //lsum, lsum-lsum0+approxlsum, ratio 
 	    }
 	  else
 	    {
-	      fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
-		      ratio); 
-	      pdf_bayes_factor_rawscores(locus, lsum, lsum-lsum0+approxlsum, sratio, world->hmscale[locus] - log (world->hm[locus]));
+	      fprintf(file,"  %5li  %12.2f  %12.2f  %12.2f  %12.2f\n", locus + 1, lsum, lsum-lsum0+approxlsum,
+		      sratio, hs);
+	      pdf_bayes_factor_rawscores(locus, lsum, lsum-lsum0+approxlsum, sratio, hs);
 	    }
 	  bfsum2 += approxlsum + lsum - lsum0;  	  
 	  bfsum += lsum; //+ world->bfscale[locus];
@@ -193,10 +192,10 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 
       if (options->tersepdf)
 	{
-	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f\n", "Lowest", min_bf, min_bfb, min_ratio);
-	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f\n", "Highest", max_bf, max_bfb, max_ratio);
-	  pdf_bayes_factor_rawscores_minmax(BFMIN, min_bf, min_bfb, min_ratio);
-	  pdf_bayes_factor_rawscores_minmax(BFMAX, max_bf, max_bfb, max_ratio);
+	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f  %12.2f\n", "Lowest", min_bf, min_bfb, min_ss, min_hs);
+	  fprintf(file,"  %s %12.2f  %12.2f  %12.2f  %12.2f\n", "Highest", max_bf, max_bfb, max_ss, max_hs);
+	  pdf_bayes_factor_rawscores_minmax(BFMIN, min_bf, min_bfb, min_ss, min_hs);
+	  pdf_bayes_factor_rawscores_minmax(BFMAX, max_bf, max_bfb, max_ss, max_hs);
 	}
       // print out "ALL" row for both multiloci and single loci run (the single locus run has the same
       // form as the multilocus run so that I can grep the results more easily for model comparison
@@ -209,10 +208,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
       if(world->loci>1)
 	{
 	  fprintf(file,"---------------------------------------------------------------\n");
-	  //	  fprintf(file,"  All    %12.2f  %12.2f  %12.2f  %12.2f\n[Scaling factor = %f]\n",
-	  //	  bfsum, bfsum2, sallratio, hsum, scaling_factor);
-	  fprintf(file,"  All    %12.2f  %12.2f  %12.2f\n[Scaling factor = %f]\n",
-		  bfsum, bfsum2,  hsum, scaling_factor);
+	  fprintf(file,"  All    %12.2f  %12.2f  %12.2f  %12.2f\n[Scaling factor = %f]\n",
+		  bfsum, bfsum2, sallratio, hsum, scaling_factor);
 	}
       if(world->loci>1)
 	{
@@ -225,8 +222,8 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
     }
   fprintf(file,"\n\n(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures\n");
   fprintf(file,"(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!\n");
-  //future fprintf(file,"(2)  SS: Steppingstone Sampling (Xie et al 2011)\n");
-  fprintf(file,"(2)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance\n\n");
+  fprintf(file,"(2)  SS: Steppingstone Sampling (Xie et al. 2011)\n");
+  fprintf(file,"(3)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance\n\n");
   
   pdf_bayes_factor_comment(world, scaling_factor);
 }

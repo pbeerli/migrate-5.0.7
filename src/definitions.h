@@ -36,7 +36,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
-#define MIGRATEVERSION "6.1.38"
+#define MIGRATEVERSION "6.1.39"
 #define MIGRATESUBVERSION "October-2-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"

@@ -2617,24 +2617,8 @@ bayes_update (world_fmt * world)
     world->logprior = calculate_prior(world);
     //if(which==0)
     //printf("%i> which=%li (%li) param=%f oldparam=%f\n", myID, which, w, world->param0[w],oldparam[w])
-    double v = (newval + world->likelihood[world->G]) * world->heat + world->logprior;
-    long ii = world->locus * world->options->heated_chains + world->heatid;
-    if (world->steppingstone_counters[ii] < 1.0)
-      {
-      	world->steppingstone_scalars[ii] = v;
-	world->steppingstone_counters[ii] += 1;
-      }
-    if (world->steppingstone_scalars[ii] < v)
-      {
-	world->steppingstones[ii] *= exp(world->steppingstone_scalars[ii] - v);
-	world->steppingstone_scalars[ii] = v;
-	world->steppingstones[ii] += 1.0;
-      }
-    else
-      {
-	world->steppingstones[ii] += exp(v-world->steppingstone_scalars[ii]);
-      }
-    
+    /* the stepping-stone terms are collected per sample in calculate_BF()
+       (marginallike.c) */
     //printf("[%li] @Steppingstone[%li]: %f %f\n",world->heatid,ii,world->steppingstones[ii], world->steppingstone_scalars[ii]);
     if(success)
       {
