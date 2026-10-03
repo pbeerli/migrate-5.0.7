@@ -1695,6 +1695,9 @@ typedef struct _world
   double *steppingstones;
   double *steppingstone_scalars;
   double *steppingstone_counters;
+  /* adaptive heating: samples of log L binned by beta (TI_NBINS bins on a
+     beta^(1/4) scale per locus: count, sum of log L, sum of beta) */
+  double *tibins;
   boolean has_growth;
   double *growth; // contains growth values: growpops={1,1,1,1} => growth={x},growpop={1,2,1} => growth={x1,x2}
   double *savegrowth;

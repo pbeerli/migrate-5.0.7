@@ -2808,7 +2808,8 @@ pack_result_buffer (MYREAL **buffer, world_fmt * world,
     addon = 1;
   
   bufsize = (maxrep+addon) + (maxrep+addon) * 4 * nn + maxrep * world->options->lsteps + \
-    world->options->heated_chains * world->loci + 5 * world->loci + 1 + nn * 2 + nn*6 + 2 * world->options->heated_chains;
+    world->options->heated_chains * world->loci + 5 * world->loci + 1 + nn * 2 + nn*6 + 2 * world->options->heated_chains
+    + 3 * TI_NBINS;
   (*buffer) = (MYREAL *) myrealloc (*buffer, sizeof (MYREAL) * bufsize);
   memset (*buffer, 0, sizeof (MYREAL) * bufsize);
   
@@ -3352,7 +3353,7 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
       bufsize += npp*npp;
     }
   // 2 + 3*heatedchains pack_BF_buffer
-  bufsize += 2 + 3 * world->options->heated_chains;
+  bufsize += 2 + 3 * world->options->heated_chains + 3 * TI_NBINS;
   // 2*(npp+1) pack_ess_buffer
   bufsize += 2 * (npp+1);
   // 6*npp pack_hyper
@@ -3598,6 +3599,8 @@ long unpack_BF_buffer(MYREAL *buffer, long start, long locus, world_fmt * world)
 	  world->steppingstone_scalars[ii] = scalar;
 	}
     }
+  for(i=0; i < 3 * TI_NBINS; i++)
+    world->tibins[3 * TI_NBINS * locus + i] += buffer[z++];
   myfree(ttemp);
   return z;
 }
@@ -3690,6 +3693,9 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
       (*buffer)[z++] = world->steppingstones[locus * hc + i];
       (*buffer)[z++] = world->steppingstone_scalars[locus * hc + i];
     }
+  // adaptive heating: log L binned by beta (counts and sums add up)
+  for(i=0; i < 3 * TI_NBINS; i++)
+    (*buffer)[z++] = world->tibins[3 * TI_NBINS * locus + i];
 #ifdef DEBUG
   printf("%i> packbuffer: z=%li - %li\n",myID,z-hc-2,z);
   for(ii=z-hc-2;ii<z;ii++)
@@ -5223,7 +5229,8 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
     }
 
     // BF material
-  bufsize = world->options->heated_chains * world->loci + 5 * world->loci + 20 * (npp+1) + 6 * npp;
+  bufsize = world->options->heated_chains * world->loci + 5 * world->loci + 20 * (npp+1) + 6 * npp
+    + 3 * TI_NBINS;   /* pack_BF_buffer(): the beta bins of adaptive heating */
   buffer = (MYREAL *) myrealloc (buffer, bufsize *  sizeof (MYREAL));
   bufsize = 0;
   if(!world->data->skiploci[locus])
