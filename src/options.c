@@ -3935,12 +3935,11 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_mutable(&bufsize, buffer, allocbufsize,"nmlength=%li", options->nmlength);
   print_parm_br(&bufsize, buffer, allocbufsize);
   print_parm_br(&bufsize, buffer, allocbufsize);
-  print_parm_comment(&bufsize, buffer, allocbufsize,"If you long runs fails because of timelimits");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"AND you have specified bayes-allfile=YES....");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"then you can recover and continue");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"by setting recover to yes, default is NO");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"This option fails if your bayesallfile is complete!");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"At the moment, I have no experience about failure rate etc. [March 30 2015]");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"If a long run stops (time limit, crash) AND bayes-allfile=YES was set,");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"rerun the same parmfile with recover=YES: loci whose samples are all in");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"the bayesallfile are skipped (their marginal-likelihood sums come from");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"<bayesallfile>.ckpt.<locus>), an interrupted locus continues, the others");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"run. Serial and MPI; default is NO.");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         recover=<YES | NO> ");
   print_parm_br(&bufsize, buffer, allocbufsize);
   print_parm_title(&bufsize, buffer, allocbufsize, "Data options");

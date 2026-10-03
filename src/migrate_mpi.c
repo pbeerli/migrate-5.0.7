@@ -35,6 +35,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "assignment.h"
 #include "sighandler.h"
 #include "migrate_mpi.h"
+#include "marginallike.h"
 #include "migevents.h"
 #include "pretty.h"
 #include "options.h"
@@ -764,6 +765,9 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
 	      }
 	  }
       }
+    /* locus checkpoint: the marginal-likelihood sums of this finished
+       locus (recover=YES restores them, marginallike.c) */
+    ckpt_write_locus (universe[0], options, locus);
 #ifdef UEP
     if (options->uep)
       show_uep_store(universe[0]);
@@ -3587,6 +3591,8 @@ long unpack_BF_buffer(MYREAL *buffer, long start, long locus, world_fmt * world)
       double stone = buffer[z++];
       double scalar = buffer[z++];
       long ii = locus * hc + i;
+      if (stone == 0.0)   /* nothing sampled (e.g. a locus skipped by recover) */
+        continue;
       if(world->steppingstones[ii] !=0.0)
 	{
 	  world->steppingstones[ii] *= exp(world->steppingstone_scalars[ii]-scalar);
