@@ -36,6 +36,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "sighandler.h"
 #include "migrate_mpi.h"
 #include "marginallike.h"
+#include "joint_combine.h"
 #include "migevents.h"
 #include "pretty.h"
 #include "options.h"
@@ -1279,6 +1280,9 @@ mpi_maximize_worker (world_fmt * world, option_fmt *options, long kind, long rep
 	  break;
 	case MIGMPI_SEQERROR:
 	  mpi_results_worker((long) temp[0], world, repstop, pack_seqerror_buffer);
+	  break;
+        case MIGMPI_JC: // evaluate this rank's loci for the joint multi-locus combination
+	  jc_worker_service (world, (long) temp[1]);
 	  break;
 	case MIGMPI_ASSIGN:
 	  mpi_results_worker((long) temp[0], world, repstop, pack_assign_buffer);
@@ -5185,6 +5189,13 @@ mpi_receive_replicate(int sender, int tag, long locus, long replicate, world_fmt
       MYMPIRECV (buffer, bufsize, mpisizeof, (MYINT) sender, (MYINT) tag, comm_world, &status);
       unpack_seqerror_buffer(buffer,world,locus,replicate, world->numpop);
     }
+  if(jc_in_memory(world)) // per-genealogy statistics for the joint combination
+    {
+      MYMPIRECV (&bufsize, ONE, MPI_LONG, (MYINT) sender, (MYINT) tag, comm_world, &status);
+      buffer = (MYREAL *) myrealloc (buffer, bufsize * sizeof (MYREAL));
+      MYMPIRECV (buffer, bufsize, mpisizeof, (MYINT) sender, (MYINT) tag, comm_world, &status);
+      jc_unpack_buffer(buffer, world, locus, replicate, world->numpop);
+    }
     myfree(buffer);
 }
 
@@ -5270,6 +5281,13 @@ mpi_send_replicate(int sender, long locus,  long replicate, world_fmt * world)
       bufsize = pack_seqerror_buffer(&buffer, world, locus, replicate,world->numpop);
       MYMPISEND (&bufsize, ONE, MPI_LONG, (MYINT) sender, (MYINT) (locus+1+ REPTAG), comm_world);
       MYMPISEND (buffer, bufsize, mpisizeof, (MYINT) sender, (MYINT) (locus+1 + REPTAG), comm_world);
+    }
+  if(jc_in_memory(world)) // per-genealogy statistics for the joint combination
+    {
+      bufsize = jc_pack_buffer(&buffer, world, locus, replicate, world->numpop);
+      MYMPISEND (&bufsize, ONE, MPI_LONG, (MYINT) sender, (MYINT) (locus+1+ REPTAG), comm_world);
+      MYMPISEND (buffer, bufsize, mpisizeof, (MYINT) sender, (MYINT) (locus+1 + REPTAG), comm_world);
+      jc_clear_locus(world, locus); // the locus worker now holds them
     }
   myfree(buffer);
 }

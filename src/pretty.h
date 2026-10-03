@@ -67,6 +67,7 @@ extern void pdf_print_averageheat(world_fmt **universe, option_fmt *options);
 // BAYES OUTPUTS
 // print bayes table
 extern void pdf_print_bayestable(world_fmt *world);
+extern void pdf_joint_mcerr_table(world_fmt *world);
 // print histogram at location lx ly with widht and height
 extern void pdf_histogram(double *binvals, char *set50, char *set95, long bins, double bindelta, double binmin, double binmax, double lx, double ly, double width, double height, boolean nofreq, MYREAL *priors);
 extern void pdf_histogram_plus(double *binvals, MYREAL *std, char *set50, char *set95, long bins, double bindelta, double binmin, double binmax, double lx, double ly, double width, double height, MYREAL scaler, boolean nofreq, world_fmt * world, double *confidence, long topop);

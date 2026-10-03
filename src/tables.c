@@ -7,6 +7,7 @@
 #include "migration.h"
 #include "bayes.h"
 #include "marginallike.h"
+#include "joint_combine.h"
 #include "pretty.h"
 #include "reporter.h"
 #include "migrate_mpi.h"
@@ -232,13 +233,34 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
       sallratio += scaling_factor;
       if(world->loci>1)
 	{
+	  double jlogc, jerr;
 	  fprintf(file,"---------------------------------------------------------------\n");
-	  fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f\n[Scaling factor = %f]\n",
-		  bfsum, bfsum2, ss_str (sallratio, ssb), hsum, scaling_factor);
+	  if (jc_joint_scaling (world, &jlogc, &jerr))
+	    {
+	      /* the joint multi-locus combination: the same per-locus sums with
+		 the joint scaling factor instead of the one that treats every
+		 parameter as independent of the others */
+	      const double dj = jlogc - scaling_factor;
+	      fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f   (independent parameters)\n",
+		      bfsum, bfsum2, ss_str (sallratio, ssb), hsum);
+	      fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f   (joint)\n",
+		      bfsum + dj, bfsum2 + dj, ss_str (sallratio + dj, ssb), hsum + dj);
+	      fprintf(file,"[Scaling factor: independent parameters = %f, joint = %f (MC error %f)]\n",
+		      scaling_factor, jlogc, jerr);
+	    }
+	  else
+	    fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f\n[Scaling factor = %f]\n",
+		    bfsum, bfsum2, ss_str (sallratio, ssb), hsum, scaling_factor);
 	}
       if(world->loci>1)
 	{
+	  double jlogc, jerr;
 	  pdf_bayes_factor_rawscores(-1L, bfsum, bfsum2, sallratio,hsum);
+	  if (jc_joint_scaling (world, &jlogc, &jerr))
+	    {
+	      const double dj = jlogc - scaling_factor;
+	      pdf_bayes_factor_rawscores(-2L, bfsum + dj, bfsum2 + dj, sallratio + dj, hsum + dj);
+	    }
 	}
     }
   else   // -----------------------------------------not heating

@@ -653,6 +653,8 @@ typedef struct _bayes
   long *trials; //holds how many time was tried to change a parameter
   // holds histogram for each locus and summary statistics
   bayeshistogram_fmt *histogram;
+  boolean jointrow; /* histogram[loci + 1] holds the product of the per-locus marginals,
+                      histogram[loci] the joint multi-locus combination */
   MYREAL *deltahist; // delta for all histograms per parameters [important for multilocus case 
   char * custm2; //pointer to the world->options->custm2;
   boolean mu;
@@ -1698,6 +1700,7 @@ typedef struct _world
   /* adaptive heating: samples of log L binned by beta (TI_NBINS bins on a
      beta^(1/4) scale per locus: count, sum of log L, sum of beta) */
   double *tibins;
+  void *jointstats; // per-locus genealogy statistics for the joint multi-locus combination (joint_combine.c)
   boolean has_growth;
   double *growth; // contains growth values: growpops={1,1,1,1} => growth={x},growpop={1,2,1} => growth={x1,x2}
   double *savegrowth;

@@ -58,6 +58,7 @@
 //#include "lrt.h"
 
 #include "marginallike.h"
+#include "joint_combine.h"
 #include "mcmc.h"
 #include "menu.h"
 #include "migevents.h"
@@ -556,6 +557,7 @@ main (int argc, char **argv)
     printf("%i> before opening files for master and 'pointers' for workers  at %s\n",myID,nowstr);
 #endif
     init_files (EARTH, data, options);
+    jc_set_run_options (options->outfilename, options->checkpointing); /* joint_combine.c */
 #ifdef DEBUG
     get_time (nowstr, "%c");
     printf("%i> files are now open and ready at %s\n", myID, nowstr);
@@ -1543,6 +1545,7 @@ condense_time (world_fmt * world, long *step, long *j, MYREAL * accepted,
 	      world->bayes->oldval = probg_treetimes(world);
 	    }
 	  bayes_save (world, *step * world->options->lincr);
+	  jc_record_sample (world); /* joint multi-locus combination */
 	  store_events(world, world->treetimes, world->numpop, rep);
 	  *accepted += *j;
 	  return;

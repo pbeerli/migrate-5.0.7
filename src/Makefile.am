@@ -15,7 +15,8 @@ COMMON_SOURCES = \
     savitzky_golay.c \
     sighandler.c skyline.c skyparam.c slice.c sort.c speciate.c tools.c \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
-    mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c mlf_hastings.c
+    mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c mlf_hastings.c \
+    joint_combine.c
 
 # Not compiled directly, but every one of them is #included by the
 # sources above -- listing them here is what makes `make dist` actually

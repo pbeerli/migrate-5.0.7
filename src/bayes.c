@@ -44,6 +44,7 @@
 #include "migration.h"
 #include "options.h"
 #include "bayes.h"
+#include "joint_combine.h"
 #include "random.h"
 #include "tools.h"
 #include "sighandler.h"
@@ -3232,9 +3233,11 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
     bayes->histtotal = (MYREAL *) mycalloc((world->loci * npp), sizeof(MYREAL));
     bayes->prettyhist = options->bayespretty;
     bayes->mdiminterval = options->bayesmdiminterval;
-    bayes->histogram = (bayeshistogram_fmt *) mycalloc(world->loci + 1,sizeof(bayeshistogram_fmt));
+    /* loci + 1: the product of the per-locus marginals ("All") when the
+       joint combination fills histogram[loci] ("Joint") */
+    bayes->histogram = (bayeshistogram_fmt *) mycalloc(world->loci + 2,sizeof(bayeshistogram_fmt));
     
-    for(loc=0; loc < world->loci + sumloc; loc++)
+    for(loc=0; loc < world->loci + 2 * sumloc; loc++)
     {
         hist = &(bayes->histogram[loc]);
         hist->bins = (long *) mycalloc(npp, sizeof(long));
@@ -3406,6 +3409,16 @@ void bayes_free(world_fmt *world)
                 
             }
         }
+        if (sumloc)
+          {   /* the copy of the marginal product ("All" next to "Joint") */
+            bayeshistogram_fmt *h = &world->bayes->histogram[world->loci + 1];
+            myfree(h->bins);
+            myfree(h->datastore);
+            myfree(h->smoothed);
+            myfree(h->results);
+            myfree(h->results2);
+            myfree(h->set95);
+          }
         myfree(world->bayes->histogram);
     }
     myfree(world->bayes->datastore);
@@ -3509,6 +3522,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     }
 #ifdef PRETTY
     pdf_print_bayestable(world);
+    pdf_joint_mcerr_table(world); /* no-op without the joint multi-locus combination */
     if(world->options->allposteriors==TRUE)
     {
         for(locus=0;locus<world->loci;locus++)
@@ -3525,7 +3539,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
     // them 2.5%/25%/75%/97.5% was misleading.
     FPRINTF(world->outfile,"Locus Parameter       HPD95lo  HPD50lo     mode  HPD50hi  HPD95hi   median     mean\n");
     FPRINTF(world->outfile,"-----------------------------------------------------------------------------------\n");
-    for(locus=0; locus <= lozi; locus++)
+    for(locus=0; locus <= lozi + (bayes->jointrow && lozi > 0 ? 1 : 0); locus++)
     {
         if(locus<world->loci)
         {
@@ -3534,7 +3548,16 @@ void bayes_stat(world_fmt *world, data_fmt *data)
         }
         hist = &bayes->histogram[locus];
         if(locus == world->loci)
+          {   /* the product of the per-locus marginals */
             strcpy(st,"  All ");
+            if (bayes->jointrow)
+              hist = &bayes->histogram[world->loci + 1];
+          }
+        else if(locus == world->loci + 1)
+          {   /* the joint multi-locus combination */
+            strcpy(st,"Joint ");
+            hist = &bayes->histogram[world->loci];
+          }
         else
 	  mysnprintf(st,7, "%5li ", locus + 1);
         
@@ -3615,7 +3638,8 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	      fmt = 2;
 	      break;
 	    }
-	  FPRINTF(world->outfile,"%5s ", st);
+	  /* Joint* : too noisy, the row shows All (joint_combine.c bootstrap guard) */
+	  FPRINTF(world->outfile,"%5s ", (locus == world->loci + 1 && jc_param_flagged(world, j)) ? "Joint*" : st);
 	  FPRINTF(world->outfile, "%-15.15s",stemp);
 	  FPRINTF(world->outfile,"%8.*f %8.*f %8.*f %8.*f %8.*f %8.*f %8.*f\n",
 		  fmt, hist->cred95l[j], fmt, hist->cred50l[j], fmt, hist->modes[j],
@@ -3628,7 +3652,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	      threshold =  0.9 * bayes->maxparam[j];
 	      if(hist->cred95u[j] > threshold && hist->cred50u[j] > threshold)
 		{
-		  if(locus == lozi && locus>0)
+		  if(locus >= lozi && locus>0)
 		    record_warnings(world,"Param %li (all loci): Upper prior boundary seems too low! ",j+1);
 		  else
 		    record_warnings(world,"Param %li (Locus %i): Upper prior boundary seems too low! ", j+1,locus+1);
@@ -3639,7 +3663,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	  {
 	    FPRINTF(world->outfile,"%5.5s ", st);
 	    j0=world->numpop2;
-	    if(locus==lozi && lozi>1)
+	    if(locus>=lozi && lozi>1)   /* All and Joint */
 	      {
                 meanmu = 0.;
                 for(l=0;l<world->loci;l++)
@@ -3665,6 +3689,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	  }
     } // over all +1 loci
     FPRINTF(world->outfile,"-----------------------------------------------------------------------------------\n");
+    jc_print_note(world, world->outfile);
     if(bayes->mu)
       {
         mutot = 0;
@@ -5267,6 +5292,9 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
     }
     myfree(parts);
     myfree(smoothy);
+    /* smoothy is bayes->histogram[locus].smoothed: clear it, else a later
+       call (or bayes_free()) uses or frees the released block again */
+    bayes->histogram[locus].smoothed = NULL;
 }
 //
 // combines over loci
@@ -5541,6 +5569,26 @@ void bayes_combine_loci(world_fmt * world)
   long i;
   for (i=0; i<bayes->histogram[loci].binsum;i++)
     target->results[i] = results[i];
+  // the joint multi-locus combination (joint_combine.c) replaces this
+  // product of per-locus marginals for every model it handles; the product
+  // is kept in histogram[loci + 1] and reported next to it ("All", "Joint")
+  bayes->jointrow = FALSE;
+  if (jc_combine(world))
+    {
+      bayeshistogram_fmt *old = &bayes->histogram[loci + 1];
+      old->binsum = target->binsum;
+      memcpy(old->bins, target->bins, sizeof(long) * (size_t) old->numparam);
+      memcpy(old->datastore, target->datastore, sizeof(MYREAL) * (size_t) (11 * old->numparam));
+      myfree(old->results);
+      myfree(old->set95);
+      old->results = (double *) mycalloc((size_t) (target->binsum + 1), sizeof(double));
+      memcpy(old->results, target->results, sizeof(double) * (size_t) target->binsum);
+      old->set95 = (char *) mycalloc((size_t) (target->binsum * 2 + 2), sizeof(char));
+      old->set50 = old->set95 + target->binsum + 1;
+      calc_hpd_credibility(world, loci + 1, world->numpop2, np2);
+      bayes->jointrow = TRUE;
+      jc_fill_histogram(world, target);
+    }
     //covariance_summary(world);
     /// calculate the credibility intervals, histograms, means etc
   calc_hpd_credibility(world, loci, world->numpop2, np2);
