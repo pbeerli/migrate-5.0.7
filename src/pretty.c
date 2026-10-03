@@ -30,6 +30,7 @@
 //#ifdef PRETTY
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
 #include "pretty.h"
+#include "joint_combine.h"
 #include "data.h"
 #include "options.h"
 #include "migevents.h"
@@ -1675,8 +1676,10 @@ void pdf_print_bayestable(world_fmt *world)
     long frompop;
     long topop;
     long locus;
-    long end = world->loci > 1 ? world->loci + 1 : 1;
-    long start = world->options->tersepdf ? end - 1 : 0;
+    /* rows: loci, All (product of the per-locus marginals) and, when the
+       joint multi-locus combination ran, Joint */
+    long end = world->loci > 1 ? world->loci + 1 + (bayes->jointrow ? 1 : 0) : 1;
+    long start = world->options->tersepdf ? (world->loci > 1 ? world->loci : 0) : 0;
     //column to to right-align the table columns
     offset = (double *) mycalloc(9,sizeof(double));
     offset[0] = -1; //left align
@@ -1700,14 +1703,23 @@ void pdf_print_bayestable(world_fmt *world)
     pdf_advance(&page_height);
     for(locus=start; locus < end; locus++)
     {
-        if(world->data->skiploci[locus])
+        if(locus < world->loci && world->data->skiploci[locus])
 	  continue;
 	else
 	  {
             mu = 1.0; //used to adjust values for rate estimates for others this is 1.
             hist = &bayes->histogram[locus];
             if(locus == world->loci)
+              {
                 strcpy(st,"  All ");
+                if (bayes->jointrow)   /* the product of the per-locus marginals */
+                  hist = &bayes->histogram[world->loci + 1];
+              }
+            else if(locus == world->loci + 1)
+              {
+                strcpy(st,"Joint ");
+                hist = &bayes->histogram[world->loci];
+              }
             else
                 mysnprintf(st,STRSIZE,"%5li ",locus + 1);
             
@@ -1717,7 +1729,9 @@ void pdf_print_bayestable(world_fmt *world)
 		{
 		  continue;
 		}
-	      pdf_print_line_element(lx, page_height, offset[0], st);
+	      /* "Joint*": too noisy, the row shows All */
+	      pdf_print_line_element(lx, page_height, offset[0],
+				     (locus == world->loci + 1 && jc_param_flagged(world, j)) ? "Joint*" : st);
 	      if(j < world->numpop)
                 {
 		  pdf_print_line_theta(lx, page_height, offset[1], j0);
@@ -1746,7 +1760,7 @@ void pdf_print_bayestable(world_fmt *world)
 	      else if (world->bayes->mu && j==world->numpop2)
 		{
 		  // rate modifier used
-		  if(locus==world->loci && end>1)
+		  if(locus>=world->loci && end>1)
 		    {
 		      meanmu = 0.;
 		      for(l=0;l<world->loci;l++)
@@ -1838,7 +1852,94 @@ void pdf_print_bayestable(world_fmt *world)
 	  } // only when loci contains info
     } // over all loci
     myfree(offset);
+    if (bayes->jointrow && world->loci > 1)
+    {   /* what the two combined rows are */
+        long jj0, jj, nf = 0;
+        pdf_advance(&page_height);
+        pdf_printf(left_margin, page_height, 'L', "%s",
+                   "All: the product of the per-locus marginal posteriors (each parameter on its own);");
+        pdf_advance(&page_height);
+        pdf_printf(left_margin, page_height, 'L', "%s",
+                   "Joint: the joint multi-locus combination (used by the posterior plots).");
+        for (jj0 = 0; jj0 < world->numparam; jj0++)
+            if (!shortcut(jj0, world, &jj) && jj == jj0 && jc_param_flagged(world, jj))
+                nf++;
+        if (nf > 0)
+        {
+            pdf_advance(&page_height);
+            pdf_printf(left_margin, page_height, 'L', "%s",
+                       "Joint*: too noisy (too few genealogies fit the joint region); the row, the plots");
+            pdf_advance(&page_height);
+            pdf_printf(left_margin, page_height, 'L', "%s",
+                       "and the other tables use All (see the Monte Carlo error table).");
+        }
+        pdf_advance(&page_height);
+    }
     pdf_print_citation("Bayesian inference", world);
+}
+
+/// the Monte Carlo error table of the joint multi-locus combination (rows
+/// from jc_mcerr_rows()) on a new page
+void pdf_joint_mcerr_table(world_fmt *world)
+{
+  static const char *heads[8] = {"Parameter", "Median", "MC error", "Block low", "Block high",
+                                 "Post. sd", "Boot err", "Status"};
+  static const double xs[8] = {55, 160, 215, 270, 325, 380, 435, 490};
+  jc_mcerr_row *rows;
+  long n, i, c, nblock;
+  boolean byrep;
+  double bootess, w, page_width;
+  char title[LINESIZE], line[LINESIZE], cell[8][64];
+  n = jc_mcerr_rows(world, &rows);
+  if (n == 0)
+    return;
+  jc_mcerr_info(world, &nblock, &byrep, &bootess);
+  left_margin = 55;
+  mysnprintf(title, LINESIZE, "Joint multi-locus combination: Monte Carlo errors");
+  pdf_new_page("");
+  HPDF_Page_SetFontAndSize(page, helvob, 16.0);
+  w = (double) HPDF_Page_TextWidth(page, title);
+  page_height = (double) HPDF_Page_GetHeight(page);
+  page_width = (double) HPDF_Page_GetWidth(page);
+  pdf_print_contents_at((page_width - w) / 2, page_height - 100, title);
+  HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
+  page_height -= 126;
+  pdf_draw_line(50, page_height, page_width - 50, page_height);
+  HPDF_Page_SetFontAndSize(page, helv, 10.0);
+  pdf_advance(&page_height);
+  mysnprintf(line, LINESIZE, "MC error: the combination repeated on %li %s; a lower bound for the", nblock,
+             byrep ? "groups of replicates" : "stretches of each locus' chain");
+  pdf_print_contents_at(left_margin, page_height, line);
+  pdf_advance(&page_height);
+  pdf_print_contents_at(left_margin, page_height,
+                        "differences between independent runs. Boot err: genealogy-sampling error (block bootstrap");
+  pdf_advance(&page_height);
+  mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: too noisy, All used.",
+             bootess);
+  pdf_print_contents_at(left_margin, page_height, line);
+  pdf_advance(&page_height);
+  pdf_advance(&page_height);
+  for (c = 0; c < 8; c++)
+    pdf_print_contents_at(xs[c], page_height, (char *) heads[c]);
+  pdf_advance(&page_height);
+  pdf_draw_line(50, page_height, page_width - 50, page_height);
+  pdf_advance(&page_height);
+  for (i = 0; i < n; i++)
+    {
+      jc_mcerr_row *r = &rows[i];
+      mysnprintf(cell[0], 64, "%.24s", r->name);
+      mysnprintf(cell[1], 64, "%.5g", r->median);
+      mysnprintf(cell[2], 64, "%.4g", r->mcerr);
+      mysnprintf(cell[3], 64, "%.5g", r->blo);
+      mysnprintf(cell[4], 64, "%.5g", r->bhi);
+      mysnprintf(cell[5], 64, "%.4g", r->sd);
+      if (r->booterr < 0.0) mysnprintf(cell[6], 64, "-"); else mysnprintf(cell[6], 64, "%.4g", r->booterr);
+      mysnprintf(cell[7], 64, "%s", r->flagged ? "Joint*" : (r->ratio > 0.25 ? "large MC" : "ok"));
+      for (c = 0; c < 8; c++)
+        pdf_print_contents_at(xs[c], page_height, cell[c]);
+      pdf_advance(&page_height);
+    }
+  myfree(rows);
 }
 
 
@@ -2344,7 +2445,9 @@ void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo,
 
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
-    if(locus<0)
+    if(locus == -2)   /* the joint multi-locus combination, under All */
+        pdf_printf_right(left_margin+20, page_height,"Joint");
+    else if(locus<0)
     {
         pdf_draw_line(50, page_height,  page_width-50, page_height);
         pdf_advance(&page_height);
@@ -2429,7 +2532,19 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     }
     if(world->loci>1)
     {
-        pdf_printf(left_margin, page_height,'L',"[Scaling factor = %f]", scaling_factor);
+        double jlogc, jerr;
+        if (jc_joint_scaling(world, &jlogc, &jerr))
+        {
+            pdf_printf(left_margin, page_height, 'L',
+                       "All: scaling factor %f, treating the parameters as independent of each other;",
+                       scaling_factor);
+            pdf_advance(&page_height);
+            pdf_printf(left_margin, page_height, 'L',
+                       "Joint: scaling factor %f (MC error %f) from the joint multi-locus combination",
+                       jlogc, jerr);
+        }
+        else
+            pdf_printf(left_margin, page_height,'L',"[Scaling factor = %f]", scaling_factor);
     }
     pdf_advance(&page_height);
     pdf_print_citation( "Marginal likelihood", world);

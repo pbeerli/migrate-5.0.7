@@ -80,6 +80,7 @@ extern int profiledone;
 #define MIGMPI_PARALIO 11
 #define MIGMPI_ASSIGN 12
 #define MIGMPI_SEQERROR 13
+#define MIGMPI_JC 14   /* joint multi-locus combination: evaluate this rank's loci */
 #ifdef MPI
 
 #ifndef PTHREADS

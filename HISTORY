@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.42 Joint multi-locus combination (from codex-7 7.0.67): the
+             Bayesian estimates and the marginal likelihood are reported as
+             'All' (product of the per-locus marginals, as before) and
+             'Joint' (joint combination; Joint* = too noisy, All used), with
+             a Monte Carlo error table; not for skyline, S/M models. Fixed a
+             double free of the histogram smoothing flags.
+
 October 3    Migrate 6.1.41 recover=YES (with bayes-allfile) restores the marginal-likelihood
              sums of the loci finished before a crash (new checkpoint file
              per locus); works serial and MPI. Fixed the 6.1.40 flood of
