@@ -201,8 +201,33 @@ void calculate_BF(world_fmt **universe, option_fmt *options)
 	    {
 	      warning("am or likelihood failed: am=%f",myID, locus, i,world->am[locus]);
 	    }
-	  world->steppingstones[ii] = universe[i]->steppingstones[ii];
-	  world->steppingstone_scalars[ii] = universe[i]->steppingstone_scalars[ii];
+	  /* stepping stones (Xie et al. 2011): for every chain but the cold
+	     one, the running mean of L^(beta_{i-1} - beta_i) from the hotter
+	     chain i, as steppingstones[ii] * exp(steppingstone_scalars[ii])
+	     (rescaled to the largest term) */
+	  if (i > 0)
+	    {
+	      const double x = (universe[i-1]->heat - universe[i]->heat) * xx;
+	      const double n = world->am[locus];
+	      if (n <= 1.0)
+		{
+		  world->steppingstone_scalars[ii] = x;
+		  world->steppingstones[ii] = 1.0;
+		}
+	      else if (x > world->steppingstone_scalars[ii])
+		{
+		  world->steppingstones[ii] *= EXP(world->steppingstone_scalars[ii] - x);
+		  world->steppingstone_scalars[ii] = x;
+		  world->steppingstones[ii] += (1.0 - world->steppingstones[ii]) / n;
+		}
+	      else
+		world->steppingstones[ii] += (EXP(x - world->steppingstone_scalars[ii]) - world->steppingstones[ii]) / n;
+	    }
+	  else
+	    {
+	      world->steppingstones[ii] = 1.0;   /* log 1 = 0: no ratio for the cold chain */
+	      world->steppingstone_scalars[ii] = 0.0;
+	    }
 #ifdef DEBUG
 	  //  printf("%f ",world->bf[locus * hc + i]); 
 #endif
@@ -304,3 +329,19 @@ void      print_marginal_like(char *temp, long *c, world_fmt * world)
 #endif
 }
 #endif /*not MPI*/
+
+/// stepping-stone log marginal likelihood of one locus: the sum over the
+/// heated chains of log mean L^(beta_{i-1} - beta_i) (samples of the
+/// hotter chain i), plus beta_min E[log L] for the step from the hottest
+/// chain to beta = 0
+double ss_locus_logml (world_fmt *world, long locus)
+{
+  const long hc = world->options->heated_chains;
+  double sum = 0.0;
+  long i;
+  for (i = 1; i < hc; i++)
+    sum += log (world->steppingstones[locus * hc + i]) + world->steppingstone_scalars[locus * hc + i];
+  if (hc > 0 && world->options->heat[hc - 1] > 0.0)
+    sum += world->bf[locus * hc + hc - 1] / world->options->heat[hc - 1];
+  return sum;
+}

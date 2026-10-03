@@ -2332,9 +2332,8 @@ void pdf_bayes_factor_rawscores_header(world_fmt *world, option_fmt *options)
     pdf_print_contents_at(left_margin, page_height, "Locus");
     pdf_print_contents_at(170, page_height, "TI(1a)");
     pdf_print_contents_at(270, page_height, "BTI(1b)");
-    //pdf_print_contents_at(380, page_height, "SS(2)");
-    //pdf_print_contents_at(495, page_height, "HS(3)");
-    pdf_print_contents_at(380, page_height, "HS(3)");
+    pdf_print_contents_at(380, page_height, "SS(2)");
+    pdf_print_contents_at(495, page_height, "HS(3)");
     pdf_advance(&page_height);
     pdf_draw_line(50, page_height, page_width-50, page_height);
     pdf_advance(&page_height);
@@ -2342,7 +2341,6 @@ void pdf_bayes_factor_rawscores_header(world_fmt *world, option_fmt *options)
 
 void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo, MYREAL ss, MYREAL harmo)
 {
-  (void) ss;
 
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
@@ -2356,12 +2354,11 @@ void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo,
         pdf_printf_right(left_margin+20, page_height,"%5li", locus+1);
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
-    //pdf_printf_right(407, page_height,"   %12.2f", ss);
-    //pdf_printf_right(520, page_height,"   %12.2f", harmo);
-    pdf_printf_right(407, page_height,"   %12.2f", harmo);
+    pdf_printf_right(407, page_height,"   %12.2f", ss);
+    pdf_printf_right(520, page_height,"   %12.2f", harmo);
     pdf_advance(&page_height);
 }
-void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL beziertermo, double harmo)
+void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL beziertermo, MYREAL ss, double harmo)
 {
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
@@ -2373,9 +2370,8 @@ void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL bezie
       pdf_printf_right(left_margin+20, page_height,"Highest");
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
-    //pdf_printf_right(407, page_height,"   %12.2f", ss);
-    //pdf_printf_right(520, page_height,"   %12.2f", harmo);
-    pdf_printf_right(407, page_height,"   %12.2f", harmo);
+    pdf_printf_right(407, page_height,"   %12.2f", ss);
+    pdf_printf_right(520, page_height,"   %12.2f", harmo);
     pdf_advance(&page_height);
 }
 
@@ -2409,8 +2405,8 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     pdf_printf(left_margin, page_height,'L',"(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures\n");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L',"(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!\n");
-    //pdf_advance(&page_height);
-    //pdf_printf(left_margin, page_height,'L',"(2)  SS: Steppingstone Sampling (Xie et al 2011)\n");
+    pdf_advance(&page_height);
+    pdf_printf(left_margin, page_height,'L',"(2)  SS: Steppingstone Sampling (Xie et al. 2011)\n");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L',"(3)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance\n\n");
     pdf_advance(&page_height);

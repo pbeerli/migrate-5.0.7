@@ -15,6 +15,7 @@ extern void      print_marginal_like(float *temp, long *z, world_fmt * world);
 #else /*not MPI*/
 extern void      print_marginal_like(char *temp, long *c, world_fmt * world);
 #endif
+extern double ss_locus_logml (world_fmt *world, long locus);
 extern MYREAL sumbezier(long intervals, MYREAL x0, MYREAL y0, MYREAL x1, MYREAL y1, MYREAL x2, MYREAL y2, MYREAL *ratio);
 
 #endif
