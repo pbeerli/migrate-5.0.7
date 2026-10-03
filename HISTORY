@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.43 Sequence and SNP sites share one memory block per individual and
+             locus (a 1000-locus x 10000-site file: 5.1 -> 2.5 GB on the master).
+
 October 3    Migrate 6.1.42 Joint multi-locus combination (from codex-7 7.0.67): the
              Bayesian estimates and the marginal likelihood are reported as
              'All' (product of the per-locus marginals, as before) and

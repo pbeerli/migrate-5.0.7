@@ -228,7 +228,7 @@ MYREAL calc_pseudotreelength (proposal_fmt * proposal, MYREAL treelen);
 void free_mignodelet (node * p, world_fmt * world);
 void debugline(node *up);
 
-void myfree_datapart(site_fmt ***datapart,  long numsites);
+void myfree_datapart(site_fmt ***datapart,  long numsites, boolean character);
 
 //##
 
@@ -1483,22 +1483,15 @@ allocate_tip (world_fmt * world, option_fmt * options, node ** p, long pop,
 #endif
 }
 
-void myfree_datapart(site_fmt ***datapart, long numsites)
+void myfree_datapart(site_fmt ***datapart, long numsites, boolean character)
 {
-  long site;
   if (*datapart != NULL)
     {
-      for(site=0;site<numsites;site++)
-	{
-	  myfree((*datapart)[0][site]);
-	}
+      free_sites ((*datapart)[0], numsites, character);
       myfree((*datapart)[0]);
       if ((*datapart)[1]!=NULL)
 	{
-	  for(site=0;site<numsites;site++)
-	    {
-	      myfree((*datapart)[1][site]);
-	    }
+	  free_sites ((*datapart)[1], numsites, character);
 	  myfree((*datapart)[1]);
 	}
       myfree(*datapart);
@@ -1690,7 +1683,7 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 #ifdef MPIDATAONDEMAND
 		  // is there a better solution, there were problems with reallocations
 		  // this make sure that datapart=NULL
-		  myfree_datapart(&datapart,s->numsites);
+		  myfree_datapart(&datapart,s->numsites,s->dataclass == SITECHARACTER);
 #ifdef DEBUG
 		  printf("%i> datapart freed\n",myID);
 #endif
