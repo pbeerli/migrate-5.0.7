@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 4    Migrate 6.1.48 bayes-allfile runs: histogram bins clamped at the prior bounds;
+             a crash no longer hangs the run.
+
 October 4    Migrate 6.1.47 Joint intervals include the genealogy-sampling error (widened by
              the larger of the bootstrap and the block Monte Carlo error).
 
