@@ -952,6 +952,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  world->convergence->chain_means = (MYREAL *) mycalloc(convergence_len, sizeof(MYREAL));
 	  world->convergence->chain_counts = (long *) mycalloc(convergence_len, sizeof(long));
 	}
+      world->averageheat_collected = (MYREAL *) mycalloc(options->heated_chains > 0 ? options->heated_chains : 1, sizeof(MYREAL));
       /*Bayes factor*/
       world->bfscale = (MYREAL *) mycalloc(((4 * options->heated_chains * world->loci + 5 * world->loci)), sizeof(MYREAL));
       world->hmscale = world->bfscale + world->loci;
@@ -1444,6 +1445,7 @@ free_world(world_fmt *world, option_fmt *options)
 
     // free the marginal likelihood
     myfree(world->bfscale);
+    myfree(world->averageheat_collected);
     myfree(world->tibins);
     // free the autocorrelation material
     myfree(world->autocorrelation);

@@ -328,34 +328,44 @@ tpool_destroy (tpool_t tpool, int finish)
 #define HEATCHECKINTERVAL 1000
 #define HEATSWAPLOW 0
 #define HEATSWAPHIGH 10
+/* the average temperature of every chain over all temperature checks of
+   the run (all loci), taken before the temperatures are adjusted; a
+   check happens only when adjust_temperatures*() is called at a multiple
+   of HEATCHECKINTERVAL */
+static void record_heat (world_fmt ** universe, long hchains)
+{
+  long i;
+  for (i = 0; i < hchains; i++)
+    {
+      universe[i]->heatsum += 1. / universe[i]->heat;
+      universe[i]->heatn++;
+      universe[i]->averageheat = universe[i]->heatsum / (MYREAL) universe[i]->heatn;
+    }
+}
+
 void adjust_temperatures(world_fmt ** universe, long hchains, long step, long steps)
 {
+    (void) steps;
     long i;
     const MYREAL bigger = 1.1;
     const MYREAL smaller = 0.9;
-    const MYREAL corrsum = steps / HEATCHECKINTERVAL;
     MYREAL *delta;
     if(step == 0)
     {
         for(i=0; i< hchains; i++)
         {
             universe[i]->treeswapcount=0;
-            if(steps < HEATCHECKINTERVAL)
-                universe[i]->averageheat  = 1./universe[i]->heat;
-            else
-                universe[i]->averageheat  = 0.0;
         }
     }
     else
     {
         if ( (step % HEATCHECKINTERVAL ) == 0)
         {
-            universe[0]->averageheat= 1.0;
+            record_heat (universe, hchains);
             delta = (MYREAL *) mycalloc(hchains,sizeof(MYREAL));
 	    // FPRINTF(stdout,"\n%f %li\n",1./universe[0]->heat,universe[0]->treeswapcount);
             for(i=1; i< hchains; i++)
             {
-                universe[i]->averageheat += (1./(universe[i]->heat * corrsum ));
 		//FPRINTF(stdout,"%f %li\n",1./universe[i]->heat,universe[i]->treeswapcount);
                 delta[i-1] = 1./universe[i]->heat - 1./universe[i-1]->heat;
 		if(delta[i-1] < EPSILON)
@@ -386,6 +396,7 @@ void adjust_temperatures(world_fmt ** universe, long hchains, long step, long st
 /// adjust temperatures using a lower and upper bound (temperature=1 and temperature=highest)
 void adjust_temperatures_bounded(world_fmt ** universe, long hchains, long step, long steps)
 {
+  (void) steps;
   //const MYREAL corrsum = steps / HEATCHECKINTERVAL;
     long i;
     long deltasum;
@@ -396,17 +407,13 @@ void adjust_temperatures_bounded(world_fmt ** universe, long hchains, long step,
         for(i=0; i< hchains; i++)
         {
             universe[i]->treeswapcount=0;
-            if(steps < HEATCHECKINTERVAL)
-                universe[i]->averageheat  = 1./universe[i]->heat;
-            else
-                universe[i]->averageheat  = 0.0;
         }
     }
     else
     {
         if ( (step % HEATCHECKINTERVAL ) == 0)
         {
-            universe[0]->averageheat= 1.0;
+            record_heat (universe, hchains);
             delta = (MYREAL *) mycalloc(hchains,sizeof(MYREAL));
 #ifdef DEBUG
 	    fprintf(stdout,"\n%i> chain 1: %f %f %li\n",myID, 1./universe[0]->heat,universe[0]->averageheat, universe[0]->treeswapcount);
@@ -414,7 +421,6 @@ void adjust_temperatures_bounded(world_fmt ** universe, long hchains, long step,
 	    deltasum = 0;
             for(i=1; i< hchains; i++)
             {
-	      universe[i]->averageheat += HEATCHECKINTERVAL * (1./universe[i]->heat - universe[i]->averageheat) / step;
 #ifdef DEBUG
 	      fprintf(stdout,"%i> chain %li: %f %f %li (step=%li (%f))\n", myID, i+1, 1./universe[i]->heat,universe[i]->averageheat, universe[i]->treeswapcount, step, (MYREAL) HEATCHECKINTERVAL/step);
 #endif

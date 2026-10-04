@@ -1281,6 +1281,9 @@ mpi_maximize_worker (world_fmt * world, option_fmt *options, long kind, long rep
 	case MIGMPI_SEQERROR:
 	  mpi_results_worker((long) temp[0], world, repstop, pack_seqerror_buffer);
 	  break;
+        case MIGMPI_HEAT: // returns this rank's averageheat[] and its weight
+	  mpi_collect_heat_worker (world);
+	  break;
         case MIGMPI_JC: // evaluate this rank's loci for the joint multi-locus combination
 	  jc_worker_service (world, (long) temp[1]);
 	  break;
@@ -4092,6 +4095,74 @@ long pack_seqerror_buffer(MYREAL **buffer, world_fmt * world,
   (*buffer)[0] = (MYREAL) bufsize;
   memcpy((*buffer)+1, world->seqerrorrates[locus], sizeof(MYREAL)*(bufsize*mult));
   return bufsize;
+}
+
+///
+/// MPI master: average temperature of every heated chain, combined over
+/// the ranks weighted by the (locus, replicate) units each ran; the master
+/// runs no chains itself, its own averageheat stays 0
+void mpi_collect_heat_master (world_fmt * world)
+{
+  int worker;
+  long hc = world->options->heated_chains;
+  long t;
+  MYREAL *sum;
+  MYREAL totalweight = 0.0;
+  MYREAL *buf;
+  MYREAL *temp;
+  MPI_Status status;
+  long numelem  = world->numpop2 + (world->options->gamma ? 1 : 0);
+  long numelem2 = 2 * numelem;
+
+  if (!world->options->heating || hc < 1)
+    return;
+  /* request shaped like the other mpi_maximize_worker() requests */
+  temp = (MYREAL *) mycalloc (numelem2 + 2, sizeof (MYREAL));
+  temp[0] = (MYREAL) MIGMPI_HEAT;
+  for (worker = 1; worker < numcpu; worker++)
+    MYMPISEND (temp, numelem2 + 2, mpisizeof, worker, worker, comm_world);
+  myfree(temp);
+
+  buf = (MYREAL *) mycalloc (hc + 1, sizeof (MYREAL));
+  sum = (MYREAL *) mycalloc (hc, sizeof (MYREAL));
+  for (worker = 1; worker < numcpu; worker++)
+    {
+      long weight;
+      MYMPIRECV (buf, hc + 1, mpisizeof, MPI_ANY_SOURCE, (MYINT) HEATTAG, comm_world, &status);
+      weight = (long) buf[hc];
+      if (weight > 0)
+        {
+          for (t = 0; t < hc; t++)
+            sum[t] += buf[t] * (MYREAL) weight;
+          totalweight += (MYREAL) weight;
+        }
+    }
+  if (totalweight > 0.0)
+    {
+      for (t = 0; t < hc; t++)
+        world->averageheat_collected[t] = sum[t] / totalweight;
+    }
+  myfree(buf);
+  myfree(sum);
+}
+
+///
+/// MPI worker: reply with this rank's temperatures (kept by
+/// run_replicate()) and the number of (locus, replicate) units it ran
+void mpi_collect_heat_worker (world_fmt * world)
+{
+  long hc = world->options->heated_chains;
+  long t;
+  MYREAL *buf;
+
+  if (hc < 1)
+    return;
+  buf = (MYREAL *) mycalloc (hc + 1, sizeof (MYREAL));
+  for (t = 0; t < hc; t++)
+    buf[t] = world->averageheat_collected[t];
+  buf[hc] = (MYREAL) world->averageheat_weight;
+  MYMPISEND (buf, hc + 1, mpisizeof, MASTER, (MYINT) HEATTAG, comm_world);
+  myfree(buf);
 }
 
 void unpack_seqerror_buffer(MYREAL *buffer, world_fmt * world,

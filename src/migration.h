@@ -1533,6 +1533,16 @@ typedef struct _world
   //  MYREAL heatratio;
   MYREAL heat;
   MYREAL averageheat;
+  /* sum of the temperatures at the adaptive-heating checks of the whole
+     run and their number (heating.c record_heat()) */
+  MYREAL heatsum;
+  long heatn;
+  /* (locus, replicate) units this rank ran: weight of its averageheat
+     when the MPI master combines the ranks (mpi_collect_heat_master) */
+  long averageheat_weight;
+  /* average temperature of each heated chain for the report, on the
+     cold chain; the MPI master runs no chains, its own averageheat is 0 */
+  MYREAL *averageheat_collected;
   MYREAL varheat;
   long heatid;
   struct _proposal_fmt *proposal;
