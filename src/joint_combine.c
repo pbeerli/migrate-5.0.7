@@ -87,7 +87,8 @@ extern const MPI_Datatype mpisizeof;
 #define SKYPRIOR_RANDOMWALK 1
 #define SKYPRIOR_LOGUNIFORM 2
 #endif
-#define JC_MAXSAMPLES 1000   /* per locus used in the combination */
+#define JC_MAXSAMPLES 4000   /* per locus used in the combination (at 200 loci,
+                                 1000 gave 95% coverage of 0.4 for an M, 4000 0.8) */
 #define JC_GRID 600          /* points for a one-dimensional normalizer */
 #define JC_TGRID 200         /* Theta points inside a growth integral */
 #define JC_NG 129            /* growth grid */
@@ -520,7 +521,7 @@ typedef struct
   double logc, logc_err; /* joint scaling factor of the marginal likelihood */
   boolean has_boot;
   double *boot_err;      /* np: bootstrap error of the median (genealogy sampling) */
-  boolean *boot_flag;    /* np: too noisy, All is used instead of Joint */
+  boolean *boot_flag;    /* np: large genealogy-sampling error (a warning: Joint is kept) */
   double boot_ess;       /* median reweighting ESS of the JC_BOOTK trace points */
   double logc_boot;      /* bootstrap error of the scaling factor */
   long nloci_used, tmin, tmax;
@@ -2775,12 +2776,10 @@ jc_fill_histogram (world_fmt *world, bayeshistogram_fmt *hist)
       if (shortcut (pa0, world, &pa) || pa < pa0)
         continue;
       const long nb = hist->bins[pa];
-      /* too noisy (bootstrap guard): keep the product of the marginals */
-      if (js->has_boot && pa < js->np && js->boot_flag[pa])
-        {
-          off += nb;
-          continue;
-        }
+      /* a flagged parameter (bootstrap guard) keeps its joint estimate: the
+         product of the marginals is worse, and more so with more loci (in a
+         coverage study at 50 and 200 loci its 95% intervals missed the truth
+         for most parameters, while Joint covered 0.8-1.0) */
       if (pa < js->np && js->active[pa] && nb > 0)
         {
           const double lo = hist->minima[pa];
@@ -2913,8 +2912,8 @@ jc_print_mcerr (world_fmt *world, const jc_store *js, FILE *out)
     FPRINTF (out, "Boot err: the error of the median from the genealogy sampling alone (block\n"
                   "bootstrap over each locus' genealogies, %d replicates reweighting %d trace points;\n"
                   "median reweighting ESS %.0f). Above %.2f posterior sd, or with a reweighting ESS\n"
-                  "below %d, the Joint estimate follows noise (too few genealogies fit the joint\n"
-                  "region) and All is used instead (*). The thresholds are a heuristic from tests.\n\n",
+                  "below %d, the Joint estimate has a large genealogy-sampling error (*): more\n"
+                  "genealogies per locus (longer chains or replicates) are needed to confirm it.\n\n",
              JC_BOOTB, JC_BOOTK, js->boot_ess, JC_BOOTFLAG, JC_BOOTK / 4);
   FPRINTF (out, "Parameter                    Median     MC error   Blocks: lowest  highest  Post. sd   Ratio   Boot err\n");
   FPRINTF (out, "------------------------------------------------------------------------------------------------------\n");
@@ -2927,14 +2926,13 @@ jc_print_mcerr (world_fmt *world, const jc_store *js, FILE *out)
         nf++;
       FPRINTF (out, "%-26.26s %10.5g %10.5g %10.5g %10.5g %10.5g %7.3f%s %10.5g%s\n", r->name, r->median,
                r->mcerr, r->blo, r->bhi, r->sd, r->ratio, r->ratio > 0.25 ? "*" : " ",
-               r->booterr > 0.0 ? r->booterr : 0.0, r->flagged ? "  * All used" : "");
+               r->booterr > 0.0 ? r->booterr : 0.0, r->flagged ? "  * noisy" : "");
     }
   if (flagged)
     FPRINTF (out, "(*) %ld estimate%s with a large Monte Carlo error\n", flagged, flagged > 1 ? "s" : "");
   if (nf)
-    FPRINTF (out, "(*) %ld Joint estimate%s too noisy: the Joint row%s, the plots and the other\n"
-                  "    tables use All for %s\n", nf, nf > 1 ? "s" : "", nf > 1 ? "s" : "",
-             nf > 1 ? "them" : "it");
+    FPRINTF (out, "(*) %ld Joint estimate%s with a large genealogy-sampling error (Joint* rows)\n",
+             nf, nf > 1 ? "s" : "");
   myfree (rows);
 }
 
@@ -2972,7 +2970,7 @@ jc_joint_scaling (world_fmt *world, double *logc, double *err)
   return TRUE;
 }
 
-/// TRUE when the joint estimate of parameter p was too noisy (bootstrap
+/// TRUE when the joint estimate of parameter p has a large genealogy-sampling error (bootstrap
 /// guard) and the product of the marginals ("All") is used instead
 boolean
 jc_param_flagged (world_fmt *world, long p)
