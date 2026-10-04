@@ -664,40 +664,48 @@ sitesort2_old (world_fmt * world, data_fmt * data, option_fmt *options, long sit
     myfree(temppop);
 }    /* sitesort2 */
 
+/* the tips of a locus as (population, data index) pairs, populations with
+   no sequences skipped: a population without data (a "ghost" population,
+   0 individuals at this locus) is legal; the old walk over cumulative
+   counts stepped into such a population and compared the wrong tips */
+static long
+pattern_tips (data_fmt * data, option_fmt * options, long locus, long **tpop, long **tind)
+{
+  long pop, kk, n = 0;
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      long numind = data->numind[pop][locus];
+      if (options->randomsubset > 0 && options->randomsubset < numind)
+        numind = options->randomsubset;
+      n += numind;
+    }
+  *tpop = (long *) mycalloc (n + 1, sizeof (long));
+  *tind = (long *) mycalloc (n + 1, sizeof (long));
+  n = 0;
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      long numind = data->numind[pop][locus];
+      if (options->randomsubset > 0 && options->randomsubset < numind)
+        numind = options->randomsubset;
+      for (kk = 0; kk < numind; kk++)
+        {
+          (*tpop)[n] = pop;
+          (*tind)[n] = data->shuffled[pop][locus][kk];
+          n++;
+        }
+    }
+  return n;
+}
+
 void
 sitesort2 (world_fmt * world, data_fmt * data, option_fmt *options, long sites, long locus, long sublocus)
 {
-  long gap, i, i1, j, jj, jg, k, kk, kkk, itemp, pop, z = 0;
+  long gap, i, j, jj, jg, k, itemp;
   boolean flip, tied, samewt;
   mutationmodel_fmt *s;
-  long *tempsum, *temppop;
-  long numind;
+  long *tpop, *tind;
   MYREAL a1,a2;
-  long sumtips = 0;
-  tempsum = (long *) mycalloc (data->numpop, sizeof (long));
-  temppop = (long *) mycalloc (data->numpop, sizeof (long));
-  for (i = 0; i < data->numpop; i++)
-    {
-
-      if(options->randomsubset > 0)
-	{
-	  numind = (options->randomsubset < data->numind[i][locus] ? options->randomsubset : data->numind[i][locus]);
-	}
-      else
-	{
-	  numind = data->numind[i][locus];
-	}
-      //      if (numind > 0)
-      //  {
-	  temppop[z] = i;
-	  if (z == 0)
-	    tempsum[z] = numind;
-	  else
-	    tempsum[z] = tempsum[z - 1] + numind;
-          z++;
-	    //  }
-	  sumtips += numind;
-    }
+  const long sumtips = pattern_tips (data, options, locus, &tpop, &tind);
   if (world->sumtips == 0 && sumtips > 0)
     world->sumtips = sumtips;
   
@@ -722,33 +730,12 @@ sitesort2 (world_fmt * world, data_fmt * data, option_fmt *options, long sites, 
                 flip = ((!samewt) && (s->weight[jj - 1] == 0))
                        || (samewt
                            && (s->category[jj - 1] > s->category[jg - 1]));
-                k = 0;
-                pop = 0;
-                kk = -1;
-                while (k < sumtips && tied)
+                for (k = 0; k < sumtips && tied; k++)
                 {
-                    if (k == tempsum[pop])
-                    {
-                        kk = 0;
-                        pop++;
-                    }
-                    else
-                    {
-                        kk++;
-                    }
-		    i1 = temppop[pop];
-		    //debug1
-		    if (data->numind[i1][locus]>0)
-		      {
-			kkk = data->shuffled[i1][locus][kk];
-			a1 = data->yy[i1][kkk][sublocus][0][jj - 1][0];
-			a2 = data->yy[i1][kkk][sublocus][0][jg - 1][0];
-			flip =
-			  (a1 > a2);
-			tied = (tied
-				&& (fabs(a1-a2) <= (double) FLT_EPSILON));
-		      }
-                    k++;
+		    a1 = data->yy[tpop[k]][tind[k]][sublocus][0][jj - 1][0];
+		    a2 = data->yy[tpop[k]][tind[k]][sublocus][0][jg - 1][0];
+		    flip = (a1 > a2);
+		    tied = (tied && (fabs(a1-a2) <= (double) FLT_EPSILON));
                 }
                 if (!flip)
                     break;
@@ -763,8 +750,8 @@ sitesort2 (world_fmt * world, data_fmt * data, option_fmt *options, long sites, 
         }
         gap /= 2;
     }
-    myfree(tempsum);
-    myfree(temppop);
+    myfree(tpop);
+    myfree(tind);
 }    /* sitesort2 */
 
 
@@ -862,39 +849,11 @@ sitecombine2_old (world_fmt * world, data_fmt * data, option_fmt *options, long 
 void
 sitecombine2 (world_fmt * world, data_fmt * data, option_fmt *options, long sites, long locus, long sublocus)
 {
-    long i, j, k, kk, pop, z = 0;
+    long i, j, k;
     boolean tied, samewt;
-    //seqmodel_fmt *seq;
-    long *tempsum, *temppop;
-    long numind;
-    long kkk;
+    long *tpop, *tind;
     mutationmodel_fmt *s;
-    long sumtips = 0;
-    tempsum = (long *) mycalloc (1, sizeof (long) * (size_t) data->numpop);
-    temppop = (long *) mycalloc (1, sizeof (long) * (size_t) data->numpop);
-    if(options->randomsubset > 0)
-      {
-	tempsum[0] = (options->randomsubset < data->numind[0][locus] ? options->randomsubset : data->numind[0][locus]);
-      }
-    else
-      {
-	tempsum[0] = data->numind[0][locus];
-      }
-    
-    for (i = 0; i < data->numpop; i++)
-    {
-      numind = ((options->randomsubset > 0) && (options->randomsubset < data->numind[i][locus])) ? options->randomsubset : data->numind[i][locus];
-      if (numind > 0)
-        {
-	  temppop[z] = i;
-	  if (z == 0)
-	    tempsum[z] = numind;
-	  else
-                tempsum[z] = tempsum[z - 1] + numind;
-            z++;
-        }
-      sumtips += numind;
-    }
+    const long sumtips = pattern_tips (data, options, locus, &tpop, &tind);
     s = &world->mutationmodels[sublocus];
     //seq = world->data->seq[0];
     i = 1;
@@ -911,29 +870,9 @@ sitecombine2 (world_fmt * world, data_fmt * data, option_fmt *options, long site
             tied = samewt
 	      && (s->category[s->alias[i - 1] - 1] ==
 		  s->category[s->alias[j - 1] - 1]);
-            k = 0;
-            pop = 0;
-            kk = -1;
-            while (k < sumtips && tied)
-            {
-                if (k == tempsum[pop])
-                {
-                    kk = 0;
-                    pop++;
-                }
-                else
-                {
-                    kk++;
-                }
-		kkk = data->shuffled[pop][locus][kk];
-                tied = (tied
-                        && data->yy[temppop[pop]][kkk][sublocus][0][s->
-                                                                alias[i - 1] -
-                                                                1][0] ==
-                        data->yy[temppop[pop]][kkk][sublocus][0][s->alias[j - 1] -
-                                                             1][0]);
-                k++;
-            }
+            for (k = 0; k < sumtips && tied; k++)
+                tied = (data->yy[tpop[k]][tind[k]][sublocus][0][s->alias[i - 1] - 1][0]
+                        == data->yy[tpop[k]][tind[k]][sublocus][0][s->alias[j - 1] - 1][0]);
             if (!tied)
                 break;
             s->aliasweight[i - 1] += s->aliasweight[j - 1];
@@ -943,8 +882,8 @@ sitecombine2 (world_fmt * world, data_fmt * data, option_fmt *options, long site
         }
         i = j;
     }
-    myfree(temppop);
-    myfree(tempsum);
+    myfree(tpop);
+    myfree(tind);
 }    /* sitecombine2 */
 
 
