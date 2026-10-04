@@ -3638,7 +3638,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	      fmt = 2;
 	      break;
 	    }
-	  /* Joint* : too noisy, the row shows All (joint_combine.c bootstrap guard) */
+	  /* Joint* : large genealogy-sampling error (joint_combine.c bootstrap guard) */
 	  FPRINTF(world->outfile,"%5s ", (locus == world->loci + 1 && jc_param_flagged(world, j)) ? "Joint*" : st);
 	  FPRINTF(world->outfile, "%-15.15s",stemp);
 	  FPRINTF(world->outfile,"%8.*f %8.*f %8.*f %8.*f %8.*f %8.*f %8.*f\n",

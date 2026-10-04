@@ -1729,7 +1729,7 @@ void pdf_print_bayestable(world_fmt *world)
 		{
 		  continue;
 		}
-	      /* "Joint*": too noisy, the row shows All */
+	      /* "Joint*": large genealogy-sampling error */
 	      pdf_print_line_element(lx, page_height, offset[0],
 				     (locus == world->loci + 1 && jc_param_flagged(world, j)) ? "Joint*" : st);
 	      if(j < world->numpop)
@@ -1868,10 +1868,10 @@ void pdf_print_bayestable(world_fmt *world)
         {
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height, 'L', "%s",
-                       "Joint*: too noisy (too few genealogies fit the joint region); the row, the plots");
+                       "Joint*: large genealogy-sampling error; more genealogies per locus (longer chains");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height, 'L', "%s",
-                       "and the other tables use All (see the Monte Carlo error table).");
+                       "or replicates) are needed to confirm it (see the Monte Carlo error table).");
         }
         pdf_advance(&page_height);
     }
@@ -1914,7 +1914,7 @@ void pdf_joint_mcerr_table(world_fmt *world)
   pdf_print_contents_at(left_margin, page_height,
                         "differences between independent runs. Boot err: genealogy-sampling error (block bootstrap");
   pdf_advance(&page_height);
-  mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: too noisy, All used.",
+  mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: large error, more genealogies needed.",
              bootess);
   pdf_print_contents_at(left_margin, page_height, line);
   pdf_advance(&page_height);
