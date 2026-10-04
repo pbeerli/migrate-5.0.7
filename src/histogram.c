@@ -459,12 +459,20 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		  numbinsall += hist->bins[jj];
 		  numbins = numbinsall - hist->bins[jj];
 		  
-		  if (upperbound[jj] < params[j])
+		  /* as the in-memory path (construct_param_hist()): a value at or
+		     beyond a prior bound goes into the outer bin (a value more
+		     than one bin below the lower bound wrote in front of
+		     results[], and one at the upper bound one bin too far) */
+		  if (params[j] >= upperbound[jj])
+		    bin = hist->bins[jj] - 1;
+		  else
 		    {
-		      warning("above upper bound: %f\n",params[j]);
-		      continue;
+		      bin = (long) ((params[j]-lowerbound[jj]) / delta[jj]);
+		      if (bin < 0)
+			bin = 0;
+		      if (bin >= hist->bins[jj])
+			bin = hist->bins[jj] - 1;
 		    }
-		  bin = (long) ((params[j]-lowerbound[jj]) / delta[jj]);
 		  hist->minima[j0] = lowerbound[jj];
 		  hist->maxima[j0] = upperbound[jj];
 		  hist->results[numbins + bin] += 1.;
