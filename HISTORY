@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 4    Migrate 6.1.47 Joint intervals include the genealogy-sampling error (widened by
+             the larger of the bootstrap and the block Monte Carlo error).
+
 October 4    Migrate 6.1.46 Joint combination: no fallback to All (Joint* is now a warning),
              4000 genealogies per locus; a coverage study showed All failing with many loci.
 
