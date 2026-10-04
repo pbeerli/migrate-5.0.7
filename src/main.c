@@ -685,6 +685,17 @@ main (int argc, char **argv)
 #ifdef MPI
 	get_mighistdata (EARTH, options);
 #endif
+	/* the temperatures for the report; under MPI before mpi_send_stop()
+	   releases the workers, they must answer the request */
+	if (options->heating)
+	  {
+	    long t;
+	    for (t = 0; t < options->heated_chains; t++)
+	      EARTH->averageheat_collected[t] = universe[t]->averageheat;
+#ifdef MPI
+	    mpi_collect_heat_master(EARTH);
+#endif
+	  }
 	if(options->skyline)
 	  {
 	    print_expected_values(EARTH, options);       
@@ -1699,12 +1710,15 @@ void
 heating_prepare2 (world_fmt ** universe, int usize)
 {
     long chain;
-    universe[0]->averageheat = 1.0;
-    for (chain = 1; chain < usize; ++chain)
+    for (chain = 0; chain < usize; ++chain)
     {
-        universe[chain]->G = 0;
-        universe[chain]->averageheat = universe[chain]->options->adaptiveheat!=NOTADAPTIVE ?
-            0.0 : 1. / universe[chain]->heat;
+        if (chain > 0)
+            universe[chain]->G = 0;
+        /* adaptive heating: mean over the checks so far (heating.c),
+           not reset per locus; before the first check and for static
+           heating the chain's own temperature */
+        universe[chain]->averageheat = universe[chain]->heatn > 0 ?
+            universe[chain]->heatsum / (MYREAL) universe[chain]->heatn : 1. / universe[chain]->heat;
     }
     for (chain = 1; chain < usize; ++chain)
     {
@@ -2192,6 +2206,7 @@ run_replicate (long locus,
     EARTH->locus = locus;
     EARTH->repkind = SINGLECHAIN;
     EARTH->replicate = replicate;
+    EARTH->averageheat_weight++; /* see migration.h */
 
     if (options->checkpointing)
       {
@@ -2264,6 +2279,8 @@ run_replicate (long locus,
 	for(chain=0; chain<hc;chain++)
 	  {
 	    free_tree(universe[chain]->root, universe[chain]);
+	    /* this rank's temperatures for mpi_collect_heat_worker() */
+	    EARTH->averageheat_collected[chain] = universe[chain]->averageheat;
 	  }
       }
 }

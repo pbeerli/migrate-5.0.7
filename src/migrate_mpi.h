@@ -42,6 +42,9 @@
 #define TEMPTAG 7000
 #define BURNTAG 6000
 #define ONDEMANDTAG 9000
+/* above any locus+1 tag (data sets reach 10000 loci); reply of
+   mpi_collect_heat_worker() */
+#define HEATTAG 900000
 
 typedef struct _filedb_fmt {
 	FILE *file;
@@ -81,6 +84,7 @@ extern int profiledone;
 #define MIGMPI_ASSIGN 12
 #define MIGMPI_SEQERROR 13
 #define MIGMPI_JC 14   /* joint multi-locus combination: evaluate this rank's loci */
+#define MIGMPI_HEAT 15 /* average temperatures of the heated chains */
 #ifdef MPI
 
 #ifndef PTHREADS
@@ -158,6 +162,8 @@ extern void unpack_assign_buffer(MYREAL *buffer, world_fmt * world,
 
 extern void unpack_seqerror_buffer(MYREAL *buffer, world_fmt * world,
 			    long locus, long maxrep, long numpop);
+extern void mpi_collect_heat_master (world_fmt * world);
+extern void mpi_collect_heat_worker (world_fmt * world);
 
 
 extern void mpi_gradient_master (nr_fmt * nr, world_fmt * world, int *who);

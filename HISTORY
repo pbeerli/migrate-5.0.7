@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.44 Heating table: MPI runs report the temperatures (were 0);
+             adaptive heating reports the mean temperature over all checks of the run.
+
 October 3    Migrate 6.1.43 Sequence and SNP sites share one memory block per individual and
              locus (a 1000-locus x 10000-site file: 5.1 -> 2.5 GB on the master).
 

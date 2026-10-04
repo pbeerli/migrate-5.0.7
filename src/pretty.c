@@ -6810,11 +6810,10 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 	}      
       //--------
       mysnprintf(elements[t][0],LINESIZE,"%5li ",t+1);
-      // universe[t]->heat is the inverse temperature (beta=1/T) used in the
-      // MCMCMC acceptance ratio; averageheat is always kept in true-temperature
-      // units (it equals 1/heat for static heating, and is a running average
-      // of 1/heat for adaptive heating), so it is what belongs in this column.
-      mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[t]->averageheat);
+      // averageheat is in true-temperature units (1/heat for static heating,
+      // a running average of 1/heat for adaptive heating); the collected
+      // values, because the MPI master runs no chains
+      mysnprintf(elements[t][1],LINESIZE,"%10.5f ",universe[0]->averageheat_collected[t]);
       mysnprintf(elements[t][2],LINESIZE,"%10.5f ", bfsum/nloc);
       mysnprintf(elements[t][3],LINESIZE,"%10.5f ", ssum/nloc);
     }
