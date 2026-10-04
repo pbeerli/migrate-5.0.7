@@ -46,7 +46,8 @@ $Id: tools.c 2158 2013-04-29 01:56:20Z beerli $
 #include <complex.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <execinfo.h>    // backtrace()
+#include <execinfo.h>
+#include <unistd.h>      // write(), STDERR_FILENO    // backtrace()
 #include "migration.h"
 #include "sighandler.h"
 #include "data.h"
@@ -1222,18 +1223,20 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 /* string manipulation ================================== */
 /* add to buffer */
 
+/* called from the signal handler: backtrace_symbols() would allocate, and
+   after a heap error (abort inside free) malloc's lock is held, so the
+   process deadlocked instead of ending; backtrace_symbols_fd() writes
+   without allocating */
 void print_stack_trace(void) {
     void *bt_buf[50];
     int bt_size = backtrace(bt_buf, 50);
-    char **bt_syms = backtrace_symbols(bt_buf, bt_size);
-    if (bt_syms) {
-        fprintf(stderr, "=== Stack trace ===\n");
-        for (int i = 0; i < bt_size; ++i) {
-            fprintf(stderr, "%s\n", bt_syms[i]);
-        }
-        free(bt_syms);
-        fprintf(stderr, "=== End stack trace ===\n");
-    }
+    static const char head[] = "=== Stack trace ===\n";
+    static const char tail[] = "=== End stack trace ===\n";
+    if (write(STDERR_FILENO, head, sizeof(head) - 1) < 0)
+        return;
+    backtrace_symbols_fd(bt_buf, bt_size, STDERR_FILENO);
+    if (write(STDERR_FILENO, tail, sizeof(tail) - 1) < 0)
+        return;
 }
 
 /** using chatgpt
