@@ -2761,6 +2761,60 @@ jc_combine (world_fmt *world)
   return TRUE;
 }
 
+/* The joint posterior conditions on the stored genealogies; their sampling
+   error is not part of it. With e the larger of the bootstrap error of the
+   median (jc_boot_errors()) and the Monte Carlo error from the blocks of
+   genealogies (mcerr; the bootstrap blocks of 10 genealogies miss longer
+   autocorrelation and gave 2-3 times smaller errors), the trace of
+   parameter p is widened around its median by c = sqrt(1 + (e / sd)^2), on
+   the log scale (the values are positive) and kept inside the prior range,
+   so that its spread is about sqrt(sd^2 + e^2). In a calibration with truths
+   drawn from the prior (50 loci, 40 replicates) this raised the 95%
+   coverage of M from 0.90 / 0.80 to about 0.93 / 0.85: the measured
+   genealogy error explains only part of the shortfall. */
+static void
+jc_widen (world_fmt *world, const jc_store *js, long p, double *x)
+{
+  double mean = 0.0, var = 0.0, med, c;
+  long i;
+  double e = 0.0;
+  if (js->has_boot && js->boot_err != NULL)
+    e = js->boot_err[p];
+  if (js->has_mcerr && js->mcerr != NULL && js->mcerr[p] > e)
+    e = js->mcerr[p];
+  if (e <= 0.0)
+    return;
+  for (i = 0; i < JC_SWEEPS; i++)
+    {
+      if (x[i] <= 0.0)
+        return;
+      mean += x[i] / JC_SWEEPS;
+    }
+  for (i = 0; i < JC_SWEEPS; i++)
+    var += (x[i] - mean) * (x[i] - mean) / JC_SWEEPS;
+  if (var <= 0.0)
+    return;
+  c = sqrt (1.0 + e * e / var);
+  {
+    double *srt = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
+    memcpy (srt, x, sizeof (double) * (size_t) JC_SWEEPS);
+    qsort (srt, (size_t) JC_SWEEPS, sizeof (double), jc_cmp_double);
+    med = srt[JC_SWEEPS / 2];
+    myfree (srt);
+  }
+  const double lmed = log (med);
+  const double plo = world->bayes->minparam[p], phi = world->bayes->maxparam[p];
+  for (i = 0; i < JC_SWEEPS; i++)
+    {
+      double y = exp (lmed + c * (log (x[i]) - lmed));
+      if (y < plo)
+        y = plo;
+      if (y > phi)
+        y = phi;
+      x[i] = y;
+    }
+}
+
 /// Replaces the combined ("All") histogram of every handled parameter with
 /// the joint samples, in calc_hpd_credibility()'s bin layout; the caller
 /// then computes modes, medians and HPD intervals as usual.
@@ -2783,8 +2837,11 @@ jc_fill_histogram (world_fmt *world, bayeshistogram_fmt *hist)
       if (pa < js->np && js->active[pa] && nb > 0)
         {
           const double lo = hist->minima[pa];
-          const double *x = js->trace + pa * JC_SWEEPS;
+          const double *x0 = js->trace + pa * JC_SWEEPS;
+          double *x = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
           double mean = 0.0;
+          memcpy (x, x0, sizeof (double) * (size_t) JC_SWEEPS);
+          jc_widen (world, js, pa, x);
           memset (hist->results + off, 0, sizeof (double) * (size_t) nb);
           for (i = 0; i < JC_SWEEPS; i++)
             {
@@ -2797,6 +2854,7 @@ jc_fill_histogram (world_fmt *world, bayeshistogram_fmt *hist)
               mean += x[i];
             }
           hist->means[pa] = mean / (double) JC_SWEEPS;
+          myfree (x);
         }
       off += nb;
     }
