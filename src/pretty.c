@@ -6784,8 +6784,8 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     // header
     mysnprintf(header[0],LINESIZE,"Chain");
     mysnprintf(header[1],LINESIZE,"Temperatures");
-    mysnprintf(header[2],LINESIZE,"log(marginal likelihood)");
-    mysnprintf(header[3],LINESIZE,"log(mL_steppingstone)");
+    mysnprintf(header[2],LINESIZE,"mean log likelihood");
+    mysnprintf(header[3],LINESIZE,"log stepping-stone ratio");
     elements = (char ***) mycalloc(options->heated_chains, sizeof(char**));
     for(t=0; t < options->heated_chains; t++)
         charvec2d(&elements[t], 4, LINESIZE);
@@ -6806,7 +6806,7 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
 	      nloc += universe[t]->data->locusweight[locus];
 	    }
 	  bfsum += universe[0]->data->locusweight[locus] * universe[0]->bf[locus * hc + t];
-	  ssum += log(universe[0]->steppingstones[locus * hc + t]) + universe[0]->steppingstone_scalars[locus * hc + t];
+	  ssum += universe[0]->data->locusweight[locus] * (log(universe[0]->steppingstones[locus * hc + t]) + universe[0]->steppingstone_scalars[locus * hc + t]);
 	}      
       //--------
       mysnprintf(elements[t][0],LINESIZE,"%5li ",t+1);

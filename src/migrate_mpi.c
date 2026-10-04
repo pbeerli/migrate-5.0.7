@@ -148,6 +148,7 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt * world, long startposition);
 
 long unpack_BF_buffer(MYREAL *buffer, long start, long locus, world_fmt * world);
+void reset_BF_locus(world_fmt * world, long locus);
 long unpack_heat(MYREAL *buffer, long start, long locus, world_fmt * world);
 long unpack_ess_buffer(MYREAL *buffer, long start, world_fmt *world);
 long pack_heat(MYREAL **buffer, long start, long locus, world_fmt * world);
@@ -752,20 +753,6 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
     myfree(temp);
     myfree(tempstr);
     myfree(who);
-    if(maxreplicate>1 && (numcpu-1) > universe[0]->loci)
-      {
-	const long hc = universe[0]->options->heated_chains;
-	long t;
-	if(universe[0]->options->heating)
-	  {
-	    for(t=0; t < hc; t++)
-	      {
-		long z = locus * hc + t;
-		universe[0]->bf[z] /= maxreplicate;
-		universe[0]->steppingstones[z] /= maxreplicate;
-	      }
-	  }
-      }
     /* locus checkpoint: the marginal-likelihood sums of this finished
        locus (recover=YES restores them, marginallike.c) */
     ckpt_write_locus (universe[0], options, locus);
@@ -866,6 +853,7 @@ mpi_runreplicates_worker (world_fmt ** universe, int usize,
             MYMPISEND (rawmessage, rawmsgsize, MPI_CHAR, (MYINT) sender, 
 		       (MYINT) (locus+1+ REPTAG), comm_world);
             mpi_send_replicate(sender, locus, replicate, universe[0]);
+	    reset_BF_locus(universe[0], locus);
 	    universe[0]->bayes->numparams = 0;
           }
         else
@@ -3361,7 +3349,7 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
       bufsize += npp*npp;
     }
   // 2 + 3*heatedchains pack_BF_buffer
-  bufsize += 2 + 3 * world->options->heated_chains + 3 * TI_NBINS;
+  bufsize += 3 + 3 * world->options->heated_chains + 3 * TI_NBINS;
   // 2*(npp+1) pack_ess_buffer
   bufsize += 2 * (npp+1);
   // 6*npp pack_hyper
@@ -3559,60 +3547,84 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 /// Bayes factor material buffer unpacker
 long unpack_BF_buffer(MYREAL *buffer, long start, long locus, world_fmt * world)
 {
+  /* every rank sends running means over its own samples of this locus
+     (am); they are merged weighted by those counts, so it does not matter
+     how many replicates each rank ran */
   long i;
   long z = start;
-  long hc = world->options->heated_chains;
-  MYREAL              temp;
-  MYREAL              *ttemp;
-  MYREAL              *htemp;
-  ttemp = calloc(3 * world->loci + 3 * world->options->heated_chains + 2, sizeof(MYREAL));
-  htemp = ttemp + world->loci;
-  //atemp = htemp + world->loci;
-  //
-  // harmonic mean calculation
-  temp = buffer[z++]; //hmscale
-  if(temp < world->hmscale[locus])
-    {      
-      if(world->hm[locus]>0.0)
-	world->hm[locus] *= EXP(temp - world->hmscale[locus]);
-      world->hmscale[locus] = temp;
-      //      printf("%i> locus=%li hmscale=%f hm=%f temp=%f\n",myID,locus, world->hmscale[locus], world->hm[locus], temp);
+  const long hc = world->options->heated_chains;
+  const double na = world->am[locus];
+  const double nb = buffer[z++];
+  const double n = na + nb;
+  const double sb = buffer[z++];   /* hmscale of the sender */
+  const double hb = buffer[z++];
+  if (nb <= 0.0)
+    return z + 3 * hc + 3 * TI_NBINS;
+  // harmonic mean: mean of exp(hmscale - log L), on the smaller scale
+  if (na <= 0.0)
+    {
+      world->hmscale[locus] = sb;
+      world->hm[locus] = hb;
     }
-  htemp[locus] = temp;//hmscale store
-  world->hm[locus] += EXP(-htemp[locus]+world->hmscale[locus]) * buffer[z++];
-
-  // thermodynamic integration
-  for(i=0;i < hc; i++)
-    { 
-      world->bf[locus * hc + i] +=  buffer[z++];
-#ifdef DEBUG 
-      printf("%i> ****bf[%li + hc + %li,%li,%li]=%f\n",myID, locus, i,z-start,z, world->bf[locus*hc+i]);
-#endif
+  else
+    {
+      const double m = MIN (world->hmscale[locus], sb);
+      world->hm[locus] = (na * world->hm[locus] * EXP (m - world->hmscale[locus])
+                          + nb * hb * EXP (m - sb)) / n;
+      world->hmscale[locus] = m;
     }
-  // stepping stone calculation
+  // thermodynamic integration: mean log L per chain
   for(i=0;i < hc; i++)
     {
-      double stone = buffer[z++];
-      double scalar = buffer[z++];
-      long ii = locus * hc + i;
+      const long ii = locus * hc + i;
+      world->bf[ii] = (na * world->bf[ii] + nb * buffer[z++]) / n;
+    }
+  // stepping stones: mean of L^(beta_{i-1}-beta_i) = stone * exp(scalar)
+  for(i=0;i < hc; i++)
+    {
+      const double stone = buffer[z++];
+      const double scalar = buffer[z++];
+      const long ii = locus * hc + i;
       if (stone == 0.0)   /* nothing sampled (e.g. a locus skipped by recover) */
         continue;
-      if(world->steppingstones[ii] !=0.0)
-	{
-	  world->steppingstones[ii] *= exp(world->steppingstone_scalars[ii]-scalar);
-	  world->steppingstone_scalars[ii] = scalar;
-	  world->steppingstones[ii] += stone;
-	}
-      else
+      if (na <= 0.0 || world->steppingstones[ii] == 0.0)
 	{
 	  world->steppingstones[ii] = stone;
 	  world->steppingstone_scalars[ii] = scalar;
 	}
+      else
+	{
+	  const double c = MAX (world->steppingstone_scalars[ii], scalar);
+	  world->steppingstones[ii] = (na * world->steppingstones[ii] * exp (world->steppingstone_scalars[ii] - c)
+	                               + nb * stone * exp (scalar - c)) / n;
+	  world->steppingstone_scalars[ii] = c;
+	}
     }
+  // adaptive heating: counts and sums add up
   for(i=0; i < 3 * TI_NBINS; i++)
     world->tibins[3 * TI_NBINS * locus + i] += buffer[z++];
-  myfree(ttemp);
+  world->am[locus] = n;
   return z;
+}
+
+///
+/// clears the marginal-likelihood sums of a locus after a replicate worker
+/// sent them, so that its next replicate of the same locus is not sent twice
+void reset_BF_locus(world_fmt * world, long locus)
+{
+  const long hc = world->options->heated_chains;
+  long i;
+  world->am[locus] = 0.0;
+  world->hm[locus] = 0.0;
+  world->hmscale[locus] = 0.0;
+  for (i = 0; i < hc; i++)
+    {
+      world->bf[locus * hc + i] = 0.0;
+      world->steppingstones[locus * hc + i] = 0.0;
+      world->steppingstone_scalars[locus * hc + i] = 0.0;
+    }
+  for (i = 0; i < 3 * TI_NBINS; i++)
+    world->tibins[3 * TI_NBINS * locus + i] = 0.0;
 }
 
 long unpack_ess_buffer(MYREAL *buffer, long start, world_fmt *world)
@@ -3692,6 +3704,7 @@ long pack_BF_buffer(MYREAL **buffer, long start, long locus, world_fmt * world)
   long ii;
   long z  = start;
   const long hc = world->options->heated_chains;
+  (*buffer)[z++] = world->am[locus];   /* samples behind the means below */
   (*buffer)[z++] = world->hmscale[locus];
   (*buffer)[z++] = world->hm[locus];
   for(i=0; i < hc; i++)
@@ -3834,7 +3847,9 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
 	      {
 		(*buffer)[z++] = (MYREAL) (hist->set50[numbins + j]=='1' ? 1.0 : 0.0);
 		(*buffer)[z++] = (MYREAL) (hist->set95[numbins + j]=='1' ? 1.0 : 0.0);
-		(*buffer)[z++] = (MYREAL) hist->results[numbins + j];
+		/* the raw masses: the master smooths once, as a serial run does
+		   (results is already smoothed here) */
+		(*buffer)[z++] = (MYREAL) (hist->results2 != NULL ? hist->results2[numbins + j] : hist->results[numbins + j]);
 	      }
 	  }
 	numbins += hist->bins[i];

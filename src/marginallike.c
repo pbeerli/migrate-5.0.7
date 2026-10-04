@@ -33,9 +33,6 @@ MYREAL combine_scaling_factor(world_fmt *world)
   MYREAL scaling_factor=0.0;
   bayes_fmt * bayes = world->bayes;
   boolean *visited;
-  double w=1.0;
-  double v=0.0;
-  double pr=0.0;
   visited = (boolean *) mycalloc(np,sizeof(boolean));
   for(i=0;i<np;i++)
     {
@@ -43,19 +40,8 @@ MYREAL combine_scaling_factor(world_fmt *world)
 	{
       if(bayes->map[i][1] == INVALID)
 	{
-	  if (bayes->custm2[i]=='c')
-	    {
-	      //scaling_factor += logpriors[i][bin_c]
-	      w = world->bayes->deltahist[i];
-	      //double v = bayes->histogram[0].minima[i] +  + w/2
-	      v = ((long) world->param0[i]/w)  + w/2.;
-	      pr = scaling_prior(world,i,v);
-	      scaling_factor += (1.0-world->loci) * (log(w) + pr);
-#ifdef DEBUG
-	      printf("%i> scaling factor with 'c': %li k=%f log(w)=%f  w=%f v=%f pr=%f  [%f]\n",myID, i, scaling_factor, log(w), w, v, pr, world->param0[i]);
-#endif
-
-	    }
+	  /* '0' and constant 'c' entries are fixed: no prior, nothing to
+	     integrate, so they add nothing to the scaling factor */
 	  continue;
 	}
       else
@@ -382,7 +368,9 @@ boolean ti_binned (world_fmt *world, long locus, double *ti, double *bti)
     }
   if (n < 2)
     return FALSE;
-  *ti = 0.0;
+  /* the strips from the top bin to beta 1 and from the bottom bin to
+     beta 0, with the end bins' mean log L */
+  *ti = (1.0 - b[0]) * l[0] + b[n - 1] * l[n - 1];
   for (k = 0; k + 1 < n; k++)
     {
       last = (b[k] - b[k + 1]) * 0.5 * (l[k] + l[k + 1]);
