@@ -152,11 +152,9 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 	      lsum += lsum0; 
 	    }
 	  //	  (x2 y1 - x1 y2)/(x1 - x2)
-	  // this last addition to the lsum calculates the chunk between the last temperature and 
-	  // the infinitely hot temperature as a linear approximation of the the second hottest temperature
-	  // this is certainly rough, but in simulations with 3 populations one can see that with large number
-	  // of temperatures this looks reasonable, and one can approximate the integral more accurately with 
-	  // with only a few columns.
+	  // BTI replaces the last trapezoid (between the two hottest chains)
+	  // by a Bezier curve; the strip from the hottest chain to beta = 0 is
+	  // added below for TI and BTI alike.
 	  // using Bezier to approximate nice curve between the last two points to mimick the curve that
 	  // can be found with 16 or 32 heated chains, handle points are calculated using adhoc decisions
 	  // (comparison with 32 heated chains) using 0.8 of the interval for handle_y1 and the intercept
@@ -170,6 +168,9 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 				 heat0, val0, 
 				 heat2, val2, &ratio2);
 	  ratio += val1;
+	  /* the strip from the hottest chain to beta = 0, as the stepping
+	     stones take it: beta_min times its mean log L */
+	  lsum += heat1 * val1;
 	  {   /* adaptive heating: integrate over the samples binned by beta */
 	    double ti_b, bti_b;
 	    if (options->adaptiveheat != NOTADAPTIVE && ti_binned (world, locus, &ti_b, &bti_b))
@@ -337,7 +338,7 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 	  fprintf(world->outfile,"\n\n\nAverage temperatures during the run using %s\n",
 		  (options->adaptiveheat==STANDARD) ? "standard adaptive heating scheme" : "bounded adaptive heating scheme" );
 	  fprintf(world->outfile,"===========================================================================\n\n");
-	  fprintf(world->outfile,"Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)\n");
+	  fprintf(world->outfile,"Chain Temperature               mean log likelihood       log stepping-stone ratio\n");
 	  for(t = 0; t < options->heated_chains; t++)
 	    {
 	      double nloc=0.0;
@@ -354,7 +355,7 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 		      nloc += world->data->locusweight[locus];
 		    }
 		  bfsum += world->data->locusweight[locus] * world->bf[locus * hc + t];
-		  ssum += log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t];
+		  ssum += world->data->locusweight[locus] * (log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t]);
 		}
 	      fprintf(world->outfile,"%5li %10.5f          %10.5f  %10.5f\n",t+1,world->averageheat_collected[t], bfsum/nloc, ssum/nloc);
 	    }
@@ -368,7 +369,7 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 	  // print heating table for static heating
 	  fprintf(world->outfile,"\n\n\nTemperatures during the run using the standard heating scheme\n" );
 	  fprintf(world->outfile,"===========================================================================\n\n");
-	  fprintf(world->outfile,"Chain Temperature               log(marginal likelihood)  log(mL_steppingstone)\n");
+	  fprintf(world->outfile,"Chain Temperature               mean log likelihood       log stepping-stone ratio\n");
 	  // locus means indicator for chain
 	  for(t = 0; t < options->heated_chains; t++)
 	    {
@@ -386,7 +387,7 @@ void print_heatingreport(world_fmt **universe, option_fmt * options)
 		      nloc += world->data->locusweight[locus];
 		    }
 		  bfsum += world->data->locusweight[locus] * world->bf[locus * hc + t];
-		  ssum += log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t];
+		  ssum += world->data->locusweight[locus] * (log(world->steppingstones[locus * hc + t]) + world->steppingstone_scalars[locus * hc + t]);
 		}
 	      // universe[t]->heat is the inverse temperature (beta=1/T); the
 	      // collected averageheat is in true-temperature units

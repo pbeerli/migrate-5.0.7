@@ -52,16 +52,17 @@
 
   Storage follows the posterior samples (bayes-allfile): by default the
   statistics stay in memory; in the low-memory file mode (has_bayesmdimfile)
-  every process instead writes "<outfile>.joint.<locus>.<replicate>" and the
-  master reads and thins them at the end (needs a shared file system, like
-  the posterior-sample files). In memory, each process keeps a thinned
-  buffer per locus (world->jointstats, at most 2*JC_MAXSAMPLES rows: when it
-  fills, every other row is dropped and the recording stride doubles).
-  Under MPI, replicate workers send their buffers to the locus worker with
-  the other replicate results (mpi_send_replicate()), and the master
-  collects each locus worker's buffers with MIGMPI_JOINTSTATS
-  (jc_pack_buffer()/jc_unpack_buffer()); a serial run uses its own buffers
-  directly.
+  every process instead writes "<outfile>.joint.<locus>.<replicate>", and
+  at the end the process that evaluates a locus reads and thins them (needs
+  a shared file system, like the posterior-sample files). In memory, each
+  process keeps a thinned buffer per locus (world->jointstats, at most
+  2*JC_MAXSAMPLES rows: when it fills, every other row is dropped and the
+  recording stride doubles). Under MPI, replicate workers send their
+  buffers to the locus worker with the other replicate results
+  (mpi_send_replicate(), jc_pack_buffer()/jc_unpack_buffer()). The rows
+  never go to the master: the locus workers evaluate their own loci for
+  every proposal of the master's sampler (MIGMPI_JC, jc_worker_service(),
+  see jc_eval_start()); a serial run uses its own buffers directly.
 ------------------------------------------------------------------------*/
 #include "migration.h"
 #include "world.h"

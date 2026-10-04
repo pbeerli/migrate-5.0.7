@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 3    Migrate 6.1.45 Marginal likelihoods: All scaling factor without log(bin width);
+             constant parameters crashed it; MPI merges replicates by sample count and
+             smooths histograms once; TI adds the strip to beta 0; heating-table labels.
+
 October 3    Migrate 6.1.44 Heating table: MPI runs report the temperatures (were 0);
              adaptive heating reports the mean temperature over all checks of the run.
 

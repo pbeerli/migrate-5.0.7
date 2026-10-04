@@ -5542,7 +5542,9 @@ void bayes_combine_loci(world_fmt * world)
 	if(sumprob > 0.0)
 	  {
 	    //log the integral(SUMPROB) and adjust with the biggest value
-	  bayes->scaling_factors[pa] = logw + log(sumprob) + maxvala[pa];//logw was commented out
+	  /* results2 and the prior are masses per bin, so the sum is
+	     already the integral; no log(bin width) */
+	  bayes->scaling_factors[pa] = log(sumprob) + maxvala[pa];
 	    
 #ifdef DEBUG
 	    printf("%i> scalingfactor[%li]=%f\n",myID, pa, bayes->scaling_factors[pa]);
