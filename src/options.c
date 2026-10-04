@@ -203,7 +203,7 @@ char * show_priorupdatefreq(char *tmp, prior_fmt *prior);
 void add_startparam(option_fmt *options, short key, float value);
 void set_startparam_randomstart(world_fmt *world, option_fmt *options);
 void set_theta_nrandomstart(world_fmt *world, option_fmt *options);
-void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors);
+void set_mystartparams(long i, long k, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors);
 void set_param_fromstartparam(world_fmt *world, option_fmt *options);
 MYREAL set_paramvalue_data_fst(char datatype,MYREAL val1, MYREAL val2);
 void set_theta_fststart(world_fmt *world, option_fmt *options, long locus);
@@ -1957,13 +1957,23 @@ void set_theta_nrandomstart(world_fmt *world, option_fmt *options)
 }
 
 
-//set parameters to start values
-void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors)
+//set parameters to start values; k is the position of parameter i within
+//its own group (Thetas, M, ...), the index into the user's start values
+void set_mystartparams(long i, long k, long numx,  long guess, float *ppp, world_fmt * world, option_fmt * options, prior_fmt * priors)
 {
   long ii;
   long  iii;
   if (shortcut(i,world, &ii))
-    return;
+    {
+      /* a constant parameter (custom-migration c) is not estimated, so
+         the Bayes map skips it; it still needs its start value (it kept
+         the prior minimum: with M = 0 the start genealogy could not be
+         built) */
+      if (i < world->numpop2 && strchr ("cC", options->custm2[i]) != NULL)
+        ii = i;
+      else
+        return;
+    }
   
   switch(options->startguess[guess][0])
     {
@@ -1975,10 +1985,15 @@ void set_mystartparams(long i, long numx,  long guess, float *ppp, world_fmt * w
       world->param0[ii] = (double) priors[ii].random(priors[ii].v);
       break;
     case OWN:
-      if (i < numx - 1)
-	iii = ii;
-      else
-	iii = numx - 1;
+      /* the start values of a group are stored from 0 (fill_startparam),
+         the last one repeats; the absolute index ii read the M values from
+         the wrong position (M_2->1 got the value given for M_1->2) */
+      if (numx < 1 || ppp == NULL)
+        {
+          world->param0[ii] = (double) priors[ii].cdf(0.5,priors[ii].v);
+          break;
+        }
+      iii = k < numx - 1 ? k : numx - 1;
       world->param0[ii] = (double) ppp[iii];
       if(i < world->numpop)
 	{
@@ -2034,7 +2049,7 @@ void set_param_fromstartparam(world_fmt *world, option_fmt *options)
 	    warning("Please check: failed in set_param_fromstartparam()\n");
 	    continue;
 	  } 
-	set_mystartparams(i, numx, guess, ppp, world, options, priors);
+	set_mystartparams(i, i < numpop ? i : (i < numpop2 ? i - numpop : 0), numx, guess, ppp, world, options, priors);
       }
     if (world->has_speciation)
       {
@@ -2042,11 +2057,11 @@ void set_param_fromstartparam(world_fmt *world, option_fmt *options)
 	  {
 	    numx = options->startparam.numsplit;
 	    ppp = options->startparam.split;
-	    set_mystartparams(i, numx, SPLITPRIOR, ppp, world, options, priors);
+	    set_mystartparams(i, (i - numrate2) / 2, numx, SPLITPRIOR, ppp, world, options, priors);
 	    // what happens when split distro is exponential?
 	    numx = options->startparam.numsplitstd;
 	    ppp = options->startparam.splitstd;
-	    set_mystartparams(i+1, numx, SPLITSTDPRIOR, ppp, world, options, priors);
+	    set_mystartparams(i+1, (i - numrate2) / 2, numx, SPLITSTDPRIOR, ppp, world, options, priors);
 	  }
       }
     if (world->has_growth)
@@ -2055,7 +2070,7 @@ void set_param_fromstartparam(world_fmt *world, option_fmt *options)
 	  {
 	    numx = options->startparam.numgrowth;
 	    ppp = options->startparam.growth;
-	    set_mystartparams(i, numx, GROWTHPRIOR, ppp, world, options, priors);
+	    set_mystartparams(i, i - numsplit, numx, GROWTHPRIOR, ppp, world, options, priors);
 	  }
       }
     if (world->has_mlalpha && world->tri_mlalpha != FIXED)
@@ -2064,7 +2079,7 @@ void set_param_fromstartparam(world_fmt *world, option_fmt *options)
 	  {
 	    numx = options->startparam.nummlalpha;
 	    ppp = options->startparam.mlalpha;
-	    set_mystartparams(i, numx, MLFPRIOR, ppp, world, options, priors);
+	    set_mystartparams(i, i - numgrowth, numx, MLFPRIOR, ppp, world, options, priors);
 	  }
       }
     //if(options->automatic_bins)
@@ -4829,8 +4844,9 @@ void set_bayes_options(char *value, option_fmt *options)
 	      if ((sfrom[0] != '*' && sfrom[0] != '-' && from < 0)
 		  || (sto[0] != '*' && sto[0] != '-' && to < 0))
 		{
-		  warning("bayes-priors: population numbers start at 1; ignoring \"%s\"\n", value);
-		  return;
+		  char msg[LINESIZE];
+		  snprintf (msg, LINESIZE, "bayes-priors: population numbers start at 1: \"%s\"", value);
+		  usererror (msg);
 		}
 	    }
 	  else
@@ -4848,7 +4864,15 @@ void set_bayes_options(char *value, option_fmt *options)
 		}
 	      else
 		{
-		  from = atol(sfrom);
+		  /* population numbers start at 1, as in the two-number form
+		     (this form used atol(sfrom) and so set the next population) */
+		  from = atol(sfrom) - 1;
+		  if (from < 0)
+		    {
+		      char msg[LINESIZE];
+		      snprintf (msg, LINESIZE, "bayes-priors: population numbers start at 1: \"%s\"", value);
+		      usererror (msg);
+		    }
 		}
 	      to = from;
 	    }

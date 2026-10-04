@@ -114,7 +114,7 @@ void set_option_prior(prior_fmt **p, int type, MYREAL mini, MYREAL maxi, MYREAL 
 prior_fmt * copy_option_prior(prior_fmt *pmodel, option_fmt *options, MYREAL ratemin);
 void copy_prior(prior_fmt *target, prior_fmt *source);
 prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * options);
-void find_prior(long from, long to, long priortype, option_fmt * options, prior_fmt *result);
+long find_prior(long from, long to, long priortype, option_fmt * options, prior_fmt *result);
 prior_fmt * set_default_prior(option_fmt *options, long from, long to, long priortype);
 long set_all_default_priors(option_fmt *options);
 prior_fmt * insert_prior(prior_fmt *p, prior_fmt **plist,long *z,option_fmt * options);
@@ -1472,36 +1472,38 @@ void copy_prior(prior_fmt *target, prior_fmt *source)
     }
 
  // find_prior returns an available prior with type this version returns a pointer to bayes_priors
+/* the user's prior line for parameter (from, to) of a type: an exact
+   "from to" line wins over one with a single "*", which wins over "* *",
+   whatever their order in the parmfile (the first matching line used to
+   win, so a "* *" line before "THETA 2 2" silently hid it); -1: none */
+static long
+prior_match (long from, long to, long priortype, option_fmt * options)
+{
+  prior_fmt * p = options->bayes_priors;
+  long i, best = -1, bestscore = 0;
+  for (i = 0; i < options->bayes_priors_num; i++)
+    {
+      long score;
+      if (priortype != p[i].type)
+        continue;
+      if ((p[i].from != -1 && p[i].from != from) || (p[i].to != -1 && p[i].to != to))
+        continue;
+      score = 1 + (p[i].from != -1) + (p[i].to != -1);
+      if (score > bestscore)
+        {
+          best = i;
+          bestscore = score;
+        }
+    }
+  return best;
+}
+
 prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * options)
 {
   prior_fmt * r = NULL;
-  prior_fmt * p = options->bayes_priors;
-  long i=0;
-  for (i=0;i<options->bayes_priors_num;i++)
-    {
-      if (priortype == p[i].type)
-	{
-	  if(from == p[i].from)
-	    {
-	      if (to == p[i].to)
-		{
-		  r = &p[i];
-		  return r;
-		}
-	    }
-	  else
-	    {
-	      if(-1 == p[i].from)
-		{
-		  if(-1 == p[i].to)
-		    {
-		      r = &p[i];
-		      return r;
-		    }
-		}
-	    }
-	}
-    }
+  long i = prior_match (from, to, priortype, options);
+  if (i >= 0)
+    return &options->bayes_priors[i];
   // default if no prior found add default:
   //
   options->bayes_priors_num +=1;
@@ -1601,44 +1603,15 @@ prior_fmt * set_default_prior(option_fmt *options, long from, long to, long prio
 }
 
 
- // find_prior returns an available prior with type 
-void find_prior(long from, long to, long priortype, option_fmt * options, prior_fmt *result)
+ // find_prior copies the prior for parameter (from, to) into result and
+ // returns the index of the user's line it came from (-1: the default)
+long find_prior(long from, long to, long priortype, option_fmt * options, prior_fmt *result)
 {
-  prior_fmt * r = NULL;
-  prior_fmt * p = options->bayes_priors;
-  long i=0;
-  for (i=0;i<options->bayes_priors_num;i++)
+  long i = prior_match (from, to, priortype, options);
+  if (i >= 0)
     {
-      if (priortype == p[i].type)
-	{
-	  if(from == p[i].from)
-	    {
-	      //printf("find_prior: %li ",from);
-	      if (to == p[i].to)
-		{
-		  //printf("%li\n",to);
-		  r = &p[i];
-		  copy_prior(result,r);
-		  return;
-		}
-	    }
-	  else
-	    {
-	      if(-1 == p[i].from)
-		{
-		  //printf("find_prior: %li ",-1);
-		  if(-1 == p[i].to)
-		    {
-		      //printf("%li\n",-1);
-		      r = &p[i];
-		      copy_prior(result,r);
-		      return;
-		    }
-		}
-	    }
-	  //	  copy_prior(result,r);
-	  //return; 
-	}
+      copy_prior(result, &options->bayes_priors[i]);
+      return i;
     }
   // default if no prior found add default:
   //
@@ -1671,6 +1644,38 @@ void find_prior(long from, long to, long priortype, option_fmt * options, prior_
     default:
       error("no default prior found");
     }
+  return -1;
+}
+
+/* a user's prior line found no parameter (a population that does not
+   exist, a diagonal MIG entry, a matrix entry the model does not have):
+   stop instead of running with the default prior */
+static void
+prior_check_used (option_fmt *options, const long *used, const boolean *looked)
+{
+  prior_fmt *p = options->bayes_priors;
+  long i;
+  for (i = 0; i < options->bayes_priors_num; i++)
+    {
+      if (p[i].from == -1 && p[i].to == -1)
+        continue;
+      if (p[i].type < 0 || p[i].type >= PRIOR_SIZE || !looked[p[i].type])
+        {   /* the model has no parameter of this kind (e.g. MIG with one
+               population): the line is kept for other models */
+          warning ("bayes-priors= %s %li %li ... ignored: this model has no %s parameters\n",
+                   p[i].ptypename, p[i].from + 1, p[i].to + 1, p[i].ptypename);
+          continue;
+        }
+      if (used[i] == 0)
+        {
+          char msg[LINESIZE];
+          snprintf (msg, LINESIZE, "bayes-priors= %s %li %li ... matches no parameter of this model\n"
+                    "(population numbers start at 1; MIG <from> <to> needs from != to and\n"
+                    "an entry of the custom-migration matrix)",
+                    p[i].ptypename, p[i].from + 1, p[i].to + 1);
+          usererror (msg);
+        }
+    }
 }
 
 /// checks the settings of the number of long an short chain for bayes options and resets useless settings
@@ -1696,15 +1701,23 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   long to;
   long plist_numalloc = np;
   prior_fmt  *plist = (prior_fmt *) mycalloc(plist_numalloc, sizeof(prior_fmt));
+  /* per user prior line: did it match a parameter? */
+  long *used = (long *) mycalloc(options->bayes_priors_num + 1, sizeof(long));
+  boolean looked[PRIOR_SIZE];   /* parameter kinds this model has */
+  long u;
+  memset (looked, 0, sizeof (looked));
+#define PRIOR_USE(idx) do { u = (idx); if (u >= 0) used[u] = 1; } while (0)
   for (i=0; i<numpop;i++)
     {
-      find_prior(i, i, THETAPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
+      looked[THETAPRIOR] = TRUE;
+      PRIOR_USE (find_prior(i, i, THETAPRIOR, options, &plist[w]));
       plist[w++].bins = options->bayes_posterior_bins[THETAPRIOR];
     }
   for (z=numpop; z<numpop2;z++)
     {
       m2mm(z,numpop,&from,&to);
-      find_prior(from, to, MIGPRIOR, options, &plist[w]);
+      looked[MIGPRIOR] = TRUE;
+      PRIOR_USE (find_prior(from, to, MIGPRIOR, options, &plist[w]));
       plist[w++].bins = options->bayes_posterior_bins[MIGPRIOR];
     }
   if(has_mu)
@@ -1712,7 +1725,8 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
       /* BUG FIX: was THETAPRIOR -- the mean/min/max looked up here fed
          the rate-modifier (RATE) prior slot, whose .bins is already
          set from bayes_posterior_bins[RATEPRIOR] two lines below. */
-      find_prior(numpop2, numpop2, RATEPRIOR, options, &plist[w]);
+      looked[RATEPRIOR] = TRUE;
+      PRIOR_USE (find_prior(numpop2, numpop2, RATEPRIOR, options, &plist[w]));
       plist[w++].bins = options->bayes_posterior_bins[RATEPRIOR];
     }
   z = numpop2 + has_mu;
@@ -1723,9 +1737,10 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 	  if (strchr("tdDT", options->custm2[i]))
 	    {
 	      m2mm(i,numpop,&from,&to);
-	      find_prior(from, to, SPECIESTIMEPRIOR, options, &plist[w]);
+	      looked[SPECIESTIMEPRIOR] = looked[SPECIESSTDPRIOR] = TRUE;
+	      PRIOR_USE (find_prior(from, to, SPECIESTIMEPRIOR, options, &plist[w]));
 	      plist[w++].bins = options->bayes_posterior_bins[SPECIESTIMEPRIOR];
-	      find_prior(from, to, SPECIESSTDPRIOR, options, &plist[w]);
+	      PRIOR_USE (find_prior(from, to, SPECIESSTDPRIOR, options, &plist[w]));
 	      plist[w++].bins = options->bayes_posterior_bins[SPECIESSTDPRIOR];
 	    }
 	}
@@ -1735,7 +1750,8 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
       for (i=0; i<numpop;i++)
 	{
 	  //printf("@w %li %li\n",i, w);
-	  find_prior(i, i, GROWTHPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
+	  looked[GROWTHPRIOR] = TRUE;
+	  PRIOR_USE (find_prior(i, i, GROWTHPRIOR, options, &plist[w]));
 	  plist[w++].bins = options->bayes_posterior_bins[GROWTHPRIOR];
 	  if (w >= plist_numalloc)
 	    {
@@ -1749,7 +1765,8 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
       for (i=0; i<numpop;i++)
 	{
 	  //printf("@w %li %li\n",i, w);
-	  find_prior(i, i, MLFPRIOR, options, &plist[w]);//uses options->bayes_priors [uses a return ptr!]
+	  looked[MLFPRIOR] = TRUE;
+	  PRIOR_USE (find_prior(i, i, MLFPRIOR, options, &plist[w]));
 	  plist[w++].bins = options->bayes_posterior_bins[MLFPRIOR];
 	  if (w >= plist_numalloc)
 	    {
@@ -1759,6 +1776,9 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 
 	}
     }
+#undef PRIOR_USE
+  prior_check_used (options, used, looked);
+  myfree (used);
   myfree(options->bayes_priors);
   options->bayes_priors = plist;
   options->bayes_priors_num = np;

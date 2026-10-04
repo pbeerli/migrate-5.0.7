@@ -2291,6 +2291,22 @@ void my_start_eventtime(double age, world_fmt *world, node **nodelist, long *lin
     }
 }
 
+/* the random start genealogy cannot be finished: the remaining lineages
+   sit in populations that no migration or population split connects */
+static void
+my_random_tree_stuck (world_fmt * world, long *lineages)
+{
+  char line[LINESIZE];
+  long pop, pos;
+  pos = snprintf (line, LINESIZE, "lineages left per population:");
+  for (pop = 0; pop < world->numpop && pos < LINESIZE - 24; pop++)
+    pos += snprintf (line + pos, (size_t) (LINESIZE - pos), " %li", lineages[pop]);
+  fprintf (stderr, "%s\n", line);
+  usererror ("The start genealogy cannot be completed: lineages are left in populations\n"
+             "that no migration or population split connects (for example M fixed at 0).\n"
+             "Check the custom-migration matrix and the start values of fixed parameters");
+}
+
 void
 my_random_tree (world_fmt * world, long tips)
 {
@@ -2382,6 +2398,8 @@ my_random_tree (world_fmt * world, long tips)
 		  if(zz<tips)
 		    zz++;
 		}
+	      else
+		my_random_tree_stuck (world, lineages);
 	      continue;
 	    }
 	}
@@ -2416,6 +2434,9 @@ my_random_tree (world_fmt * world, long tips)
 	  break;
 	case 't':
 	  //added a new tip
+	  break;
+	case ' ':   /* no event possible */
+	  my_random_tree_stuck (world, lineages);
 	  break;
 	default :
 	  fprintf(stderr,"Unknown type: |%c|\n",shorte);
