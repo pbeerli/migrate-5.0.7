@@ -2858,6 +2858,25 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
         maxival = themax;
     else
       maxival = (double) maxi[rpa];
+    long nbhere = bins[rpa];
+    if (bayes->prettyhist == PRETTY_P99 || bayes->prettyhist == PRETTY_P100)
+      {   /* start the axis at the first bin with mass (2 bins margin), as the
+             right end already stops at the mass; the axis used to start at
+             the prior minimum, which for a wide two-sided prior (growth in
+             [-1000, 1000]) left the posterior squeezed at one side */
+        double hmax = 0.0;
+        long f = 0;
+        for (f = 0; f < nbhere; f++)
+          if (results[numbins + f] > hmax)
+            hmax = results[numbins + f];
+        f = 0;
+        while (f < nbhere - 1 && results[numbins + f] <= 1e-3 * hmax)
+          f++;
+        f = f > 2 ? f - 2 : 0;
+        numbins += f;
+        nbhere -= f;
+        minival += (double) f * delta;
+      }
     switch(bayes->prettyhist)
     {
         case PRETTY_MAX:
@@ -2867,7 +2886,7 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
             break;
         case PRETTY_P99:
             pdf_histogram( &results[numbins],&set50[numbins], &set95[numbins],
-                          bins[rpa],(double) delta, (double) minival, -9999,
+                          nbhere,(double) delta, (double) minival, -9999,
                           lx,ly,187,116, FALSE, &world->bayes->priors[numbins]);
             break;
         case PRETTY_P99MAX:
@@ -2879,7 +2898,7 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
         case PRETTY_P100:
         default:
             pdf_histogram( &results[numbins],&set50[numbins], &set95[numbins],
-                          bins[rpa],(double) delta, (double) minival, -999,
+                          nbhere,(double) delta, (double) minival, -999,
                           lx,ly,187,116, FALSE, &world->bayes->priors[numbins]);
             break;
     }

@@ -263,7 +263,7 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       const double lo = sp >= 0 ? world->bayes->minparam[sp] : -1.0;
       const double hi = sp >= 0 ? world->bayes->maxparam[sp] : 1.0;
       for (g = 0; g < JC_NG; g++)
-        ly->ggrid[s * JC_NG + g] = lo + (hi - lo) * (double) g / (JC_NG - 1);
+        ly->ggrid[s * JC_NG + g] = g == JC_NG - 1 ? hi : lo + (hi - lo) * (double) g / (JC_NG - 1);
     }
   for (pop = 0; pop < numpop; pop++)
     if (ly->pop_slot[pop] >= 0)
@@ -1240,6 +1240,11 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
       x[n++] = U + (hi - U) * (double) g / nout;
   for (g = 0; g < n; g++)
     {
+      /* inside the prior range despite rounding (see the Theta/M grids) */
+      if (x[g] < lo)
+        x[g] = lo;
+      if (x[g] > hi)
+        x[g] = hi;
       v[g] = scaling_prior (q->world, pm, x[g]);
       for (m = 0; m < ly->nsplit; m++)
         if (ly->split_rep[m] == k)
@@ -1829,12 +1834,18 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
       const double lo = world->bayes->minparam[p] > hi * 1e-8 ? world->bayes->minparam[p] : hi * 1e-8;
       for (g = 0; g < JC_GRID; g++)
         {
-          tgrid[p * JC_GRID + g] = exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_GRID - 1));
+          /* the ends exactly at the bounds: exp(log(x)) can fall just
+             outside the prior range, which then gave the end point prior
+             density zero and dropped half of the end interval (a log Z
+             error up to 0.04 that depended on the genealogy) */
+          tgrid[p * JC_GRID + g] = g == 0 ? lo : (g == JC_GRID - 1 ? hi
+            : exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_GRID - 1)));
           tpri[p * JC_GRID + g] = scaling_prior (world, p, tgrid[p * JC_GRID + g]);
         }
       for (g = 0; g < JC_TGRID; g++)
           {
-            tgrid_s[p * JC_TGRID + g] = exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_TGRID - 1));
+            tgrid_s[p * JC_TGRID + g] = g == 0 ? lo : (g == JC_TGRID - 1 ? hi
+              : exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_TGRID - 1)));
             tpri_s[p * JC_TGRID + g] = scaling_prior (world, p, tgrid_s[p * JC_TGRID + g]);
           }
     }

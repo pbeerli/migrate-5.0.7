@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 4    Migrate 6.1.49 Joint: integration grids end exactly at the prior bounds (log Z was
+             slightly too low); PDF histograms start at the posterior, not the prior minimum.
+
 October 4    Migrate 6.1.48 bayes-allfile runs: histogram bins clamped at the prior bounds;
              a crash no longer hangs the run.
 
