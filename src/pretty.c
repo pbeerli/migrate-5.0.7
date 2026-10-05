@@ -2078,9 +2078,24 @@ pdf_bayes_print_accept(world_fmt *world)
       }
     // accepted trees
     pdf_printf(left_margin, page_height,'L', "Genealogies");
-    pdf_printf(250, page_height, 'L', "%8li/%-8li", world->accept_archive[npa], trials);
-    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[npa]/ trials);
+    pdf_printf(250, page_height, 'L', "%8li/%-8li", world->accept_archive[npa], world->trials_archive[npa]);
+    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[npa]/ world->trials_archive[npa]);
     pdf_advance(&page_height);
+    // joint moves, only when used (as in bayes_print_accept())
+    if (world->scaler_trials > 0)
+      {
+	pdf_printf(left_margin, page_height,'L', "Scaler (Theta*c, M/c)");
+	pdf_printf(250, page_height, 'L', "%8li/%-8li", world->scaler_accept, world->scaler_trials);
+	pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->scaler_accept / world->scaler_trials);
+	pdf_advance(&page_height);
+      }
+    if (world->window_trials > 0)
+      {
+	pdf_printf(left_margin, page_height,'L', "Window (local M)");
+	pdf_printf(250, page_height, 'L', "%8li/%-8li", world->window_accept, world->window_trials);
+	pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->window_accept / world->window_trials);
+	pdf_advance(&page_height);
+      }
     myfree(stempo);
 }
 ///

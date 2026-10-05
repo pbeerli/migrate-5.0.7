@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 5    Migrate 6.1.51 Scaler and window acceptance reported in outfile and PDF (under MPI
+             the counts never reached the master); the PDF genealogy acceptance ratio
+             used the wrong number of trials.
+
 October 4    Migrate 6.1.50 Ghost populations no longer corrupt sequence site patterns; fixed (c)
              parameters get their start values; per-parameter priors: the most specific
              line wins and a line matching no parameter stops the run.

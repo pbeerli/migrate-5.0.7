@@ -3844,6 +3844,13 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 		world->scaler_accept, world->scaler_trials,
 		(double) world->scaler_accept/world->scaler_trials);
       }
+    // joint local-M + windowed migration-history move, same rule
+    if(world->window_trials > 0)
+      {
+	FPRINTF(file, "Window (local M)      %8li/%-8li         %8.5f\n",
+		world->window_accept, world->window_trials,
+		(double) world->window_accept/world->window_trials);
+      }
     myfree(stemp);
 }
 

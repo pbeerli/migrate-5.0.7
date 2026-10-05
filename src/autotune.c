@@ -338,9 +338,19 @@ void burnin_chain (world_fmt * world)
     {
         print_menu_equilib (world);
     }
+    /* the scaler/window counts are running totals over replicates and
+       loci, so burn-in moves are dropped by restoring them, not by zeroing */
+    const long scaler_accept = world->scaler_accept;
+    const long scaler_trials = world->scaler_trials;
+    const long window_accept = world->window_accept;
+    const long window_trials = world->window_trials;
     burnin_bayes(world);
     memset(world->bayes->accept,0,sizeof(long) * (size_t) nng);
     memset(world->bayes->trials,0,sizeof(long) * (size_t) nng);
+    world->scaler_accept = scaler_accept;
+    world->scaler_trials = scaler_trials;
+    world->window_accept = window_accept;
+    world->window_trials = window_trials;
     if (world->cold)
       {
 	z = world->burnin_z-1;

@@ -3338,6 +3338,8 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
   bufsize = 0;
   // 2 * 2 * (np+1) pack_single_bayes_buffer_part
   bufsize += 2 * 2 * (npp+1);
+  // scaler and window acceptance and trials
+  bufsize += 4;
   // npp + 11*npp + 3*bin*npp + npp*npp pack_hist_bayes_buffer
   if(!world->options->has_bayesmdimfile)
     {
@@ -3439,6 +3441,11 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
     // genealogy
     world->accept_archive[j] += (tmp1 = (long) buffer[z++]);
     world->trials_archive[j] += (tmp2 = (long) buffer[z++]);
+    // scaler and window moves (run on the workers, reported by the master)
+    world->scaler_accept += (long) buffer[z++];
+    world->scaler_trials += (long) buffer[z++];
+    world->window_accept += (long) buffer[z++];
+    world->window_trials += (long) buffer[z++];
     // end unpack_single_bayes_buffer_part
     //
     if(!world->options->has_bayesmdimfile)
@@ -4263,6 +4270,11 @@ long unpack_single_bayes_buffer(MYREAL *buffer,bayes_fmt * bayes, world_fmt * wo
   tmp2 = (long) buffer[z++];
   world->accept_archive[j] += tmp1;
   world->trials_archive[j] += tmp2;
+  // scaler and window moves
+  world->scaler_accept += (long) buffer[z++];
+  world->scaler_trials += (long) buffer[z++];
+  world->window_accept += (long) buffer[z++];
+  world->window_trials += (long) buffer[z++];
   return z;
 }
 
@@ -4277,6 +4289,7 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     long nn = 2 + world->numparam;
     const long nng= nn-1;
     bufsize = 2 * (nng); //acceptance ratio: params + tree
+    bufsize += 4;        // scaler and window acceptance and trials
     bufsize += 2;        // loci + numparams
     bufsize += world->bayes->numparams * nn;
     bufsize += 3 + world->options->heated_chains + 1;
@@ -4318,6 +4331,13 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     // for the genealogy                                                                                                            
     (*buffer)[z++] =  (MYREAL) world->accept_archive[j];
     (*buffer)[z++] =  (MYREAL) world->trials_archive[j];
+    // scaler and window moves; sent once, so zeroed like the archive
+    (*buffer)[z++] =  (MYREAL) world->scaler_accept;
+    (*buffer)[z++] =  (MYREAL) world->scaler_trials;
+    (*buffer)[z++] =  (MYREAL) world->window_accept;
+    (*buffer)[z++] =  (MYREAL) world->window_trials;
+    world->scaler_accept = world->scaler_trials = 0;
+    world->window_accept = world->window_trials = 0;
 
     if(bufsize < z)
       error("buffer is too small in pack_single_bayes_buffer()\n");
@@ -4357,6 +4377,13 @@ long pack_single_bayes_buffer_part(MYREAL **buffer, bayes_fmt *bayes, world_fmt 
 #ifdef DEBUG
     printf("%i> %f %f [pack_single_...part]\n", myID, (*buffer)[z-2],(*buffer)[z-1]);
 #endif
+    // scaler and window moves; sent once, so zeroed like the archive
+    (*buffer)[z++] = (MYREAL) world->scaler_accept;
+    (*buffer)[z++] = (MYREAL) world->scaler_trials;
+    (*buffer)[z++] = (MYREAL) world->window_accept;
+    (*buffer)[z++] = (MYREAL) world->window_trials;
+    world->scaler_accept = world->scaler_trials = 0;
+    world->window_accept = world->window_trials = 0;
     memset(world->accept_archive,0,sizeof(long)* 2 * nng); //removes accept and trials archive
     return z;
 }
