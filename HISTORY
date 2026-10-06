@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.52 Sequence data run about 3x faster (proposals evaluated every site
+             instead of the site patterns when no categories file was given; results
+             unchanged).
+
 October 5    Migrate 6.1.51 Scaler and window acceptance reported in outfile and PDF (under MPI
              the counts never reached the master); the PDF genealogy acceptance ratio
              used the wrong number of trials.

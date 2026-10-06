@@ -4167,7 +4167,7 @@ pseudo_tl_seq (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
   
   //opt = world->options;
   summ = 0.0;
-  if (rcategs == 1 && categs == 1)
+  if (rcategs == 1 && categs <= 1)   /* 0 = no categories file = one category */
     {
         for (i = 0; i < numpatterns; i++)
         {
