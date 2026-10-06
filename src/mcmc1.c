@@ -133,7 +133,6 @@ boolean is_in_bracket(node *tmp, node*back, MYREAL thetime, long pop);
 void increase_stack(node ***stack, long *allocsize,  long newallocsize);
 void free_timevector_new (timelist_fmt * timevector);
 
-void add_proposal_to_tl(proposal_fmt *proposal, timelist_fmt ** timevector);
 
 //##
 /* Functions implementation ++++++++++++++++++++++++++++++++++++++++++++++++*/
@@ -732,108 +731,6 @@ chooseOrigin (proposal_fmt * proposal)
     }
     if (proposal->origin == NULL)
         error ("Designation of origin for branch removal failed");
-}
-
-void add_proposal_to_tl(proposal_fmt *proposal, timelist_fmt ** timevector)
-{
-  size_t ii;
-  long slot = (*timevector)->T;
-  long lastfrom;
-  //size_t oldalloc;
-  if ((*timevector)->allocT < ((*timevector)->allocT + proposal->migr_table_counter + proposal->migr_table_counter2))
-    {
-      //oldalloc = (*timevector)->allocT;
-      (*timevector)->allocT = (*timevector)->allocT + proposal->migr_table_counter + proposal->migr_table_counter2 + HUNDRED;
-      (*timevector)->tl = (vtlist *) myrealloc((*timevector)->tl, sizeof(vtlist) * (*timevector)->allocT);
-      allocate_lineages (timevector, 0, proposal->numpop);
-    }
-  else
-      allocate_lineages (timevector, 0, proposal->numpop);
-  
-  vtlist * tls = &(*timevector)->tl[slot];
-  tls->eventnode = proposal->origin;
-  tls->age = proposal->origin->tyme;
-  tls->from = proposal->origin->actualpop;
-  tls->to = proposal->origin->pop;
-  tls->type = proposal->origin->type;
-  slot++;
-  lastfrom = tls->from;
-  for (ii=0;ii<proposal->migr_table_counter;ii++,slot++)
-    {
-      //printf("mig: %li -> %li %c %f\n", proposal->migr_table[ii].from, proposal->migr_table[ii].to, proposal->migr_table[ii].event, proposal->migr_table[ii].time);
-      tls = &(*timevector)->tl[slot];
-      tls->eventnode = NULL;
-      tls->age = proposal->migr_table[ii].time;
-      tls->from = proposal->migr_table[ii].from;
-      tls->to = proposal->migr_table[ii].to;
-      tls->type = proposal->migr_table[ii].event;
-    }
-  for (ii=0;ii<proposal->migr_table_counter2;ii++,slot++)
-    {
-      //printf("mig2: %li -> %li %c %f\n", proposal->migr_table2[ii].from, proposal->migr_table2[ii].to, proposal->migr_table2[ii].event, proposal->migr_table2[ii].time);
-      tls = &(*timevector)->tl[slot];
-      tls->eventnode = NULL;
-      tls->age = proposal->migr_table2[ii].time;
-      tls->from = proposal->migr_table2[ii].from;
-      tls->to = proposal->migr_table2[ii].to;
-      tls->type = proposal->migr_table2[ii].event;
-    }
-  if (proposal->migr_table_counter > 0)
-    lastfrom = proposal->migr_table[proposal->migr_table_counter-1].from;
-  if (proposal->migr_table_counter2 > 0)
-    lastfrom = proposal->migr_table2[proposal->migr_table_counter2-1].from;
-  tls = &(*timevector)->tl[slot]; //coalescence of orgin lineage into tree (or migrate2 table)
-  tls->eventnode = NULL;
-  tls->age = proposal->time;
-  tls->from = lastfrom;
-  tls->to = lastfrom;
-  tls->type = 'i';
-  slot++;
-  (*timevector)->T = slot;
-  if ((*timevector)->T > (*timevector)->allocT)
-    error("timevector lineages failed to allocate mcmc1.c: 705");
-}
-
-///
-/// fix a tymelist based on the lineage in proposal assuming proposal->origin is a tip
-/// used for assignment probg_treetimes calculation
-// this is the inverse of construct_localtimelist()
-void fix_timelist(timelist_fmt *timevector, proposal_fmt *proposal)
-{
-  size_t ii;
-  //printf("tips: %li, mig# %li, mig2# %li timelslice %li time: %f\n",proposal->sumtips,proposal->migr_table_counter, proposal->migr_table_counter2, proposal->timeslice,proposal->time);
-  //printf("tyme: %f actualpop %li pop %li\n",proposal->origin->tyme,proposal->origin->actualpop, proposal->origin->pop);
-  allocate_lineages (&timevector, 0, proposal->numpop);
-  add_proposal_to_tl(proposal, &timevector);
-  qsort ((void *) (*timevector).tl, (size_t) (*timevector).T, sizeof (vtlist), agecmp);
-  add_partlineages(proposal->numpop, &timevector, proposal->world);
-  for(ii=0;ii<timevector->T;ii++)
-  {
-    //char type;
-    //long actualpop;
-    //long pop;
-    if (timevector->tl[ii].eventnode != NULL)
-      {
-	//type = timevector->tl[ii].eventnode->type;
-	//actualpop = timevector->tl[ii].eventnode->actualpop;
-	//pop = timevector->tl[ii].eventnode->pop;
-      }
-    else
-      {
-	//type = timevector->tl[ii].type;
-	//actualpop = -1;
-	//pop = -1;
-      }
-    //printf("%i> ii=%li %0.5f  (%li->%li)[]%li, %li]  %c %3li\n",myID, ii, timevector->tl[ii].age,
-    //	   timevector->tl[ii].from, timevector->tl[ii].to,actualpop,pop,
-    //	   type,timevector->tl[ii].lineages[0]);
-      //size_t jj;
-      //for(jj = 1;jj < proposal->numpop; jj++)
-      //printf(" %3li",timevector->tl[ii].lineages[jj]);
-      //printf("\n");
-      //printf(" backtyme:%f dif:%f\n",showtop(showtop(timevector->tl[ii].eventnode)->back)->tyme,dif=showtop(timevector->tl[ii].eventnode->back)->tyme-timevector->tl[ii].eventnode->tyme);
-  }
-  //error("check stop\n");
 }
 
 ///
@@ -1729,8 +1626,8 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
     //considering data to remove out of sticky area [hopefully]
     //static long not_accepted = 0;
     
-  //with assign we use the tymelist and the proposal to recalculate the tymelist for the new tree probg.
-  // we will change tymelist as a side-effect asuming that we do not need to use the tymelist further 
+  // tymelist: the proposal's time list; only the Mittag-Leffler correction
+  // (mlh_log_correction) uses it
     const long limit = MIGRATION_LIMIT * world->numpop;
     
     long rm  = 0L;
@@ -1830,7 +1727,6 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
       }
     if (assign)
       {
-	fix_timelist(tymelist, proposal);
 	/* The reassigned individual's lineage is re-simulated from the
 	   conditional coalescent given the residual tree and its new
 	   population, so q(G|G')/q(G'|G) = p(G)/p(G') and the coalescent terms
