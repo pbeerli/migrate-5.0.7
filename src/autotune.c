@@ -37,10 +37,10 @@
 extern void print_menu_equilib (world_fmt * world);
 extern int myID;
 // functions
-void autotune_proposal(world_fmt *world, long which);
+void autotune_proposal(world_fmt *world, long which, long w);
 void present_burnin_info(world_fmt *world, MYREAL ess, MYREAL acceptance, MYREAL var, MYREAL oldvar,  long step);
 MYREAL mean_acceptance_rate(world_fmt * world);
-MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYREAL * var, MYREAL *autocorrelation, MYREAL * effective_sample);
+MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYREAL * var, MYREAL curvar, MYREAL *autocorrelation, MYREAL * effective_sample);
 long  expected_end_burnin(world_fmt *world, MYREAL percent, long starttime, char *text);
 void burnin_progress(MYREAL percent);
 void burnin_bayes(world_fmt * world);
@@ -48,15 +48,18 @@ void burnin_chain (world_fmt * world);
 
 
 // functions implementation
-void autotune_proposal(world_fmt *world, long which)
+/// `which` is the slot whose acceptance is booked, `w` the representative
+/// slot whose width the proposal uses (they differ for grouped growth and
+/// Mittag-Leffler alpha; the tuned width used to stay on `which`)
+void autotune_proposal(world_fmt *world, long which, long w)
 {
     MYREAL ratio;
     worldoption_fmt *wopt = world->options;
     bayes_fmt *bayes = world->bayes;
-    MYREAL delta = bayes->delta[which];
+    MYREAL delta = bayes->delta[w];
     long space = MAX(10, (long) world->numpop2+1);
-    MYREAL ma = bayes->maxparam[which];
-    MYREAL mi = bayes->minparam[which];
+    MYREAL ma = bayes->maxparam[w];
+    MYREAL mi = bayes->minparam[w];
     MYREAL mindelta = (ma-mi)/200.;
 
     if(world->in_burnin && world->cold && !world->options->prioralone)
@@ -85,6 +88,7 @@ void autotune_proposal(world_fmt *world, long which)
 		delta = ma;
 	      if(delta < mindelta)
 		delta = mindelta;
+	      bayes->delta[w] = delta;
 	      bayes->delta[which] = delta;
 	    }
 	}
@@ -148,7 +152,11 @@ MYREAL mean_acceptance_rate(world_fmt * world)
   return sum/count;
 }
 
-MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYREAL * var, MYREAL *autocorrelation, MYREAL * effective_sample)
+/// *var holds the summed variance at the previous check point, curvar the
+/// current one; the running statistics are fed every long-inc steps by
+/// burnin_bayes() (they used to be fed only at the ~10 check points, so the
+/// ESS criterion could hardly ever be met)
+MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYREAL * var, MYREAL curvar, MYREAL *autocorrelation, MYREAL * effective_sample)
 {
     char autostop = world->options->burnin_autostop;
     const  long delta = ((stop >= 10000) ? 1000 : (stop / 10));
@@ -161,7 +169,8 @@ MYINLINE boolean auto_stop_burnin(world_fmt *world,  long step,  long stop, MYRE
     boolean acceptanceOK = FALSE;
     boolean essOK = FALSE;
     boolean vardiffOK = FALSE;
-    single_chain_var (world, (unsigned long) step, var, autocorrelation, effective_sample);
+    (void) autocorrelation;
+    *var = curvar;
     if (step > delta && oldvar>0.0)
       vardiffOK = (fabs(*var/oldvar - 1.0) < world->varheat);
     else
@@ -240,7 +249,10 @@ void burnin_bayes(world_fmt * world)
   MYREAL * autocorrelation;
   MYREAL * effective_sample;
   //MYREAL * acceptances;
-  MYREAL var= (MYREAL) HUGE;
+  MYREAL var= (MYREAL) HUGE;      /* running summed variance (fed every increment) */
+  MYREAL checkvar = (MYREAL) HUGE; /* the value at the previous check point */
+  const boolean autostop = (world->options->burnin_autostop != ' ');
+  unsigned long nfed = 0;
    long step;
   int choice;
   boolean success=FALSE;
@@ -311,10 +323,15 @@ void burnin_bayes(world_fmt * world)
 	default:
 	  error("failure in choosing among updates -- Bayes");
 	}
-	        if((step % delta) == 0)
+      if (autostop && (step % world->increment) == 0)
+        single_chain_var (world, ++nfed, &var, autocorrelation, effective_sample);
+      if((step % delta) == 0)
         {
-	  done = auto_stop_burnin(world, step, stop, &var, autocorrelation, effective_sample);
-          }
+	  if (autostop)
+	    done = auto_stop_burnin(world, step, stop, &checkvar, var, autocorrelation, effective_sample);
+	  else
+	    done = FALSE;
+        }
 	if(done)
 	  break;
         world->bayes->count = 0;

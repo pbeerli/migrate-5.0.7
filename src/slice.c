@@ -483,117 +483,82 @@ MYREAL expslice (MYREAL *startval, long which, world_fmt * world, MYREAL  (*func
     newstartval = minparam[w] + RANDUM() * (maxparam[w] - minparam[w]);
     fprintf(stdout,"    In bound new value =%f\n", newstartval);
   }
-  x = newstartval;
-  priorratio = (MYREAL) func(world, w, newstartval);
-  set_slice_param(newstartval,which, world);
-  // calculate the function
-  fx = probg_treetimes(world)+ priorratio;
-  // find a random point between zero and fx
-  ra = log(RANDUM());
-  y  = ra + fx;
-  // position horizontal stick on coordinates (x,y) --> |-------x--|
-  ra = RANDUM();
-  r  = ra * stick;
-  zl = x - r;
-  zr = zl + stick;
-  // extend the stick until it crosses the function
-  priorratio = func(world, w, zl);
-  set_slice_param(zl,which, world);
-  fzl= probg_treetimes(world) + priorratio;
-  priorratio = func(world, w, zr);
-  set_slice_param(zr,w, world);
-  fzr= probg_treetimes(world) + priorratio;
-  // 
-  while(y < fzl && zl>minparam[w])
-    {
-      stick *= stick_expand;
-      zl -= stick;
-      //      ezl = EXP(zl);
-      priorratio = func(world, w, zl);
-      set_slice_param(zl,which, world);
-      fzl= probg_treetimes(world) + priorratio;
-      count++;
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n", zl, fzl,"lower", count);
-#endif
-    }
-  while(y < fzr && zr< maxparam[w])
-    {
-      stick *= stick_expand;
-      zr += stick;
-      //      ezr = EXP(zr);
-      priorratio = func(world, w, zr);
-      set_slice_param(zr,which, world);
-      fzr= probg_treetimes(world) + priorratio;
-      count++;
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n", zr, fzr,"upper", count);
-#endif
-    }
-  // pick new value at random
-  ra = RANDUM();
-  x  = ra * (zr - zl) + zl;
-  //  ex = EXP(x);
-  priorratio = func(world, w, x);
-  set_slice_param(x,which, world);
-  fx = probg_treetimes(world) + priorratio;
-  count++;
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n", x, fx,"new_x", count);
-#endif
-  while(fx < y && ((zr-zl) > EPSILON))
-    {
-      stick *= stick_reduce;
-      count++;
-      if(x < newstartval)
-	{
-	  zl = x;
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n", x, fx,"new_lower", count);
-#endif
-	}
-      else
-	{
-	  zr = x;
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n", x, fx,"new_upper", count);
-#endif
-	}
-      ra = RANDUM();
-      x  = ra * (zr-zl)+ zl;
-      priorratio = func(world, w, x);
-      set_slice_param(x,which, world);
-      fx = probg_treetimes(world) + priorratio;
-#ifdef SLICEREPORTER
-      fprintf(stdout,"#@ %f %f %s %li\n", x, fx,"new_x", count);
-#endif
-    }
-  //fprintf(stdout,"{{%f,%f},{%f,%f},{%f,%f}} (* y=%f, c=%li, %li, lv=%f *)\n",zl,fzl,x,fx,zr,fzr,y, count, which,startval);
-  //fprintf(stdout,"%3li: %f %f %li\n",which, x, fx, count);
-#ifdef SLICEREPORTER
-  fprintf(stdout,"#@ %f %f %s %li\n#----------------------\n", x, fx,"return_x", count);
-#endif
-  if((x < maxparam[w]) && (x > minparam[w]))
-    {
-      *startval = x;
-      world->options->slice_sticksizes[which] = stick;
-      return fx - priorratio;
-    }
-  else
-    {
-      if(x < minparam[w])
-	{
-	  *startval = minparam[w];
-	  world->options->slice_sticksizes[which] = stick;
-	  return fx - priorratio;
-	}
-      else
-	{
-	  *startval = maxparam[w];
-	  world->options->slice_sticksizes[which] = stick;
-	  return fx - priorratio;
-	}
-    }
+  /* Neal (2003) stepping out and shrinkage with a FIXED width W within the
+     call. The width used to grow by 2% with every stepping-out step and to
+     adapt during sampling as well; now it adapts only during burn-in, so the
+     sampling chain is a fixed, reversible kernel. If the shrinkage runs out
+     of width without hitting the slice, the chain stays at x0. */
+  {
+    const MYREAL x0 = newstartval;
+    const MYREAL W = stick;
+    MYREAL lo, hi, fx0;
+    long steps;
+    priorratio = (MYREAL) func(world, w, x0);
+    set_slice_param(x0, which, world);
+    fx0 = probg_treetimes(world) + priorratio;
+    y = fx0 + log(RANDUM());
+    zl = x0 - RANDUM() * W;
+    zr = zl + W;
+    /* step out, at most 100 steps on each side, never far beyond the bounds */
+    for (steps = 0; steps < 100 && zl > minparam[w]; steps++)
+      {
+        priorratio = func(world, w, zl);
+        set_slice_param(zl, which, world);
+        fzl = probg_treetimes(world) + priorratio;
+        if (fzl <= y)
+          break;
+        zl -= W;
+      }
+    for (steps = 0; steps < 100 && zr < maxparam[w]; steps++)
+      {
+        priorratio = func(world, w, zr);
+        set_slice_param(zr, which, world);
+        fzr = probg_treetimes(world) + priorratio;
+        if (fzr <= y)
+          break;
+        zr += W;
+      }
+    if (zl < minparam[w])
+      zl = minparam[w];
+    if (zr > maxparam[w])
+      zr = maxparam[w];
+    lo = zl;
+    hi = zr;
+    /* shrink */
+    for (;;)
+      {
+        x = lo + RANDUM() * (hi - lo);
+        priorratio = func(world, w, x);
+        set_slice_param(x, which, world);
+        fx = probg_treetimes(world) + priorratio;
+        count++;
+        if (fx > y)
+          break;
+        if (x < x0)
+          lo = x;
+        else
+          hi = x;
+        if (hi - lo <= EPSILON)
+          {
+            x = x0;
+            priorratio = func(world, w, x0);
+            set_slice_param(x0, which, world);
+            fx = fx0;
+            break;
+          }
+      }
+    /* burn-in only: steer W toward the width of the stepped-out interval */
+    if (world->in_burnin)
+      {
+        if (zr - zl > 2.0 * W)
+          stick = W * stick_expand;
+        else
+          stick = W * stick_reduce;
+        world->options->slice_sticksizes[which] = stick;
+      }
+    *startval = x;
+    return fx - priorratio;
+  }
 }
 
 //#ifdef TESTING2

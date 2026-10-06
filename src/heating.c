@@ -424,7 +424,10 @@ void adjust_temperatures_bounded(world_fmt ** universe, long hchains, long step,
 #ifdef DEBUG
 	      fprintf(stdout,"%i> chain %li: %f %f %li (step=%li (%f))\n", myID, i+1, 1./universe[i]->heat,universe[i]->averageheat, universe[i]->treeswapcount, step, (MYREAL) HEATCHECKINTERVAL/step);
 #endif
-                delta[i-1] = (MYREAL) universe[i]->treeswapcount;
+                /* swaps of pair (i-1,i) are counted on the colder chain i-1
+                   (chance_swap_tree), as in adjust_temperatures(); this
+                   used to read universe[i], the count of pair (i,i+1) */
+                delta[i-1] = (MYREAL) universe[i-1]->treeswapcount;
 		if(delta[i-1] < 1.0)
 		  delta[i-1] = 1.0;
 		deltasum += (long) delta[i-1];

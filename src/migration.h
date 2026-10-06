@@ -1431,6 +1431,11 @@ typedef struct _convergence
   MYREAL *chain_s;
   MYREAL *chain_means;
   long *chain_counts;
+  /* first row of world->bayes->params that belongs to the replicate being
+     summarised: all replicates of a locus append to the same array, and the
+     per-replicate means/variances used to run over all of them (cumulative
+     over replicates, which made R too small) */
+  long rep_firstrow;
 } convergence_fmt;
 
 #ifdef MPI

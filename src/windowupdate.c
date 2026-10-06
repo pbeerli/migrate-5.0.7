@@ -273,6 +273,15 @@ build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
   const MYREAL *param0 = world->param0;
   long from, to;
 
+  const MYREAL mu_rate = world->options->mu_rates[world->locus];
+  const MYREAL *geo = world->data->geo;
+  /* Q[s][b] is the BACKWARD rate of a lineage in population s (younger
+     side) moving to b (older side). probg_treetimes() scores such an event
+     with the forward route b -> s, i.e. geo * M_{b->s} / mu_rate, M of the
+     receiving population s (xNm / Theta_s for xNm entries). This used to be
+     the transpose (M_{s->b}, divided by Theta_b): still exact, because the
+     same Q samples and scores the proposal, but poor proposals for
+     asymmetric M. */
   for (from = 0; from < d; from++)
     {
       MYREAL rowsum = 0.0;
@@ -281,9 +290,10 @@ build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
           MYREAL rate;
           if (from == to)
             continue;
-          long idx = m2mmm (from, to, d);
+          long idx = m2mmm (to, from, d);      /* forward route to -> from */
           MYREAL mval = (idx == which) ? which_value : param0[idx];
-          rate = usem ? mval : mval / param0[to];
+          rate = usem ? mval : mval / param0[from];
+          rate *= geo[idx] / mu_rate;
           Q[from * d + to] = rate;
           rowsum += rate;
         }
@@ -353,7 +363,13 @@ local_M_propose (world_fmt * world, long *which_out, MYREAL * Mold_out,
   *which_out = which;
   *Mold_out = Mold;
   *Mnew_out = Mnew;
-  *logpriorjac_out = (*log_prior_ratio[which]) (Mnew, Mold, bayes, which)
+  /* the prior density itself: log_prior_ratio[] is move-specific and is 0
+     for the independence-draw priors (EXP, GAMMA, NORMAL), whose own
+     proposal cancels the prior; here it does not, and using it made this
+     move ignore those priors (NODATA, window-delta=0.5: EXP mean 8.4 for a
+     prior mean of 4.6) */
+  *logpriorjac_out = (*log_prior_1[which]) (world, which, Mnew)
+                      - (*log_prior_1[which]) (world, which, Mold)
                       + LOG (Mnew) - LOG (Mold);
   return TRUE;
 }
@@ -917,9 +933,16 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
   ctx->chk0 = (MYREAL *) mycalloc (nnodes * d, sizeof (MYREAL));
   ctx->Tacc = (MYREAL *) mycalloc (nnodes * d * d, sizeof (MYREAL));
 
+  /* pair coalescence rate 2/theta with the locus scale theta = r h Theta,
+     as in probg_treetimes_intervals() (was 1/Theta; proposal only, the
+     move stays exact either way) */
   invtheta = (MYREAL *) mycalloc (d, sizeof (MYREAL));
-  for (i = 0; i < d; i++)
-    invtheta[i] = 1.0 / world->param0[i];
+  {
+    const MYREAL theta_rate = world->options->mu_rates[world->locus]
+      * world->options->inheritance_scalars[world->locus];
+    for (i = 0; i < d; i++)
+      invtheta[i] = 2.0 / (theta_rate * world->param0[i]);
+  }
 
   for (i = 0; i < sumtips; i++)
     {

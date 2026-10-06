@@ -668,6 +668,7 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
 			(MYINT) MASTER, (MYINT) (locus + 1 + REPTAG), comm_world, &irequests[numsent]);
             numsent++;   // counter of how many replicates are sent off-node
 	  }
+	universe[0]->convergence->rep_firstrow = universe[0]->bayes->numparams;
 	run_replicate(locus, 0, universe, options, data,
 		      heating_pool, usize,
 		      treefilepos, Gmax); 

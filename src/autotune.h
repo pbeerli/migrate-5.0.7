@@ -28,7 +28,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "migration.h"
 
 
-extern void autotune_proposal(world_fmt *world, long which);
+extern void autotune_proposal(world_fmt *world, long which, long w);
 extern void burnin_chain (world_fmt * world);
 extern long  expected_end_burnin(world_fmt *world, MYREAL percent, long starttime, char * text);
 #endif
