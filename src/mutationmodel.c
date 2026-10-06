@@ -2133,8 +2133,104 @@ void force_basefreqs(MYREAL ** basefreqs, MYREAL pA, MYREAL pC, MYREAL pG)
   //basefreq is used somewhere else
 }
 
+/* Closed form of h = P(u) x for the TN93 family (same rates and clamps as
+   prob_tn93()): with SR = pA xA + pG xG and SY = pC xC + pT xT,
+   h_A = cR SR + d SY + eR xA (G alike), h_C = cY SY + d SR + eY xC (T alike),
+   d = 1 - eb, cR = 1 + eb pY/pR - eR/pR, cY = 1 + eb pR/pY - eY/pY. */
+typedef struct { MYREAL cR, cY, d, eR, eY; } tn93_closed;
+
+static void tn93_closed_terms (tn93_closed *t, const MYREAL u, const mutationmodel_fmt *s)
+{
+  const MYREAL ar = s->parameters[0];
+  const MYREAL ay = s->parameters[1];
+  const MYREAL b = s->parameters[2];
+  const MYREAL pA = s->basefreqs[NUC_A];
+  const MYREAL pC = s->basefreqs[NUC_C];
+  const MYREAL pG = s->basefreqs[NUC_G];
+  const MYREAL pT = s->basefreqs[NUC_T];
+  const MYREAL pR = s->basefreqs[NUC_R];
+  const MYREAL pY = s->basefreqs[NUC_Y];
+  MYREAL mean_rate = 2.0 * ar * pA * pG + 2.0 * ay * pC * pT + 2.0 * b * pR * pY;
+  if (mean_rate < EPSILON)
+    mean_rate = EPSILON;
+  const MYREAL uu = u / mean_rate;
+  MYREAL x1 = b * uu;
+  if (x1 > 100.0)
+    x1 = 100.0;
+  MYREAL x2 = (ar * pR + b * pY) * uu;
+  if (x2 > 100.0)
+    x2 = 100.0;
+  MYREAL x3 = (ay * pY + b * pR) * uu;
+  if (x3 > 100.0)
+    x3 = 100.0;
+  const MYREAL eb = exp(-x1);
+  t->eR = exp(-x2);
+  t->eY = exp(-x3);
+  t->d = 1.0 - eb;
+  t->cR = 1.0 + eb * pY / pR - t->eR / pR;
+  t->cY = 1.0 + eb * pR / pY - t->eY / pY;
+}
+
+/* one rate category, four states: closed form, product, scale and
+   rescaling in a single pass over the patterns */
+static void pseudonu_tn93_single (mutationmodel_fmt *s, xarray_fmt *xxx1, MYREAL *lx1, MYREAL v1, xarray_fmt *xxx2, MYREAL *lx2, MYREAL v2, long xs)
+{
+  const long numpatterns = s->numpatterns + s->addon;
+  const MYREAL pA = s->basefreqs[NUC_A];
+  const MYREAL pC = s->basefreqs[NUC_C];
+  const MYREAL pG = s->basefreqs[NUC_G];
+  const MYREAL pT = s->basefreqs[NUC_T];
+  const boolean scaling = s->scaling;
+  tn93_closed t1, t2;
+  tn93_closed_terms (&t1, s->siterates[0] * v1, s);
+  tn93_closed_terms (&t2, s->siterates[0] * v2, s);
+  phenotype * x1 = &xxx1[xs].s;
+  phenotype * x2 = &xxx2[xs].s;
+  long site;
+  for (site = 0; site < numpatterns; site++)
+    {
+      MYREAL * const a = (*x1)[site][0];
+      const MYREAL * const c = (*x2)[site][0];
+      const MYREAL sr1 = pA * a[0] + pG * a[2];
+      const MYREAL sy1 = pC * a[1] + pT * a[3];
+      const MYREAL sr2 = pA * c[0] + pG * c[2];
+      const MYREAL sy2 = pC * c[1] + pT * c[3];
+      const MYREAL r1 = t1.cR * sr1 + t1.d * sy1;
+      const MYREAL y1 = t1.cY * sy1 + t1.d * sr1;
+      const MYREAL r2 = t2.cR * sr2 + t2.d * sy2;
+      const MYREAL y2 = t2.cY * sy2 + t2.d * sr2;
+      const MYREAL h0 = (r1 + t1.eR * a[0]) * (r2 + t2.eR * c[0]);
+      const MYREAL h1 = (y1 + t1.eY * a[1]) * (y2 + t2.eY * c[1]);
+      const MYREAL h2 = (r1 + t1.eR * a[2]) * (r2 + t2.eR * c[2]);
+      const MYREAL h3 = (y1 + t1.eY * a[3]) * (y2 + t2.eY * c[3]);
+      lx1[site] += lx2[site];
+      if (scaling)
+        {
+          const MYREAL m = MAX (MAX (h0, h1), MAX (h2, h3));
+          const MYREAL inv = 1. / m;
+          a[0] = h0 * inv;
+          a[1] = h1 * inv;
+          a[2] = h2 * inv;
+          a[3] = h3 * inv;
+          lx1[site] += LOG (m);
+        }
+      else
+        {
+          a[0] = h0;
+          a[1] = h1;
+          a[2] = h2;
+          a[3] = h3;
+        }
+    }
+}
+
 void pseudonu_tn93 (mutationmodel_fmt *s, proposal_fmt *proposal, xarray_fmt *xxx1, MYREAL *lx1, MYREAL v1, xarray_fmt *xxx2, MYREAL *lx2, MYREAL v2, long xs)
 {
+  if (s->numsiterates == 1 && s->numstates == 4)
+    {
+      pseudonu_tn93_single (s, xxx1, lx1, v1, xxx2, lx2, v2, xs);
+      return;
+    }
   (void) proposal;
   //static long count=0;
 #ifdef WINDOWS
