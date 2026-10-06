@@ -722,6 +722,11 @@ void set_siterates(long z, world_fmt *world, option_fmt *options)
 {
   long i;
   mutationmodel_fmt *s = &world->mutationmodels[z];
+  /* without a categories file numcategs stayed 0, and the pseudo
+     likelihoods then took the per-site autocorrelation path (all sites
+     instead of the patterns, about 3x slower) */
+  if(s->numcategs < 1)
+    s->numcategs = ONECATEG;
   if(s->numsiterates==0)
     {
       s->numsiterates = options->rcategs;
