@@ -3010,15 +3010,9 @@ boolean menuStrategy_bayes(option_fmt * options)
 	   break;
 	   case BAYESHEAT:
 	   printf
-	   ("  Heating scheme? < NO | YES | STATIC | BOUNDED_ADAPTIVE >\n===> ");
+	   ("  Heating scheme? < NO | YES >\n===> ");
 	   fflush(stdout); FGETS(input, LINESIZE, stdin);
 	   switch (tolower(input[0])) {
-	   case 'b':
-	     options->heating = 1;
-	     options->adaptiveheat = BOUNDED;
-	     options->heating_interval = 1;
-	     menuHeat(options, input);
-	     break;
 	   case 'y':
 	   case 's':
 	     options->heating = 1;
@@ -3207,21 +3201,9 @@ boolean         menuStrategy_ml(option_fmt * options)
     break;
   case MLHEAT:
     printf
-      ("  Heating scheme? < NO | YES | ADAPTIVE | BOUNDED_ADAPTIVE>\n===> ");
+      ("  Heating scheme? < NO | YES >\n===> ");
     fflush(stdout); FGETS(input, LINESIZE, stdin);
     switch (tolower(input[0])) {
-    case 'a':
-      options->heating = 1;
-      options->adaptiveheat = STANDARD;
-      options->heating_interval = 1;
-      menuHeat(options, input);
-      break;
-    case 'b':
-      options->heating = 1;
-      options->adaptiveheat = BOUNDED;
-      options->heating_interval = 1;
-      menuHeat(options, input);
-      break;
     case 'y':
       options->heating = 1;
       options->adaptiveheat = NOTADAPTIVE;

@@ -951,6 +951,9 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	  world->convergence->chain_s = (MYREAL *) mycalloc(convergence_len, sizeof(MYREAL));
 	  world->convergence->chain_means = (MYREAL *) mycalloc(convergence_len, sizeof(MYREAL));
 	  world->convergence->chain_counts = (long *) mycalloc(convergence_len, sizeof(long));
+	  world->convergence->locus_gelmanmeanRall = (MYREAL *) mycalloc(world->loci, sizeof(MYREAL));
+	  world->convergence->locus_gelmanmaxRall = (MYREAL *) mycalloc(world->loci, sizeof(MYREAL));
+	  world->convergence->locus_gelman_valid = (boolean *) mycalloc(world->loci, sizeof(boolean));
 	}
       world->averageheat_collected = (MYREAL *) mycalloc(options->heated_chains > 0 ? options->heated_chains : 1, sizeof(MYREAL));
       /*Bayes factor*/
@@ -1428,6 +1431,9 @@ free_world(world_fmt *world, option_fmt *options)
 	myfree(world->convergence->chain_means);
 	myfree(world->convergence->chain_counts);
 	myfree(world->convergence->gelmanmeanmaxR);
+	myfree(world->convergence->locus_gelmanmeanRall);
+	myfree(world->convergence->locus_gelmanmaxRall);
+	myfree(world->convergence->locus_gelman_valid);
 	myfree(world->convergence);
       }
    

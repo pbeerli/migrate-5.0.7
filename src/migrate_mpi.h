@@ -85,6 +85,7 @@ extern int profiledone;
 #define MIGMPI_SEQERROR 13
 #define MIGMPI_JC 14   /* joint multi-locus combination: evaluate this rank's loci */
 #define MIGMPI_HEAT 15 /* average temperatures of the heated chains */
+#define MIGMPI_GELMAN 16 /* per-locus Gelman-Rubin summary */
 #ifdef MPI
 
 #ifndef PTHREADS
@@ -163,6 +164,10 @@ extern void unpack_assign_buffer(MYREAL *buffer, world_fmt * world,
 extern void unpack_seqerror_buffer(MYREAL *buffer, world_fmt * world,
 			    long locus, long maxrep, long numpop);
 extern void mpi_collect_heat_master (world_fmt * world);
+extern long pack_gelman_buffer (MYREAL **buffer, world_fmt * world,
+                                long locus, long maxrep, long numpop);
+extern void unpack_gelman_buffer (MYREAL *buffer, world_fmt * world,
+                                  long locus, long maxrep, long numpop);
 extern void mpi_collect_heat_worker (world_fmt * world);
 
 

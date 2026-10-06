@@ -1436,6 +1436,11 @@ typedef struct _convergence
      per-replicate means/variances used to run over all of them (cumulative
      over replicates, which made R too small) */
   long rep_firstrow;
+  /* per-locus result over all replicates, kept for the final report
+     (computed by run_locus() or, under MPI, by the locus worker) */
+  MYREAL *locus_gelmanmeanRall;
+  MYREAL *locus_gelmanmaxRall;
+  boolean *locus_gelman_valid;
 } convergence_fmt;
 
 #ifdef MPI

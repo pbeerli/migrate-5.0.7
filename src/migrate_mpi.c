@@ -39,6 +39,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "joint_combine.h"
 #include "migevents.h"
 #include "pretty.h"
+#include "reporter.h"
 #include "options.h"
 #include "tree.h"
 #include "world.h"
@@ -641,6 +642,18 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
     temp    = (long *) mycalloc(TWO, sizeof(long));
     tempstr = (char *) mycalloc(LONGLINESIZE,sizeof(char));
     who     = (int *) mycalloc(maxreplicate,sizeof(int));
+    /* Gelman-Rubin across replicates: the locus worker holds the samples of
+       all replicates (run here or received), same calls as run_locus() */
+    long convergence_len = universe[0]->numparam;
+    boolean do_gelman = universe[0]->cold && options->replicate
+                        && options->replicatenum > 0 && options->gelman
+                        && !options->has_bayesmdimfile;
+    if (do_gelman)
+      {
+        memset(universe[0]->convergence->chain_means, 0, (size_t) (maxreplicate * convergence_len) * sizeof(MYREAL));
+        memset(universe[0]->convergence->chain_s, 0, (size_t) (maxreplicate * convergence_len) * sizeof(MYREAL));
+        memset(universe[0]->convergence->gelmanmeanmaxR, 0, (size_t) (maxreplicate * maxreplicate) * sizeof(MYREAL));
+      }
     
     if(maxreplicate>1)
       {
@@ -674,6 +687,11 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
 		      treefilepos, Gmax); 
 	who[0] = myID;
         MYMPIWAITALL(numsent,irequests, istatus); // wait for all replicators to finish
+        if (do_gelman)
+          {
+            chain_means(&universe[0]->convergence->chain_means[0], universe[0]);
+            calc_chain_s(universe[0]->convergence->chain_s, universe[0]->convergence->chain_means, universe[0], 0);
+          }
         // set replicate counter to 1 because locus-worker itself finished first replicate
         replicate=1;        
         done = FALSE;
@@ -684,9 +702,16 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
             // the loci-worker has to do all the work if numsent==1
             if(numsent==1)
 	      {
+                universe[0]->convergence->rep_firstrow = universe[0]->bayes->numparams;
                 run_replicate(locus, replicate, universe, options, data, 
                               heating_pool, usize, treefilepos, Gmax);
                 who[replicate] = myID;
+                if (do_gelman)
+                  {
+                    chain_means(&universe[0]->convergence->chain_means[replicate * convergence_len], universe[0]);
+                    calc_chain_s(universe[0]->convergence->chain_s, universe[0]->convergence->chain_means, universe[0], replicate);
+                    convergence_check_bayes(universe[0], maxreplicate);
+                  }
                 replicate++;
                 if(replicate >= maxreplicate)
 		  done=TRUE;
@@ -724,7 +749,17 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
 		  }
 		// record sender , this record should be filled at the end of this function
                 who[senderreplicate] = sender;
+                universe[0]->convergence->rep_firstrow = universe[0]->bayes->numparams;
                 mpi_receive_replicate(sender, tag, locus, senderreplicate, universe[0]); 
+                if (do_gelman)
+                  {
+                    /* no local run_chains() for this replicate: chain_means()
+                       indexes chain_counts[world->rep] */
+                    universe[0]->rep = senderreplicate;
+                    chain_means(&universe[0]->convergence->chain_means[senderreplicate * convergence_len], universe[0]);
+                    calc_chain_s(universe[0]->convergence->chain_s, universe[0]->convergence->chain_means, universe[0], senderreplicate);
+                    convergence_check_bayes(universe[0], maxreplicate);
+                  }
                 replicate++;   
                 if(replicate >= maxreplicate)
 		  {
@@ -751,6 +786,12 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
                       heating_pool, usize,
                       treefilepos, Gmax);
       }    
+    if (do_gelman && maxreplicate > 1)
+      {
+        universe[0]->convergence->locus_gelmanmeanRall[locus] = universe[0]->convergence->gelmanmeanRall;
+        universe[0]->convergence->locus_gelmanmaxRall[locus] = universe[0]->convergence->gelmanmaxRall;
+        universe[0]->convergence->locus_gelman_valid[locus] = TRUE;
+      }
     myfree(temp);
     myfree(tempstr);
     myfree(who);
@@ -1269,6 +1310,9 @@ mpi_maximize_worker (world_fmt * world, option_fmt *options, long kind, long rep
 	  break;
 	case MIGMPI_SEQERROR:
 	  mpi_results_worker((long) temp[0], world, repstop, pack_seqerror_buffer);
+	  break;
+        case MIGMPI_GELMAN: // returns this rank's per-locus Gelman-Rubin summary
+	  mpi_results_worker ((long) temp[0], world, repstop, pack_gelman_buffer);
 	  break;
         case MIGMPI_HEAT: // returns this rank's averageheat[] and its weight
 	  mpi_collect_heat_worker (world);
@@ -5419,4 +5463,32 @@ void check_memory_limit()
   fprintf(stdout, "%i> current memory/data usage: %f\n",myID, (double) r.rlim_cur);
 }
 #endif
+///
+/// pack a locus' Gelman-Rubin summary (locus worker -> master)
+long pack_gelman_buffer (MYREAL **buffer, world_fmt * world,
+                         long locus, long maxrep, long numpop)
+{
+  (void) maxrep;
+  (void) numpop;
+  long z = 0L;
+  (*buffer) = (MYREAL *) myrealloc(*buffer, sizeof(MYREAL) * 3);
+  (*buffer)[z++] = world->convergence->locus_gelman_valid[locus] ? 1.0 : 0.0;
+  (*buffer)[z++] = world->convergence->locus_gelmanmeanRall[locus];
+  (*buffer)[z++] = world->convergence->locus_gelmanmaxRall[locus];
+  return z;
+}
+
+///
+/// unpack a locus' Gelman-Rubin summary on the master
+void unpack_gelman_buffer (MYREAL *buffer, world_fmt * world,
+                           long locus, long maxrep, long numpop)
+{
+  (void) maxrep;
+  (void) numpop;
+  world->convergence->locus_gelman_valid[locus] = (buffer[0] != 0.0);
+  world->convergence->locus_gelmanmeanRall[locus] = buffer[1];
+  world->convergence->locus_gelmanmaxRall[locus] = buffer[2];
+}
+
 #endif /* MPI */
+
