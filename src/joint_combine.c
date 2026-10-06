@@ -897,6 +897,7 @@ typedef struct
   double *st;      /* n x nrow */
   double *cur;     /* n: current log p(G|phi) - log Z per sample */
   double *logz;    /* n: log Z per sample */
+  double *unit;    /* n x nunit: the terms of jc_full_term() per sample */
   long locus;      /* the locus number (seeds its bootstrap) */
 } jc_locus;
 
@@ -935,12 +936,26 @@ jc_logA (const jc_layout *ly, const double *st, long pop, double g)
   return A[j] + 0.5 * x * (A[j + 1] - A[j - 1]) + 0.5 * x * x * (A[j + 1] - 2.0 * A[j] + A[j - 1]);
 }
 
+/* log of the last argument: within a proposal all genealogies of a locus
+   share the argument (the same number as calling log() each time) */
+static double
+jc_log_memo (double x, double *lastx, double *lastlog)
+{
+  if (x != *lastx)
+    {
+      *lastx = x;
+      *lastlog = log (x);
+    }
+  return *lastlog;
+}
+
 /* log term of population pop with size theta and growth g (ignored when the
    population does not grow); logA is log A_i(g), NAN means: look it up */
 static double
 jc_pop_term (const jc_layout *ly, const double *st, long pop, double theta, double g,
              double mu, double logA)
 {
+  static double lx = -1.0, ll = 0.0;
   if (theta <= 0.0)
     return -HUGE_VAL;
   const double c = st[ly->off_c + pop];
@@ -950,41 +965,44 @@ jc_pop_term (const jc_layout *ly, const double *st, long pop, double theta, doub
       A = exp (isnan (logA) ? jc_logA (ly, st, pop, g) : logA);   /* inf: zero density */
       tg = g * st[ly->off_t[pop]];
     }
-  return c * (LOG2 - log (mu * theta)) - A / (mu * theta) + tg;
+  return c * (LOG2 - jc_log_memo (mu * theta, &lx, &ll)) - A / (mu * theta) + tg;
 }
 
 /* migration term of matrix entry e at rate x (the rate, M) */
 static double
 jc_mig_term (const jc_layout *ly, const double *st, long e, double x, double mu)
 {
+  static double lx = -1.0, ll = 0.0;
   long from, to;
   if (x <= 0.0)
     return -HUGE_VAL;
   m2mm (e, ly->numpop, &from, &to);
   const double m = st[ly->off_m + e - ly->numpop];
-  return (m > 0.0 ? m * log (x) : 0.0) - x * st[ly->off_S + to] / mu;
+  return (m > 0.0 ? m * jc_log_memo (x, &lx, &ll) : 0.0) - x * st[ly->off_S + to] / mu;
 }
 
 /* skyline=PARAM: population pop in segment sg with size v (= Theta tau) */
 static double
 jc_pop_seg_term (const jc_layout *ly, const double *st, long pop, long sg, double v, double mu)
 {
+  static double lx = -1.0, ll = 0.0;
   if (v <= 0.0)
     return -HUGE_VAL;
   const double c = st[ly->off_sc + sg * ly->numpop + pop];
-  return c * (LOG2 - log (mu * v)) - st[ly->off_sK + sg * ly->numpop + pop] / (mu * v);
+  return c * (LOG2 - jc_log_memo (mu * v, &lx, &ll)) - st[ly->off_sK + sg * ly->numpop + pop] / (mu * v);
 }
 
 /* skyline=PARAM: migration entry e in segment sg at rate x (= M tau) */
 static double
 jc_mig_seg_term (const jc_layout *ly, const double *st, long e, long sg, double x, double mu)
 {
+  static double lx = -1.0, ll = 0.0;
   long from, to;
   if (x <= 0.0)
     return -HUGE_VAL;
   m2mm (e, ly->numpop, &from, &to);
   const double m = st[ly->off_sm + sg * (ly->numpop2 - ly->numpop) + e - ly->numpop];
-  return (m > 0.0 ? m * log (x) : 0.0) - x * st[ly->off_sS + sg * ly->numpop + to] / mu;
+  return (m > 0.0 ? m * jc_log_memo (x, &lx, &ll) : 0.0) - x * st[ly->off_sS + sg * ly->numpop + to] / mu;
 }
 
 /* term of a free skyline entry e (Theta or M) in segment sg at value x */
@@ -1729,6 +1747,142 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
 }
 
 
+/* The terms of jc_full_term() one by one ("units", in its order): a
+   proposal of one parameter recomputes only the units that depend on it
+   and sums all units again in the same order, so the sum is the same
+   number jc_full_term() gives (no old + new - old updates: a divergence
+   term at JC_DOUT would swallow the others) */
+enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT };
+typedef struct
+{
+  long n;
+  int *kind;
+  long *idx, *sg;
+  long *ndep;     /* per parameter: number of dependent units */
+  long **dep;     /* per parameter: the dependent units */
+} jc_units;
+
+static void
+jc_units_add (jc_units *U, int kind, long idx, long sg)
+{
+  U->kind = (int *) myrealloc (U->kind, sizeof (int) * (size_t) (U->n + 1));
+  U->idx = (long *) myrealloc (U->idx, sizeof (long) * (size_t) (U->n + 1));
+  U->sg = (long *) myrealloc (U->sg, sizeof (long) * (size_t) (U->n + 1));
+  U->kind[U->n] = kind;
+  U->idx[U->n] = idx;
+  U->sg[U->n] = sg;
+  U->n++;
+}
+
+static void
+jc_units_dep (jc_units *U, long nphi, long p, long u)
+{
+  if (p < 0 || p >= nphi)
+    return;
+  if (U->ndep[p] > 0 && U->dep[p][U->ndep[p] - 1] == u)
+    return;
+  U->dep[p] = (long *) myrealloc (U->dep[p], sizeof (long) * (size_t) (U->ndep[p] + 1));
+  U->dep[p][U->ndep[p]++] = u;
+}
+
+static void
+jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
+{
+  long pop, e, sg, u;
+  memset (U, 0, sizeof (*U));
+  for (pop = 0; pop < ly->numpop; pop++)
+    if (ly->rep[pop] >= 0 && active[ly->rep[pop]])
+      {
+        if (ly->sky_j[pop] >= 0)
+          for (sg = 0; sg < ly->nseg; sg++)
+            jc_units_add (U, JC_U_POPSEG, pop, sg);
+        else
+          jc_units_add (U, JC_U_POP, pop, 0);
+      }
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->rep[e] >= 0 && active[ly->rep[e]])
+      {
+        if (ly->sky_j[e] >= 0)
+          for (sg = 0; sg < ly->nseg; sg++)
+            jc_units_add (U, JC_U_MIGSEG, e, sg);
+        else
+          jc_units_add (U, JC_U_MIG, e, 0);
+      }
+  for (e = 0; e < ly->nsplit; e++)
+    jc_units_add (U, JC_U_SPLIT, e, 0);
+  U->ndep = (long *) mycalloc ((size_t) ly->nphi, sizeof (long));
+  U->dep = (long **) mycalloc ((size_t) ly->nphi, sizeof (long *));
+  for (u = 0; u < U->n; u++)
+    {
+      const long i = U->idx[u];
+      switch (U->kind[u])
+        {
+        case JC_U_POP:
+          jc_units_dep (U, ly->nphi, ly->rep[i], u);
+          if (ly->pop_slot[i] >= 0)
+            jc_units_dep (U, ly->nphi, ly->slot_param[ly->pop_slot[i]], u);
+          break;
+        case JC_U_POPSEG:
+        case JC_U_MIGSEG:
+          jc_units_dep (U, ly->nphi, ly->rep[i], u);
+          if (U->sg[u] > 0)
+            jc_units_dep (U, ly->nphi, JC_TAU (ly, ly->sky_j[i], U->sg[u]), u);
+          break;
+        case JC_U_MIG:
+          jc_units_dep (U, ly->nphi, ly->rep[i], u);
+          if (ly->xnm[i])
+            {
+              long from, to;
+              m2mm (i, ly->numpop, &from, &to);
+              jc_units_dep (U, ly->nphi, ly->rep[to], u);
+            }
+          break;
+        case JC_U_SPLIT:
+          jc_units_dep (U, ly->nphi, ly->split_pmu[i], u);
+          jc_units_dep (U, ly->nphi, ly->split_psig[i], u);
+          break;
+        }
+    }
+}
+
+static void
+jc_units_free (jc_units *U, long nphi)
+{
+  long p;
+  for (p = 0; p < nphi && U->dep != NULL; p++)
+    myfree (U->dep[p]);
+  myfree (U->dep);
+  myfree (U->ndep);
+  myfree (U->kind);
+  myfree (U->idx);
+  myfree (U->sg);
+  memset (U, 0, sizeof (*U));
+}
+
+/* one unit: the same expression as in jc_full_term() */
+static double
+jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, const double *phi, double mu)
+{
+  const long i = U->idx[u], sg = U->sg[u];
+  switch (U->kind[u])
+    {
+    case JC_U_POP:
+      {
+        const long s = ly->pop_slot[i];
+        return jc_pop_term (ly, st, i, phi[ly->rep[i]], s >= 0 ? phi[ly->slot_param[s]] : 0.0, mu, NAN);
+      }
+    case JC_U_POPSEG:
+      return jc_pop_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);
+    case JC_U_MIG:
+      return jc_mig_term (ly, st, i, jc_rate (ly, phi, i), mu);
+    case JC_U_MIGSEG:
+      return jc_mig_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);
+    default:
+      return jc_div_term (ly, st, i, phi[ly->split_pmu[i]],
+                          ly->split_psig[i] >= 0 ? phi[ly->split_psig[i]] : ly->split_sfix[i]);
+    }
+}
+
 /* ---------------------------------------------------- local evaluation */
 
 /* The loci one process evaluates: all loci in a serial run, the loci this
@@ -1741,6 +1895,9 @@ typedef struct
   long nl, maxn;
   jc_locus *L;
   double *lterm, *newlterm, *newcur;
+  jc_units U;
+  double *newunit;   /* nl x maxn x (units of the pending parameter) */
+  long pending;      /* the parameter of the pending proposal */
   long tmin, tmax;
   double lognz;   /* log of the prior mass the normalizers integrate (no-event row) */
 } jc_local;
@@ -1754,8 +1911,11 @@ jc_local_free (jc_local *J)
       myfree (J->L[l].st);
       myfree (J->L[l].cur);
       myfree (J->L[l].logz);
+      myfree (J->L[l].unit);
     }
   myfree (J->L);
+  myfree (J->newunit);
+  jc_units_free (&J->U, J->ly.nphi);
   myfree (J->lterm);
   myfree (J->newlterm);
   myfree (J->newcur);
@@ -1859,17 +2019,28 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
   J->lterm = (double *) mycalloc ((size_t) J->nl, sizeof (double));
   J->newlterm = (double *) mycalloc ((size_t) J->nl, sizeof (double));
   J->tmin = J->tmax = J->L[0].total;
+  jc_units_make (ly, J->active, &J->U);
+  J->pending = -1;
+  const long nu = J->U.n;
   for (l = 0; l < J->nl; l++)
     {
-      long sidx;
+      long sidx, u;
       jc_locus *Ll = &J->L[l];
       Ll->cur = (double *) mycalloc ((size_t) Ll->n, sizeof (double));
       Ll->logz = (double *) mycalloc ((size_t) Ll->n, sizeof (double));
+      Ll->unit = (double *) mycalloc ((size_t) (Ll->n * (nu > 0 ? nu : 1)), sizeof (double));
       for (sidx = 0; sidx < Ll->n; sidx++)
         {
           const double *st = Ll->st + sidx * ly->nrow;
+          double *un = Ll->unit + sidx * nu;
+          double v = 0.0;
           Ll->logz[sidx] = jc_log_normalizer (ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
-          Ll->cur[sidx] = jc_full_term (ly, J->active, st, phi, st[ly->off_mu]) - Ll->logz[sidx];
+          for (u = 0; u < nu; u++)
+            {
+              un[u] = jc_unit_term (ly, &J->U, u, st, phi, st[ly->off_mu]);
+              v += un[u];
+            }
+          Ll->cur[sidx] = v - Ll->logz[sidx];
         }
       J->lterm[l] = jc_logsumexp (Ll->cur, Ll->n);
       total += J->lterm[l];
@@ -1881,6 +2052,13 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
         J->tmax = Ll->total;
     }
   J->newcur = (double *) mycalloc ((size_t) (J->nl * J->maxn), sizeof (double));
+  {
+    long maxdep = 1;
+    for (p = 0; p < ly->nphi; p++)
+      if (J->U.ndep[p] > maxdep)
+        maxdep = J->U.ndep[p];
+    J->newunit = (double *) mycalloc ((size_t) (J->nl * J->maxn * maxdep), sizeof (double));
+  }
   {   /* the prior mass the normalizers integrate (a row without events:
          Z is then the integral of the prior over the grids and, with
          skyline=PARAM, the range rule); every f_l is relative to it */
@@ -1904,34 +2082,61 @@ static double
 jc_local_propose (jc_local *J, double *phi, long p, double x)
 {
   double delta = 0.0;
-  long l, sidx;
+  const long nu = J->U.n;
+  const long nd = (p >= 0 && p < J->ly.nphi) ? J->U.ndep[p] : 0;
+  const long *dep = nd > 0 ? J->U.dep[p] : NULL;
+  long l, sidx, k, u;
+  long *map = (long *) mycalloc ((size_t) (nu > 0 ? nu : 1), sizeof (long));
+  for (u = 0; u < nu; u++)
+    map[u] = -1;
+  for (k = 0; k < nd; k++)
+    map[dep[k]] = k;
+  J->pending = p;
   for (l = 0; l < J->nl; l++)
     {
       double *nc = J->newcur + l * J->maxn;
+      double *nw = J->newunit + l * J->maxn * (nd > 0 ? nd : 1);
       jc_locus *Ll = &J->L[l];
       const double keep = phi[p];
-      /* recomputed, not updated by differences: the divergence term can sit
-         at JC_DOUT, where old + (new - old) loses every other term */
       phi[p] = x;
       for (sidx = 0; sidx < Ll->n; sidx++)
-        nc[sidx] = jc_full_term (&J->ly, J->active, Ll->st + sidx * J->ly.nrow, phi,
-                                 (Ll->st + sidx * J->ly.nrow)[J->ly.off_mu]) - Ll->logz[sidx];
+        {
+          const double *st = Ll->st + sidx * J->ly.nrow;
+          const double *un = Ll->unit + sidx * nu;
+          double *nws = nw + sidx * nd;
+          double v = 0.0;
+          for (k = 0; k < nd; k++)
+            nws[k] = jc_unit_term (&J->ly, &J->U, dep[k], st, phi, st[J->ly.off_mu]);
+          for (u = 0; u < nu; u++)
+            v += map[u] >= 0 ? nws[map[u]] : un[u];
+          nc[sidx] = v - Ll->logz[sidx];
+        }
       phi[p] = keep;
       J->newlterm[l] = jc_logsumexp (nc, Ll->n);
       delta += J->newlterm[l] - J->lterm[l];
     }
+  myfree (map);
   return delta;
 }
 
 static void
 jc_local_accept (jc_local *J)
 {
-  long l;
+  const long p = J->pending;
+  const long nu = J->U.n;
+  const long nd = (p >= 0 && p < J->ly.nphi) ? J->U.ndep[p] : 0;
+  long l, sidx, k;
   for (l = 0; l < J->nl; l++)
     {
-      memcpy (J->L[l].cur, J->newcur + l * J->maxn, sizeof (double) * (size_t) J->L[l].n);
+      jc_locus *Ll = &J->L[l];
+      const double *nw = J->newunit + l * J->maxn * (nd > 0 ? nd : 1);
+      memcpy (Ll->cur, J->newcur + l * J->maxn, sizeof (double) * (size_t) Ll->n);
       J->lterm[l] = J->newlterm[l];
+      for (sidx = 0; sidx < Ll->n; sidx++)
+        for (k = 0; k < nd; k++)
+          Ll->unit[sidx * nu + J->U.dep[p][k]] = nw[sidx * nd + k];
     }
+  J->pending = -1;
 }
 
 /* ------------------------------------------------- bootstrap guard */
