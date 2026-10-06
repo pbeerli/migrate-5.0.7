@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.57 Faster joint combination (only the terms of the proposed parameter
+             are recomputed; results unchanged); one p(G) function; parmfile lines
+             longer than 2048 characters (50 populations).
+
 October 6    Migrate 6.1.56 Faster sequence likelihood: closed form for one rate category and
              rescaling only when needed (about 2.3x on a 10 kb locus); results unchanged.
 
