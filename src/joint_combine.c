@@ -56,7 +56,7 @@
   at the end the process that evaluates a locus reads and thins them (needs
   a shared file system, like the posterior-sample files). In memory, each
   process keeps a thinned buffer per locus (world->jointstats, at most
-  2*JC_MAXSAMPLES rows: when it fills, every other row is dropped and the
+  2*jc_maxsamples() rows: when it fills, every other row is dropped and the
   recording stride doubles). Under MPI, replicate workers send their
   buffers to the locus worker with the other replicate results
   (mpi_send_replicate(), jc_pack_buffer()/jc_unpack_buffer()). The rows
@@ -87,8 +87,9 @@ extern const MPI_Datatype mpisizeof;
 #define SKYPRIOR_RANDOMWALK 1
 #define SKYPRIOR_LOGUNIFORM 2
 #endif
-#define JC_MAXSAMPLES 4000   /* per locus used in the combination (at 200 loci,
-                                 1000 gave 95% coverage of 0.4 for an M, 4000 0.8) */
+#define JC_MAXSAMPLES 4000   /* per locus used in the combination for two populations
+                                 (at 200 loci, 1000 gave 95% coverage of 0.4 for an M,
+                                 4000 0.8); scaled by (numpop-1)^2, see jc_maxsamples() */
 #define JC_GRID 600          /* points for a one-dimensional normalizer */
 #define JC_TGRID 200         /* Theta points inside a growth integral */
 #define JC_NG 129            /* growth grid */
@@ -97,11 +98,21 @@ extern const MPI_Datatype mpisizeof;
 #define JC_DOUT (-1e30)      /* divergence term outside a row's window */
 #define JC_NS 17             /* divergence-time std grid (log-spaced cells) */
 #define JC_BURNIN 2000       /* sweeps */
-#define JC_SWEEPS 50000
-#define JC_SSRUNGS 24        /* stepping stones for the joint marginal likelihood */
+#define JC_SWEEPS 50000      /* main run: at most this many sweeps ... */
+#define JC_PROPBUDGET 450000 /* ... within this many proposals (50000 sweeps of 9 parameters) */
+#define JC_MINSWEEPS 5000    /* ... and at least this many sweeps */
+#define JC_MAXACTIVE 50      /* more free parameters: no joint combination (the reweighting
+                                over fixed genealogies collapses; restrict the model) */
+#define JC_INCR_UNITS 32     /* more terms per genealogy: update its sum by differences */
+#define JC_REFRESH 1000      /* ... and recompute the sums after this many accepted steps */
+#define JC_SSRUNGS 16        /* stepping stones for the joint marginal likelihood (24 x 1500
+                                halved the error of log C, 0.06-0.14 instead of 0.11-0.26,
+                                at about 1.4x the time; 2026-10-06) */
 #define JC_SSBURN 300        /* sweeps per rung: burn-in, samples */
-#define JC_SSN 1500
+#define JC_SSN 600
 #define JC_NBLOCK 4          /* blocks of every locus' genealogies for the Monte Carlo error */
+#define JC_MCSWEEPS 3000     /* sweeps per block (12500 gave the same errors: the block
+                                differences come from the genealogies, not the chain) */
 
 /* the run options the joint combination needs from option_fmt (5.0.7 has
    no canonical options): set by jc_set_run_options() from main() */
@@ -375,6 +386,15 @@ jc_seg (const jc_layout *ly, double t)
 
 /* ------------------------------------------------------------- support */
 
+static long jc_nactive (world_fmt *world);
+
+/* experiments: MIGRATE_JC_MAXACTIVE raises the parameter limit */
+static long
+jc_maxactive (void)
+{
+  return getenv ("MIGRATE_JC_MAXACTIVE") ? atol (getenv ("MIGRATE_JC_MAXACTIVE")) : JC_MAXACTIVE;
+}
+
 /// TRUE when the model is one the joint combination handles
 boolean
 jc_supported (world_fmt *world)
@@ -441,6 +461,8 @@ jc_supported (world_fmt *world)
     if (!ok)
       return FALSE;
   }
+  if (jc_nactive (world) > jc_maxactive ())
+    return FALSE;
   return TRUE;
 }
 
@@ -472,13 +494,41 @@ jc_filename (world_fmt *world, long locus, long rep, char *name)
 
 /* ------------------------------------------------------------- storage */
 
-/* genealogies kept per locus: JC_MAXSAMPLES, fewer for wide rows (the
+/* free parameters of the joint combination (with the skyline multipliers);
+   fixed for a run */
+static boolean *jc_active (world_fmt *world, const jc_layout *ly);
+static long jc_nactive_cache = -1;
+
+static long
+jc_nactive (world_fmt *world)
+{
+  if (jc_nactive_cache < 0)
+    {
+      jc_layout ly;
+      long p, n = 0;
+      jc_layout_make (world, &ly);
+      boolean *active = jc_active (world, &ly);
+      for (p = 0; p < ly.nphi; p++)
+        if (active[p])
+          n++;
+      myfree (active);
+      jc_layout_free (&ly);
+      jc_nactive_cache = n;
+    }
+  return jc_nactive_cache;
+}
+
+/* genealogies kept per locus: JC_MAXSAMPLES (sqrt(k) - 1)^2 for k free
+   parameters, i.e. 4000 (numpop-1)^2 for a full migration matrix (more
+   parameters need more genealogies: three populations at 4000 left most M
+   rows with a reweighting ESS below 100), fewer for wide rows (the
    divergence grids) so that a worker's memory stays bounded */
 static long
-jc_maxsamples (long nrow)
+jc_maxsamples (world_fmt *world, long nrow)
 {
   long m = (long) (1000000 / (nrow > 0 ? nrow : 1));
-  long cap = JC_MAXSAMPLES;
+  const double r = sqrt ((double) jc_nactive (world)) - 1.0;
+  long cap = (long) (JC_MAXSAMPLES * (r > 1.0 ? r * r : 1.0));
   if (getenv ("MIGRATE_JC_MAXSAMPLES") != NULL)   /* experiments */
     {
       cap = atol (getenv ("MIGRATE_JC_MAXSAMPLES"));
@@ -511,7 +561,8 @@ typedef struct
   long numparam, nseg, nfree;
   long *sky_k;    /* per free skyline entry: its matrix entry */
   boolean *active;
-  double *trace;  /* np x JC_SWEEPS */
+  double *trace;  /* np x nsweeps */
+  long nsweeps;   /* length of the main run (trace) */
   boolean has_mcerr;
   double *mcerr;  /* np: Monte Carlo error of the median (split halves) */
   double *mchalf; /* nblock x np: the medians of the blocks */
@@ -783,7 +834,7 @@ jc_record_sample (world_fmt *world)
     {
       /* thin while writing: about 2 * jc_maxsamples() rows per file */
       static long jc_file_count = 0;
-      long fstride = world->options->lsteps / (2 * jc_maxsamples (ly.nrow));
+      long fstride = world->options->lsteps / (2 * jc_maxsamples (world, ly.nrow));
       if (fstride < 1)
         fstride = 1;
       if (jc_file == NULL || jc_file_locus != world->locus || jc_file_rep != world->rep)
@@ -824,7 +875,7 @@ jc_record_sample (world_fmt *world)
           b->seen = 0;
           jc_record_divergence (world, &ly, st);   /* only for kept rows */
           jc_append (js, world->locus, st);
-          if (b->n >= 2 * jc_maxsamples (js->nrow))
+          if (b->n >= 2 * jc_maxsamples (world, js->nrow))
             {
               /* thin: keep every other row, record half as often */
               for (i = 0; i < b->n / 2; i++)
@@ -1635,7 +1686,7 @@ jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
           if (n == 0)
             break;
           jc_part_range (n, &ra, &rlen);
-          keep = n < jc_maxsamples (nrow) ? n : jc_maxsamples (nrow);   /* rows of the full combination */
+          keep = n < jc_maxsamples (world, nrow) ? n : jc_maxsamples (world, nrow);   /* rows of the full combination */
           L->st = (double *) mycalloc ((size_t) (keep * nrow), sizeof (double));
         }
       row = 0;
@@ -1690,7 +1741,7 @@ jc_read_locus (world_fmt *world, long locus, long nrow, jc_locus *L)
   const long n = js->b[locus].n;
   /* the rows of the full combination (evenly spaced); a block uses those
      of them that belong to it, so that the blocks partition them */
-  const long kfull = n < jc_maxsamples (nrow) ? n : jc_maxsamples (nrow);
+  const long kfull = n < jc_maxsamples (world, nrow) ? n : jc_maxsamples (world, nrow);
   long ra, rlen, keep = 0;
   jc_part_range (n, &ra, &rlen);
   L->st = (double *) mycalloc ((size_t) (kfull * nrow), sizeof (double));
@@ -1898,6 +1949,8 @@ typedef struct
   jc_units U;
   double *newunit;   /* nl x maxn x (units of the pending parameter) */
   long pending;      /* the parameter of the pending proposal */
+  long naccept;      /* accepted steps since the sums were last recomputed */
+  long incr;         /* more terms than this: sums updated by differences */
   long tmin, tmax;
   double lognz;   /* log of the prior mass the normalizers integrate (no-event row) */
 } jc_local;
@@ -2021,6 +2074,9 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
   J->tmin = J->tmax = J->L[0].total;
   jc_units_make (ly, J->active, &J->U);
   J->pending = -1;
+  /* experiments: MIGRATE_JC_INCR sets the term count above which sums are
+     updated by differences */
+  J->incr = getenv ("MIGRATE_JC_INCR") ? atol (getenv ("MIGRATE_JC_INCR")) : JC_INCR_UNITS;
   const long nu = J->U.n;
   for (l = 0; l < J->nl; l++)
     {
@@ -2107,6 +2163,21 @@ jc_local_propose (jc_local *J, double *phi, long p, double x)
           double v = 0.0;
           for (k = 0; k < nd; k++)
             nws[k] = jc_unit_term (&J->ly, &J->U, dep[k], st, phi, st[J->ly.off_mu]);
+          if (nu > J->incr)
+            {   /* many terms: the difference, unless a term is (near) a
+                   sentinel or minus infinity, where it would swallow the rest */
+              boolean ok = Ll->cur[sidx] > 0.1 * JC_DOUT;
+              for (k = 0; k < nd && ok; k++)
+                ok = nws[k] > 0.1 * JC_DOUT && un[dep[k]] > 0.1 * JC_DOUT;
+              if (ok)
+                {
+                  v = Ll->cur[sidx];
+                  for (k = 0; k < nd; k++)
+                    v += nws[k] - un[dep[k]];
+                  nc[sidx] = v;
+                  continue;
+                }
+            }
           for (u = 0; u < nu; u++)
             v += map[u] >= 0 ? nws[map[u]] : un[u];
           nc[sidx] = v - Ll->logz[sidx];
@@ -2137,6 +2208,23 @@ jc_local_accept (jc_local *J)
           Ll->unit[sidx * nu + J->U.dep[p][k]] = nw[sidx * nd + k];
     }
   J->pending = -1;
+  if (nu > J->incr && ++J->naccept >= JC_REFRESH)
+    {   /* the sums from the terms again, so that rounding cannot pile up */
+      long u;
+      J->naccept = 0;
+      for (l = 0; l < J->nl; l++)
+        {
+          jc_locus *Ll = &J->L[l];
+          for (sidx = 0; sidx < Ll->n; sidx++)
+            {
+              double v = 0.0;
+              for (u = 0; u < nu; u++)
+                v += Ll->unit[sidx * nu + u];
+              Ll->cur[sidx] = v - Ll->logz[sidx];
+            }
+          J->lterm[l] = jc_logsumexp (Ll->cur, Ll->n);
+        }
+    }
 }
 
 /* ------------------------------------------------- bootstrap guard */
@@ -2614,7 +2702,7 @@ jc_boot_errors (jc_store *js, const double *D)
       if (!js->active[p])
         continue;
       for (k = 0; k < K; k++)
-        val[k] = js->trace[p * JC_SWEEPS + (long) ((k + 0.5) * JC_SWEEPS / K)];
+        val[k] = js->trace[p * js->nsweeps + (long) ((k + 0.5) * js->nsweeps / K)];
       /* points in increasing order of the parameter */
       for (k = 0; k < K; k++)
         ord[k] = k;
@@ -2640,10 +2728,10 @@ jc_boot_errors (jc_store *js, const double *D)
       for (b = 0; b < B; b++)
         v += (med[b] - m) * (med[b] - m) / (B - 1);
       js->boot_err[p] = sqrt (v);
-      for (i = 0; i < JC_SWEEPS; i++)
-        mean += js->trace[p * JC_SWEEPS + i] / JC_SWEEPS;
-      for (i = 0; i < JC_SWEEPS; i++)
-        var += (js->trace[p * JC_SWEEPS + i] - mean) * (js->trace[p * JC_SWEEPS + i] - mean) / JC_SWEEPS;
+      for (i = 0; i < js->nsweeps; i++)
+        mean += js->trace[p * js->nsweeps + i] / js->nsweeps;
+      for (i = 0; i < js->nsweeps; i++)
+        var += (js->trace[p * js->nsweeps + i] - mean) * (js->trace[p * js->nsweeps + i] - mean) / js->nsweeps;
       js->boot_flag[p] = (var > 0.0 && js->boot_err[p] > JC_BOOTFLAG * sqrt (var))
         || js->boot_ess < 0.25 * K;
     }
@@ -2868,7 +2956,19 @@ jc_combine (world_fmt *world)
   myfree (js->sky_k);
   myfree (js->mcerr);
   myfree (js->mchalf);
-  js->trace = (double *) mycalloc ((size_t) (nphi * JC_SWEEPS), sizeof (double));
+  {   /* main run: a budget of proposals, so that a large model does not
+         take sweeps x parameters x genealogies x loci evaluations */
+    long nact = 0;
+    for (p = 0; p < nphi; p++)
+      if (active[p])
+        nact++;
+    js->nsweeps = JC_PROPBUDGET / (nact > 0 ? nact : 1);
+    if (js->nsweeps > JC_SWEEPS)
+      js->nsweeps = JC_SWEEPS;
+    if (js->nsweeps < JC_MINSWEEPS)
+      js->nsweeps = JC_MINSWEEPS;
+  }
+  js->trace = (double *) mycalloc ((size_t) (nphi * js->nsweeps), sizeof (double));
   js->active = active;
   js->np = nphi;
   js->numparam = np;
@@ -2879,7 +2979,7 @@ jc_combine (world_fmt *world)
   long nl, tmin, tmax;
   double rows_all, rows_blk = 0.0, rb;
   double *bootD = (double *) mycalloc ((size_t) (JC_BOOTB * JC_BOOTK), sizeof (double));
-  if (!jc_run (world, &ly, active, phi, 0, JC_SWEEPS, js->trace, &nl, &tmin, &tmax, &rows_all, bootD))
+  if (!jc_run (world, &ly, active, phi, 0, js->nsweeps, js->trace, &nl, &tmin, &tmax, &rows_all, bootD))
     {
       myfree (phi);
       myfree (bootD);
@@ -2894,9 +2994,10 @@ jc_combine (world_fmt *world)
      about the standard error of the median from all */
   {
     const long nb = jc_nblocks (world);
-    const long hs = JC_SWEEPS / nb > 5000 ? JC_SWEEPS / nb : 5000;
+    /* experiments: MIGRATE_JC_MCSWEEPS sets the sweeps per block */
+    const long hs = getenv ("MIGRATE_JC_MCSWEEPS") ? atol (getenv ("MIGRATE_JC_MCSWEEPS")) : JC_MCSWEEPS;
     double *th = (double *) mycalloc ((size_t) (nphi * hs), sizeof (double));
-    double *srt = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
+    double *srt = (double *) mycalloc ((size_t) (hs > js->nsweeps ? hs : js->nsweeps), sizeof (double));
     long part, n1, t1, t2;
     js->mcerr = (double *) mycalloc ((size_t) nphi, sizeof (double));
     js->mchalf = (double *) mycalloc ((size_t) (nb * nphi), sizeof (double));
@@ -2938,6 +3039,8 @@ jc_combine (world_fmt *world)
   }
   /* the joint marginal likelihood (its scaling factor) */
   js->has_logc = jc_ss (world, &ly, active, phi, &js->logc, &js->logc_err);
+  if (getenv ("MIGRATE_JC_DIAG") != NULL && js->has_logc)
+    fprintf (stderr, "JCDIAG logC %.4f err %.4f\n", js->logc, js->logc_err);
   if (js->has_logc && js->has_boot)   /* plus the genealogy-sampling error */
     js->logc_err = sqrt (js->logc_err * js->logc_err + js->logc_boot * js->logc_boot);
   /* tied splits: their own mean/std indices report the shared values */
@@ -2951,8 +3054,8 @@ jc_combine (world_fmt *world)
         for (t = 0; t < 2; t++)
           if (pairs[t][0] >= 0 && pairs[t][0] < np && pairs[t][1] >= 0 && pairs[t][0] != pairs[t][1])
             {
-              memcpy (js->trace + pairs[t][0] * JC_SWEEPS, js->trace + pairs[t][1] * JC_SWEEPS,
-                      sizeof (double) * (size_t) JC_SWEEPS);
+              memcpy (js->trace + pairs[t][0] * js->nsweeps, js->trace + pairs[t][1] * js->nsweeps,
+                      sizeof (double) * (size_t) js->nsweeps);
               if (js->has_boot)
                 {
                   js->boot_err[pairs[t][0]] = js->boot_err[pairs[t][1]];
@@ -3000,27 +3103,27 @@ jc_widen (world_fmt *world, const jc_store *js, long p, double *x)
     e = js->mcerr[p];
   if (e <= 0.0)
     return;
-  for (i = 0; i < JC_SWEEPS; i++)
+  for (i = 0; i < js->nsweeps; i++)
     {
       if (x[i] <= 0.0)
         return;
-      mean += x[i] / JC_SWEEPS;
+      mean += x[i] / js->nsweeps;
     }
-  for (i = 0; i < JC_SWEEPS; i++)
-    var += (x[i] - mean) * (x[i] - mean) / JC_SWEEPS;
+  for (i = 0; i < js->nsweeps; i++)
+    var += (x[i] - mean) * (x[i] - mean) / js->nsweeps;
   if (var <= 0.0)
     return;
   c = sqrt (1.0 + e * e / var);
   {
-    double *srt = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
-    memcpy (srt, x, sizeof (double) * (size_t) JC_SWEEPS);
-    qsort (srt, (size_t) JC_SWEEPS, sizeof (double), jc_cmp_double);
-    med = srt[JC_SWEEPS / 2];
+    double *srt = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
+    memcpy (srt, x, sizeof (double) * (size_t) js->nsweeps);
+    qsort (srt, (size_t) js->nsweeps, sizeof (double), jc_cmp_double);
+    med = srt[js->nsweeps / 2];
     myfree (srt);
   }
   const double lmed = log (med);
   const double plo = world->bayes->minparam[p], phi = world->bayes->maxparam[p];
-  for (i = 0; i < JC_SWEEPS; i++)
+  for (i = 0; i < js->nsweeps; i++)
     {
       double y = exp (lmed + c * (log (x[i]) - lmed));
       if (y < plo)
@@ -3053,23 +3156,23 @@ jc_fill_histogram (world_fmt *world, bayeshistogram_fmt *hist)
       if (pa < js->np && js->active[pa] && nb > 0)
         {
           const double lo = hist->minima[pa];
-          const double *x0 = js->trace + pa * JC_SWEEPS;
-          double *x = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
+          const double *x0 = js->trace + pa * js->nsweeps;
+          double *x = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
           double mean = 0.0;
-          memcpy (x, x0, sizeof (double) * (size_t) JC_SWEEPS);
+          memcpy (x, x0, sizeof (double) * (size_t) js->nsweeps);
           jc_widen (world, js, pa, x);
           memset (hist->results + off, 0, sizeof (double) * (size_t) nb);
-          for (i = 0; i < JC_SWEEPS; i++)
+          for (i = 0; i < js->nsweeps; i++)
             {
               long b = (long) floor ((x[i] - lo) / world->bayes->deltahist[pa]);
               if (b < 0)
                 b = 0;
               if (b >= nb)
                 b = nb - 1;
-              hist->results[off + b] += 1.0 / (double) JC_SWEEPS;
+              hist->results[off + b] += 1.0 / (double) js->nsweeps;
               mean += x[i];
             }
-          hist->means[pa] = mean / (double) JC_SWEEPS;
+          hist->means[pa] = mean / (double) js->nsweeps;
           myfree (x);
         }
       off += nb;
@@ -3115,7 +3218,7 @@ jc_mcerr_rows (world_fmt *world, jc_mcerr_row **rows)
   *rows = NULL;
   if (js == NULL || !js->done || !js->has_mcerr)
     return 0;
-  srt = (double *) mycalloc ((size_t) JC_SWEEPS, sizeof (double));
+  srt = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
   *rows = (jc_mcerr_row *) mycalloc ((size_t) (js->np + 1), sizeof (jc_mcerr_row));
   for (p = 0; p < js->np; p++)
     {
@@ -3126,15 +3229,15 @@ jc_mcerr_rows (world_fmt *world, jc_mcerr_row **rows)
       if (p < js->numparam && (shortcut (p, world, &j) || j != p))
         continue;
       r = &(*rows)[n++];
-      const double *tr = js->trace + p * JC_SWEEPS;
+      const double *tr = js->trace + p * js->nsweeps;
       double mean = 0.0, var = 0.0;
-      for (i = 0; i < JC_SWEEPS; i++)
-        mean += tr[i] / JC_SWEEPS;
-      for (i = 0; i < JC_SWEEPS; i++)
-        var += (tr[i] - mean) * (tr[i] - mean) / JC_SWEEPS;
-      memcpy (srt, tr, sizeof (double) * (size_t) JC_SWEEPS);
-      qsort (srt, (size_t) JC_SWEEPS, sizeof (double), jc_cmp_double);
-      r->median = srt[JC_SWEEPS / 2];
+      for (i = 0; i < js->nsweeps; i++)
+        mean += tr[i] / js->nsweeps;
+      for (i = 0; i < js->nsweeps; i++)
+        var += (tr[i] - mean) * (tr[i] - mean) / js->nsweeps;
+      memcpy (srt, tr, sizeof (double) * (size_t) js->nsweeps);
+      qsort (srt, (size_t) js->nsweeps, sizeof (double), jc_cmp_double);
+      r->median = srt[js->nsweeps / 2];
       r->sd = sqrt (var);
       r->mcerr = js->mcerr[p];
       r->ratio = r->sd > 0.0 ? r->mcerr / r->sd : 0.0;
@@ -3222,9 +3325,17 @@ jc_print_note (world_fmt *world, FILE *out)
                   "(Joint) the joint multi-locus combination over %li loci (%li-%li stored\n"
                   "        genealogies per locus, up to %li used per locus); the plots and the\n"
                   "        other tables use it\n",
-             js->nloci_used, js->tmin, js->tmax, jc_maxsamples (js->nrow));
-  if (js != NULL && js->done && js->has_mcerr)
-    jc_print_mcerr (world, js, out);
+             js->nloci_used, js->tmin, js->tmax, jc_maxsamples (world, js->nrow));
+  if (js != NULL && js->done)
+    {
+      if (js->has_mcerr)
+        jc_print_mcerr (world, js, out);
+    }
+  else if (jc_nactive_cache > jc_maxactive ())
+    FPRINTF (out, "(All) combined as the product of the per-locus marginal posteriors\n"
+                  "      (the joint multi-locus combination is limited to %li free parameters,\n"
+                  "      this model has %li; a restricted migration model can use it)\n",
+             jc_maxactive (), jc_nactive_cache);
   else
     FPRINTF (out, "(All) combined as the product of the per-locus marginal posteriors\n"
                   "      (the joint multi-locus combination does not handle this model yet)\n");

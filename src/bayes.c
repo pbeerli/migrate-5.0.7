@@ -595,6 +595,27 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 
     //double alphapart = exp(LGAMMA(1.0+mlalpha));
     //const MYREAL lmu_rate = world->options->lmu_rates[world->locus];
+#ifndef DEBUGMIG
+    /* the immigration routes of every population with a nonzero rate, once
+       per call: the waiting term of an interval used to visit all numpop - 1
+       routes of every population (numpop^2 per interval; mostly fixed zeros
+       in stepping-stone models). Skipped routes contribute exactly 0. */
+    static long *route = NULL, *nroute = NULL;
+    static long route_alloc = 0;
+    if (route_alloc < world->numpop2)
+      {
+        route = (long *) myrealloc (route, sizeof (long) * (size_t) world->numpop2);
+        nroute = (long *) myrealloc (nroute, sizeof (long) * (size_t) world->numpop2);
+        route_alloc = world->numpop2;
+      }
+    for (pop = 0; pop < numpop; pop++)
+      {
+        nroute[pop] = 0;
+        for (pop2 = world->mstart[pop]; pop2 < world->mend[pop]; pop2++)
+          if (param0[pop2] * geo[pop2] != 0.0)
+            route[world->mstart[pop] + nroute[pop]++] = pop2;
+      }
+#endif
     for(i=1; i<T-1;i++)
     {
       tli1 = &tl[i-1];
@@ -672,6 +693,26 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	      kpopmurate = kpop/mu_rate;
 
 	      sum=0.0;
+#ifndef DEBUGMIG
+	      if (usem)
+		{
+		  for (long r = msta; r < msta + nroute[pop]; r++)
+		    {
+		      pop2 = route[r];
+		      pk = param0[pop2] * geo[pop2];
+		      sum += kpopmurate * pk;
+		    }
+		}
+	      else
+		{
+		  for (long r = msta; r < msta + nroute[pop]; r++)
+		    {
+		      pop2 = route[r];
+		      pk = param0[pop2] / param0[pop];
+		      sum += kpopmurate * geo[pop2] * pk;
+		    }
+		}
+#else
 	      if (usem)
 		{
 		  for (pop2 = msta; pop2 < msto; pop2++)
@@ -698,6 +739,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 #endif
 		    }
 		}
+#endif /* DEBUGMIG */
 	      waitprobmig += sum;
 	    }
 	  waitprobmig *= deltatime;
