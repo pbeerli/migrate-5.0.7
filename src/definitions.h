@@ -445,6 +445,10 @@ typedef int boolean;
 #define VERYSMALL_VALUE   10e-30
 #define EPSILON         0.000001 /* a small number */
 #define EPSILON4        0.000099 /* another small number */
+/* rescale a site's conditional likelihoods only when their maximum drops
+   below this (double has about 300 orders of magnitude of range); rescaling
+   every site on every call cost one LOG() per site (from codex-7) */
+#define RESCALE_THRESHOLD 1e-100
 #define SMALLEPSILON       1e-15 /* a smaller number */
 #define BIGEPSILON         0.001 /* a not so small number */
 #define PERCENTILETOLERANCE 0.01 /* difference larger than this are flagged FAILED*/

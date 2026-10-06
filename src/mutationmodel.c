@@ -2083,6 +2083,8 @@ void nuview_tn93 (mutationmodel_fmt *s, long sublocus, long xs, node * mother, w
 		  if (tempsxx3m > sxx3m)
 		    sxx3m = tempsxx3m;
 		}
+	      if (sxx3m >= RESCALE_THRESHOLD)
+		continue;
 	      if(sxx3m < SMALLEPSILON)
 		sxx3m = SMALLEPSILON;
 	      invsxx3m = 1. / sxx3m;
@@ -2171,6 +2173,18 @@ static void tn93_closed_terms (tn93_closed *t, const MYREAL u, const mutationmod
   t->cY = 1.0 + eb * pR / pY - t->eY / pY;
 }
 
+/* rare rescale of one pattern; kept out of line so that the compiler does
+   not evaluate LOG() for every pattern (it if-converted the branch, 10x slower) */
+static void __attribute__((noinline)) rescale_site4 (MYREAL *a, MYREAL m, MYREAL *scale)
+{
+  const MYREAL inv = 1. / m;
+  a[0] *= inv;
+  a[1] *= inv;
+  a[2] *= inv;
+  a[3] *= inv;
+  *scale += LOG (m);
+}
+
 /* one rate category, four states: closed form, product, scale and
    rescaling in a single pass over the patterns */
 static void pseudonu_tn93_single (mutationmodel_fmt *s, xarray_fmt *xxx1, MYREAL *lx1, MYREAL v1, xarray_fmt *xxx2, MYREAL *lx2, MYREAL v2, long xs)
@@ -2204,22 +2218,15 @@ static void pseudonu_tn93_single (mutationmodel_fmt *s, xarray_fmt *xxx1, MYREAL
       const MYREAL h2 = (r1 + t1.eR * a[2]) * (r2 + t2.eR * c[2]);
       const MYREAL h3 = (y1 + t1.eY * a[3]) * (y2 + t2.eY * c[3]);
       lx1[site] += lx2[site];
+      a[0] = h0;
+      a[1] = h1;
+      a[2] = h2;
+      a[3] = h3;
       if (scaling)
         {
           const MYREAL m = MAX (MAX (h0, h1), MAX (h2, h3));
-          const MYREAL inv = 1. / m;
-          a[0] = h0 * inv;
-          a[1] = h1 * inv;
-          a[2] = h2 * inv;
-          a[3] = h3 * inv;
-          lx1[site] += LOG (m);
-        }
-      else
-        {
-          a[0] = h0;
-          a[1] = h1;
-          a[2] = h2;
-          a[3] = h3;
+          if (m < RESCALE_THRESHOLD)
+            rescale_site4 (a, m, &lx1[site]);
         }
     }
 }
@@ -2322,6 +2329,8 @@ void pseudonu_tn93 (mutationmodel_fmt *s, proposal_fmt *proposal, xarray_fmt *xx
 		  if (tempsxx3m > sxx3m)
 		    sxx3m = tempsxx3m;
 		}
+	      if (sxx3m >= RESCALE_THRESHOLD)
+		continue;
 	      MYREAL invsxx3m = 1. / sxx3m;
 	      for (rate = 0; rate < numsiterates; rate++)
 		{
