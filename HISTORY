@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.56 Faster sequence likelihood: closed form for one rate category and
+             rescaling only when needed (about 2.3x on a 10 kb locus); results unchanged.
+
 October 6    Migrate 6.1.55 Gelman-Rubin statistic under MPI (per-locus table in the outfile,
              also serial); adaptive heating disabled (it was never active, now a
              warning and static heating); fixed an MPI crash with sequence data
