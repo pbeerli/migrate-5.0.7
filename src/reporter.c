@@ -1115,7 +1115,8 @@ calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
 {
   //long T            = world->convergence->chain_counts[world->rep];
   long nn           = 2+world->numparam;
-  long pnum         = world->bayes->numparams;
+  const long first  = world->convergence->rep_firstrow;
+  long pnum         = world->bayes->numparams - first;
   
   MYREAL  * params     = world->bayes->params;
   long              i;
@@ -1134,7 +1135,7 @@ calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
      tthis 0/1, against oldval/likelihood entirely), corrupting the
      within-chain variance for essentially every parameter. */
   i = tthis + 2;
-  for (j = 0; j < pnum /*T*/; j++)
+  for (j = first; j < first + pnum /*T*/; j++)
     {
       xx = params[j * nn + i] - tc[tthis];
       s += xx * xx;
@@ -1195,11 +1196,14 @@ void chain_means_ml (MYREAL *thischainmeans, world_fmt * world)
 void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
 {
   //  long              T       = world->convergence->chain_counts[world->rep];
-  long              T       = world->bayes->numparams;
+  const long        first   = world->convergence->rep_firstrow;
+  long              T       = world->bayes->numparams - first;
   long              i;
   long              j;
   MYREAL           *params  = world->bayes->params;
   long              nn      = 2+world->numparam;
+  if (T < 1)
+    return;
 
   /* Skip parameters world->bayes->map[][1] marks INVALID (fixed/not
      estimated, e.g. one direction of an asymmetric migration model) --
@@ -1210,7 +1214,7 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
      (sqrt(x/0)) and silently poisoned "Mean sqrt(R)" for the whole run
      -- confirmed directly on a real dataset with a fixed M rate, ported
      from migrate-codex-7. */
-  for (j = 0; j < T; j++)
+  for (j = first; j < first + T; j++)
     {
       for (i = 2; i < nn; i++)
         {
@@ -1248,7 +1252,7 @@ chain_means (MYREAL *thischainmeans, world_fmt * world)
      calc_s_bayes() already average over (their own T/pnum) -- using it
      here too makes chain_counts[] agree with what was actually
      recorded. */
-  world->convergence->chain_counts[world->rep] = world->bayes->numparams;
+  world->convergence->chain_counts[world->rep] = world->bayes->numparams - world->convergence->rep_firstrow;
   chain_means_bayes (thischainmeans, world);
 }
 

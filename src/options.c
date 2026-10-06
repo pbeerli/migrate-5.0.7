@@ -4943,18 +4943,35 @@ void set_bayes_options(char *value, option_fmt *options)
   switch(uppercase(priortype[0]))
     {
     case 'Z'/*slice sampler with uniform prior*/:
+      /* there is no SLICE prior kind in which_prior() (it stopped the run):
+         a uniform prior on [min,max] sampled with the slice sampler */
       sscanf(valueptr,"%s%f%f", priortype, &mini, &maxi);
       prior->min = (MYREAL) mini;
       prior->max = (MYREAL) maxi;
-      prior->kind = SLICE;
+      prior->delta = (MYREAL) (maxi - mini) / 10.;
+      prior->kind = UNIFORMPRIOR;
       options->slice_sampling[ptype] = TRUE;
       break;
     case 'M'/*multprior   */:
+      /* legacy syntax MULTPRIOR: min max delta. Read as what it means: a
+         uniform prior on [min,max] with the multiplier proposal. As its own
+         prior kind it counted the multiplier Jacobian twice (Hastings term
+         and prior ratio), i.e. it sampled a prior proportional to x (NODATA:
+         M mean 13.05 for [0.05,20] instead of 10.03). */
       sscanf(valueptr,"%s%f%f%f", priortype, &mini, &maxi, &delta); 
       prior->min = (MYREAL) mini;
       prior->max = (MYREAL) maxi;
       prior->delta = (MYREAL) delta;
-      prior->kind = MULTPRIOR;
+      prior->kind = UNIFORMPRIOR;
+      options->multiplier_proposal[ptype] = TRUE;
+      {
+        static boolean noted = FALSE;
+        if (!noted)
+          {
+            warning("MULTPRIOR is read as a uniform prior with the multiplier proposal (bayes-proposals= ... MULTIPLIER)\n");
+            noted = TRUE;
+          }
+      }
       break;
       case 'E'/*expprior    */:   
 	sscanf(valueptr,"%s%f%f%f", priortype, &mini,&meani, &maxi);

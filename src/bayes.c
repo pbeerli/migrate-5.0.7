@@ -216,6 +216,17 @@ void destroy_global_function_arrays()
 /// This mirrors the mapping done inline in bayes_update(); it is factored out
 /// so that which_prior() and autotune_proposal() classify parameters the same
 /// way. Note this is the parameter group, not the distribution kind.
+/// TRUE if `which` is the spread (sigma) slot of a divergence model; the
+/// divergence block holds (mu, sigma) pairs (speciate.c)
+static boolean is_divergence_sigma(world_fmt *world, long which)
+{
+  long i;
+  for (i = 0; i < world->species_model_size; i++)
+    if (world->species_model[i].paramindex_sigma == which)
+      return TRUE;
+  return FALSE;
+}
+
 long prior_group_of(world_fmt *world, long which)
 {
   const long numpop  = world->numpop;
@@ -228,8 +239,10 @@ long prior_group_of(world_fmt *world, long which)
     return MIGPRIOR;
   if (world->bayes != NULL && world->bayes->mu && which == numpop2)
     return RATEPRIOR;
+  /* sigma slots used to be SPECIESTIMEPRIOR, so bayes-proposals=
+     DIVERGENCESTD ... was never consulted */
   if (which < npx)
-    return SPECIESTIMEPRIOR;
+    return is_divergence_sigma(world, which) ? SPECIESSTDPRIOR : SPECIESTIMEPRIOR;
   if (which < npg)
     return GROWTHPRIOR;
   return MLFPRIOR;
@@ -735,6 +748,10 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 		  eventprob = log(param0[m2mmm(tli->eventnode->pop,
 					     tli->eventnode->actualpop, (long) numpop)]/param0[tli->eventnode->actualpop]);
 		}
+	      /* the event density is the route's full rate, as in the waiting
+	         term: geo * M / mu_rate (it used to be M alone, wrong for moves
+	         that change the number of migration events or rescale times) */
+	      eventprob += log(geo[m2mmm(tli->eventnode->pop, tli->eventnode->actualpop, (long) numpop)] / mu_rate);
 	      assert(!isnan(eventprob));
 #ifdef DEBUGMIG
 	      _n_mig++;
@@ -1049,6 +1066,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		  eventprob = log(param0[m2mmm(from,
 					     to, (long) numpop)]/param0[tli->eventnode->actualpop]);
 		}
+	      eventprob += log(geo[m2mmm(from, to, (long) numpop)] / mu_rate);
 	      assert(!isnan(eventprob));
 	      break;
 	    case 'd':
@@ -1957,6 +1975,9 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
   MYREAL      r;
   MYREAL      newval = -HUGE;
   MYREAL      hastingsratio;
+  MYREAL      accept_heat = 1.0; // newval/oldval are p(G|params) except for the rate move
+  MYREAL      acc_new = 0.0, acc_old = 0.0; // what bayes_accept compares in the rate move
+  boolean     rate_move = FALSE;
   long specid = -1;
   const MYREAL      murate = world->options->mu_rates[world->locus];
   MYREAL    * param0 = world->param0;
@@ -2004,13 +2025,34 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
       hastingsratio = (*hastings_ratio[which])(newparam, murate, delta, r, bayes, which);
       // add the prior ratio to the log of the hastings ratios
       hastingsratio += (*log_prior_ratio[which])(newparam, murate, bayes, which);
-      world->options->mu_rates[world->locus] = newparam;
-      world->options->lmu_rates[world->locus] = log(newparam);
-      // change the tree length because of the rate
-      reprecalc_world(world, which);
-      recalc_timelist(world, world->options->mu_rates[world->locus] , oldparam[which]);
-      // calculate prob(G|params)
-      newval = probg_treetimes(world);
+      // The genealogy is kept in reference time: setting the rate rescales
+      // every node time by r'/r and changes the data likelihood. The move is
+      // the bijection (t, r) -> (t r'/r, r'), so the acceptance needs the
+      // heated data-likelihood ratio, the exact p(G) ratio and the Jacobian
+      // (r'/r)^K of the K event times (for the plain model the last two
+      // cancel analytically). It used to accept on the p(G) ratio alone, which
+      // pulled r to the lower prior bound (NODATA: mean 0.12 for U(0.1,10)).
+      {
+        const MYREAL oldlike = world->likelihood[world->G];
+        const long nev = mlh_count_events(world);
+        world->options->mu_rates[world->locus] = newparam;
+        world->options->lmu_rates[world->locus] = log(newparam);
+        // change the tree length because of the rate
+        reprecalc_world(world, which);
+        recalc_timelist(world, world->options->mu_rates[world->locus] , oldparam[which]);
+        // calculate prob(G|params)
+        newval = probg_treetimes(world);
+        hastingsratio += (newval - oldval) + nev * log(newparam / murate);
+        rate_move = TRUE;
+        accept_heat = world->heat;
+        if (world->options->prioralone)
+          acc_new = acc_old = 0.0;
+        else
+          {
+            acc_new = world->likelihood[world->G];
+            acc_old = oldlike;
+          }
+      }
     }
   else if (which < npx)// speciation
     {
@@ -2080,7 +2122,10 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
     }
     //Acceptance or rejection of the new value
   /* newval/oldval are p(G|params): not heated (power posterior) */
-  *success = bayes_accept(newval, oldval, 1.0, hastingsratio);
+  if (rate_move)
+    *success = bayes_accept(acc_new, acc_old, accept_heat, hastingsratio);
+  else
+    *success = bayes_accept(newval, oldval, 1.0, hastingsratio);
   if(*success)
     {
       if(verbose)
@@ -2597,13 +2642,29 @@ bayes_update (world_fmt * world)
                 paramval = world->options->mu_rates[world->locus];
             }
     else if (which<npx)
-      type = SPECIESTIMEPRIOR;
+      type = is_divergence_sigma(world, which) ? SPECIESSTDPRIOR : SPECIESTIMEPRIOR;
     else if (which<npg)
       type = GROWTHPRIOR;
     else //if (which<npx2)
       type = MLFPRIOR;
     
-    if(world->options->slice_sampling[type])
+    /* the rate modifier rescales the genealogy, which the slice sampler's
+       target (log p(G|x) + log prior) does not account for; it always uses
+       the Metropolis-Hastings step with the full ratio */
+    /* the slice sampler sets only param0: growth, Mittag-Leffler alpha and
+       divergence values live elsewhere, and the rate modifier rescales the
+       genealogy; those always use the Metropolis-Hastings step */
+    const boolean slice_ok = (type == THETAPRIOR || type == MIGPRIOR);
+    if(world->options->slice_sampling[type] && !slice_ok)
+      {
+        static boolean warned = FALSE;
+        if (!warned && world->cold)
+          {
+            warning("SLICE sampling is used only for Theta and M; other parameters use Metropolis-Hastings\n");
+            warned = TRUE;
+          }
+      }
+    if(world->options->slice_sampling[type] && slice_ok)
     {
       //warning("SLICE sampler does not work with MLF and GROWTH\n");
         /* the slice sampler needs the prior density itself; the ratio
@@ -2630,12 +2691,12 @@ bayes_update (world_fmt * world)
 	//if(which>=npx && world->cold)
 	//  printf("%li/%li/%li ",which,bayes->accept[which],bayes->trials[which]);fflush(stdout);
 	if(world->in_burnin && world->cold && !world->options->prioralone)
-	  autotune_proposal(world,which);
+	  autotune_proposal(world,which,w);
       }
     else
       {
 	if(world->in_burnin && world->cold && !world->options->prioralone)
-	  autotune_proposal(world,which);
+	  autotune_proposal(world,which,w);
 	memcpy(world->param0, oldparam, sizeof(MYREAL) * (size_t) npx2);
 	if(type==RATEPRIOR)
 	  {
@@ -3162,7 +3223,19 @@ void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options)
     bayes->mapsize = sizeg;
     //printf("BAYES map size=%li\n",size);
     
-    bayes->hyperprior = options->hyperprior;
+    /* bayes-hyperpriors redrew the prior mean and shape without a
+       Metropolis-Hastings step, so the chain did not sample a hierarchical
+       posterior; switched off until a proper version exists (2026-10-06) */
+    if (options->hyperprior)
+      {
+        static boolean warned = FALSE;
+        if (!warned)
+          {
+            warning("bayes-hyperpriors is switched off: the hyperparameters were redrawn without a Metropolis-Hastings step; the plain priors are used\n");
+            warned = TRUE;
+          }
+      }
+    bayes->hyperprior = FALSE;
     if (bayes->hyperprior)
     {
         bayes->hyperinterval=options->hyperinterval;

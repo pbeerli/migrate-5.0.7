@@ -541,18 +541,37 @@ long assign_choose_newpop(world_fmt *world, node *origin, long oldpop)
   assign_freq_node = NULL;
   if (world->numpop < 2)
     return newpop;
-  while (newpop == oldpop)
+  if (world->has_unassignedpoplist && !world->has_unassignedfreq)
     {
-      if (world->has_unassignedfreq)
-	newpop = assign_bypastfreq(origin, world->numpop);
-      else
-	{
-	  if (world->has_unassignedpoplist)
-	    newpop = ( long) world->unassignedpoplist[RANDINT(0,(long) world->unassignedpoplistnum-1)];
-	  else
-	    newpop = RANDINT(0, (long) world->numpop-1);
-	}
+      /* uniform over the list without the current population: symmetric
+         whenever the current population is in the list (a start state
+         outside the list has no posterior mass and is left for good). The
+         old redraw loop never ended for a list holding only the current
+         population. */
+      long ncand = 0;
+      for (i = 0; i < world->unassignedpoplistnum; i++)
+        if ((long) world->unassignedpoplist[i] != oldpop)
+          ncand++;
+      if (ncand == 0)
+        return oldpop;
+      {
+        long pick = RANDINT(0, ncand - 1);
+        for (i = 0; i < world->unassignedpoplistnum; i++)
+          if ((long) world->unassignedpoplist[i] != oldpop && pick-- == 0)
+            {
+              newpop = (long) world->unassignedpoplist[i];
+              break;
+            }
+      }
     }
+  else
+    while (newpop == oldpop)
+      {
+        if (world->has_unassignedfreq)
+          newpop = assign_bypastfreq(origin, world->numpop);
+        else
+          newpop = RANDINT(0, (long) world->numpop-1);
+      }
   if (world->has_unassignedfreq)
     {
       double *f = origin->freqs;

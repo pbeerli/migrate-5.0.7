@@ -1784,11 +1784,23 @@ run_locus (world_fmt ** universe, int usize, option_fmt * options,
   memset(EARTH->convergence->gelmanmeanmaxR,0,(size_t) (maxreplicate * maxreplicate) * sizeof(MYREAL));
   for (replicate = 0; replicate < maxreplicate; replicate++)
     {
+      EARTH->convergence->rep_firstrow = EARTH->bayes->numparams;
       run_replicate (locus, replicate, universe, options, data,
 		     localheating_pool, usize, treefilepos, Gmax);
       if(EARTH->cold && EARTH->options->replicatenum > 0)
 	{
-	  if(options->gelman)
+	  /* the samples are needed in memory; with bayes-allfile they go to
+	     the file only and the in-memory array stays empty */
+	  if(options->gelman && options->has_bayesmdimfile)
+	    {
+	      static boolean warned = FALSE;
+	      if (!warned)
+		{
+		  warning("Gelman-Rubin convergence is not computed with bayes-allfile=YES\n");
+		  warned = TRUE;
+		}
+	    }
+	  else if(options->gelman)
 	    {
 	      chain_means(&EARTH->convergence->chain_means[replicate * convergence_len], EARTH);
 	      calc_chain_s(EARTH->convergence->chain_s, EARTH->convergence->chain_means, EARTH, 
@@ -1938,22 +1950,6 @@ run_updates (world_fmt ** universe,
 	else
 	  {
 	    heated_swap (universe, EARTH->options);
-	    switch (options->adaptiveheat)
-	      {
-	      case STANDARD:
-		adjust_temperatures (universe, options->heated_chains,
-				     inc /*rement */  + step * increment,
-				     steps * increment);
-		break;
-	      case BOUNDED:
-		adjust_temperatures_bounded (universe, options->heated_chains,
-				     inc /*rement */  + step * increment,
-				     steps * increment);
-		break;
-	      case NOTADAPTIVE:
-	      default:
-		break;
-	      }
 	  }
     }
     else
@@ -2125,6 +2121,13 @@ void run_chains (world_fmt ** universe,
       int i;
       for(i=0; i<EARTH->options->heated_chains; i++)
         {
+          /* only the cold chain tunes its proposal widths; the heated chains
+             burn in afterwards and start from the cold chain's tuned widths
+             (their parameter moves have the same target, heat 1) instead of
+             keeping the initial ones */
+          if (i > 0)
+            memcpy (universe[i]->bayes->delta, EARTH->bayes->delta,
+                    sizeof (MYREAL) * (size_t) EARTH->numparam);
           burnin_chain (universe[i]);
         }
 #endif

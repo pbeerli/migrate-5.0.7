@@ -10,6 +10,7 @@
 #include "sequence.h"
 #include "migrate_mpi.h"
 #include "seqerror.h"
+#include "bayes.h"
 extern int myID;
 
 //#define INDIX(a,b,c) ((a)*(b)+(c))
@@ -40,7 +41,9 @@ void fill_world_seqerror(world_fmt *world, option_fmt *options)
       world->seqerrorallocnum[locus] = 10;
       world->seqerrorrates[locus] = (MYREAL *) mycalloc((world->seqerrorallocnum[locus] * mult), sizeof(MYREAL));
       world->seqerrorrates[locus][0] = options->seqerror[0];
-      if(world->seqerrorcombined)
+      /* four rates only without combining (the condition was inverted: the
+         separate rates started at 0, the combined one wrote unused slots) */
+      if(!world->seqerrorcombined)
 	{ 
 	  world->seqerrorrates[locus][1] = options->seqerror[1]; 
 	  world->seqerrorrates[locus][2] = options->seqerror[2];
@@ -94,126 +97,101 @@ void change_freq_tip(world_fmt *world, node *tip, MYREAL *errorrates)
 
 
 
-// changing a frequency
+// log density of the Beta(1,10) prior of a sequencing error rate, up to a
+// constant: mean 1/11, highest at 0
+static MYREAL seqerror_logprior(MYREAL e)
+{
+  if (e <= 0.0 || e >= 1.0)
+    return (MYREAL) -HUGE;
+  return 9.0 * log(1.0 - e);
+}
+
+/// Metropolis-Hastings update of a sequencing error rate at a fixed
+/// genealogy: one rate (the combined one, or one of the four nucleotide
+/// rates) is moved by a reflected window on [0,1], the tips are rewritten,
+/// and the move is accepted with the heated data-likelihood ratio times the
+/// Beta(1,10) prior ratio. It used to draw from Beta(10,1) (mean 0.91), had
+/// no prior or proposal term, rode on a tree move and restored only one of
+/// the four rates after a rejection.
 void change_freq(world_fmt *world)
 {
-  boolean is_combined = world->seqerrorcombined;
-  long mult = is_combined ? 1 : 4;
-  long i;
-  long count;
-  long sumtips = world->sumtips;
+  const boolean is_combined = world->seqerrorcombined;
+  const long mult = is_combined ? 1 : 4;
+  const long seqpn = mult;
+  const long locus = world->locus;
+  const long sumtips = world->sumtips;
+  const MYREAL width = 0.05;
   node ** tips = world->nodep;
-  long locus = world->locus;
-  // use a beta distribution with heavy weight towards zero
-  // but that code fails currently for testing a uniform
-  MYREAL old;
-  long newpos;
-  long seqpn;
-  long end;
-  long before;
-  MYREAL errorrates[4];
-  MYREAL mynew = random_beta(10.0,1.0);
-  if(is_combined)
-    {
-      seqpn = 1;
-      newpos = 0;
-    }
-  else
-    {
-      seqpn = 4;
-      newpos = random_integer(0,3);
-    }
+  MYREAL cur[4], prop[4];
+  MYREAL oldlike, newlike, h, e, enew;
+  long i, k, end, before;
+  boolean success;
+
   end    = world->seqerrorratesnum[locus]*seqpn;
-  before = end - seqpn; 
-  old = world->seqerrorrates[locus][before+newpos];
-  if(is_combined)
-    { 
-      errorrates[0] = mynew;
-      errorrates[1] = errorrates[0];
-      errorrates[2] = errorrates[0];
-      errorrates[3] = errorrates[0];
-    }
+  before = end - seqpn;
+  for (i = 0; i < 4; i++)
+    cur[i] = world->seqerrorrates[locus][before + (is_combined ? 0 : i)];
+  memcpy(prop, cur, sizeof(cur));
+  k = is_combined ? 0 : random_integer(0,3);
+  e = cur[k];
+  enew = e + (UNIF_RANDUM() - 0.5) * width;
+  if (enew < 0.0)
+    enew = -enew;
+  if (enew > 1.0)
+    enew = 2.0 - enew;
+  if (is_combined)
+    prop[0] = prop[1] = prop[2] = prop[3] = enew;
   else
-    { 
-      errorrates[0] = world->seqerrorrates[locus][before];
-      errorrates[1] = world->seqerrorrates[locus][before+1]; 
-      errorrates[2] = world->seqerrorrates[locus][before+2];
-      errorrates[3] = world->seqerrorrates[locus][before+3];
-      errorrates[newpos] = mynew;
-    }
+    prop[k] = enew;
+  h = seqerror_logprior(enew) - seqerror_logprior(e);
 
-
-  for (i=0;i<sumtips;i++)
-    {
-      change_freq_tip(world, tips[i], errorrates);
-    }
-
+  oldlike = world->likelihood[world->G];
+  for (i = 0; i < sumtips; i++)
+    change_freq_tip(world, tips[i], prop);
   set_all_dirty(world->root->next, crawlback (world->root->next), world, world->locus);
   first_smooth(world,world->locus);
-  count = tree_update (world, world->G, NOASSIGNING);
-  world->seqerrorcount[world->locus] += count;
-  if(count == 0)
+  newlike = treelikelihood(world);
+  if (world->options->prioralone)
+    success = bayes_accept(0.0, 0.0, world->heat, h);
+  else
+    success = bayes_accept(newlike, oldlike, world->heat, h);
+  if (success)
     {
-      // reset because changes were not accepted
-      errorrates[newpos] = old;
-      for (i=0;i<sumtips;i++)
-	{
-	  change_freq_tip(world, tips[i], errorrates);
-	}
-      set_all_dirty(world->root->next, crawlback (world->root->next), world, world->locus);
-      first_smooth(world,world->locus);
-      tree_update (world, world->G, NOASSIGNING);
-    }    
-  if(!world->in_burnin)
-    world->seqerrorsteps[locus] += 1;
-  if (!world->in_burnin && world->seqerrorsteps[locus] % world->increment == 0)
-    {
-      if (world->cold)
-	{
-#ifdef DEBUG
-	  if(is_combined)
-	    printf("%i> change_freq() %li %f %li %f\n",myID, world->locus, world->likelihood[world->G], count, errorrates[0]);
-	  else
-	    printf("%i> change_freq() %li %f %li %f %f %f %f\n",myID, world->locus, world->likelihood[world->G], count, errorrates[0], errorrates[1], errorrates[2], errorrates[3]);
-#endif       
-	  if (world->seqerrorratesnum[locus] + 100 > world->seqerrorallocnum[locus])
-	    {
-	      world->seqerrorallocnum[locus] += 100;
-	      world->seqerrorrates[locus]= (MYREAL *) myrealloc(world->seqerrorrates[locus],sizeof(MYREAL) * (size_t) (mult*world->seqerrorallocnum[locus]));
-	    }
-	  end    = world->seqerrorratesnum[locus]*seqpn;
-	  world->seqerrorrates[locus][end]   = errorrates[0]; 
-	  if(!is_combined)
-	    {
-	      world->seqerrorrates[locus][end+1] = errorrates[1]; 
-	      world->seqerrorrates[locus][end+2] = errorrates[2];
-	      world->seqerrorrates[locus][end+3] = errorrates[3];
-	    }
-	  world->seqerrorratesnum[locus] += 1;
-	}
-      else
-	{
-	  world->seqerrorrates[locus][0] = errorrates[0]; 
-	  if(!is_combined)
-	    {
-	      world->seqerrorrates[locus][1] = errorrates[1]; 
-	      world->seqerrorrates[locus][2] = errorrates[2];
-	      world->seqerrorrates[locus][3] = errorrates[3];
-	    }
-	}
+      world->likelihood[world->G] = newlike;
+      memcpy(cur, prop, sizeof(cur));
+      world->seqerrorcount[locus] += 1;
     }
   else
     {
-      // overwrite old record (aka do not record change)
+      for (i = 0; i < sumtips; i++)
+        change_freq_tip(world, tips[i], cur);
+      set_all_dirty(world->root->next, crawlback (world->root->next), world, world->locus);
+      first_smooth(world,world->locus);
+      world->likelihood[world->G] = oldlike;
+    }
+
+  // record the current rates as before: a new row every increment of the
+  // cold chain while sampling, otherwise the last row holds the state
+  if(!world->in_burnin)
+    world->seqerrorsteps[locus] += 1;
+  if (!world->in_burnin && world->cold && world->seqerrorsteps[locus] % world->increment == 0)
+    {
+      if (world->seqerrorratesnum[locus] + 100 > world->seqerrorallocnum[locus])
+        {
+          world->seqerrorallocnum[locus] += 100;
+          world->seqerrorrates[locus]= (MYREAL *) myrealloc(world->seqerrorrates[locus],sizeof(MYREAL) * (size_t) (mult*world->seqerrorallocnum[locus]));
+        }
+      end = world->seqerrorratesnum[locus]*seqpn;
+      for (i = 0; i < seqpn; i++)
+        world->seqerrorrates[locus][end + i] = cur[i];
+      world->seqerrorratesnum[locus] += 1;
+    }
+  else
+    {
       end    = world->seqerrorratesnum[locus]*seqpn;
-      before = end - seqpn; 
-      world->seqerrorrates[locus][before]   =  errorrates[0]; 
-      if(!is_combined)
-	{
-	  world->seqerrorrates[locus][before+1] = errorrates[1]; 
-	  world->seqerrorrates[locus][before+2] = errorrates[2];
-	  world->seqerrorrates[locus][before+3] = errorrates[3];
-	}
+      before = end - seqpn;
+      for (i = 0; i < seqpn; i++)
+        world->seqerrorrates[locus][before + i] = cur[i];
     }
 }
 

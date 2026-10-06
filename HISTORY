@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.54 MCMC fixes from the moves review (codex 7.0.81): locus rate
+             modifier move; migration event term in p(G); sequencing-error move (now a
+             Metropolis-Hastings move, Beta(1,10) prior); window move generator and
+             prior; MULTPRIOR; slice sampler; DIVERGENCESTD proposal; tuning;
+             Gelman-Rubin (replicates were pooled); burn-in autostop; assignment
+             population lists. Hyperpriors switched off.
+
 October 6    Migrate 6.1.53 Default burn-in raised from 1000 to 10000 (times long-inc): with
              1000 the chains were still improving after the burn-in.
 
