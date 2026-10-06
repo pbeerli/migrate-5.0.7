@@ -37,7 +37,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
 #define TI_NBINS 64          /* adaptive heating: beta bins for thermodynamic integration */
-#define MIGRATEVERSION "6.1.52"
+#define MIGRATEVERSION "6.1.53"
 #define MIGRATESUBVERSION "October-6-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
@@ -420,7 +420,7 @@ typedef int boolean;
 #define DEFAULT_ALLELENMLENGTH 6L /* length of allele names */
 #define DEFAULT_POPNMLENGTH  100L /* length of world names */
 #define NUMPOP 2L
-#define BURNINPERIOD 1000L
+#define BURNINPERIOD 10000L  /* x long-inc steps; 1000 left chains still climbing (2026-10-06) */
 #define SAMPLESTAKEN 10000L
 #define INCREMENT    100L
 #define SCALEINTERVAL 2L
