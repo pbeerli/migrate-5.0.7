@@ -934,7 +934,7 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
   ctx->Tacc = (MYREAL *) mycalloc (nnodes * d * d, sizeof (MYREAL));
 
   /* pair coalescence rate 2/theta with the locus scale theta = r h Theta,
-     as in probg_treetimes_intervals() (was 1/Theta; proposal only, the
+     as in probg_treetimes_local() (was 1/Theta; proposal only, the
      move stays exact either way) */
   invtheta = (MYREAL *) mycalloc (d, sizeof (MYREAL));
   {

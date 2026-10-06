@@ -2928,14 +2928,19 @@ void print_parm_mutable_comment(long *bufsize, char **buffer, long *allocbufsize
 /// prints parmfile mutable option line
 void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char string[], ...)
 {
-    char message[LINESIZE];
-	char fp[LINESIZE];
-	va_list args;
-    va_start (args, string);
-    vsnprintf (message, LINESIZE, string, args);
-    va_end (args);	
-	mysnprintf(fp,LINESIZE,"%s\n",message);
-	add_to_buffer(fp, bufsize,buffer, allocbufsize);
+  /* sized to the line: a custom-migration matrix of 50 populations is longer
+     than LINESIZE (it was cut, then the copy aborted) */
+  va_list args;
+  va_start (args, string);
+  const int len = vsnprintf (NULL, 0, string, args);
+  va_end (args);
+  char *fp = (char *) mycalloc ((size_t) (len > 0 ? len : 0) + 2, sizeof (char));
+  va_start (args, string);
+  vsnprintf (fp, (size_t) (len > 0 ? len : 0) + 1, string, args);
+  va_end (args);
+  fp[len > 0 ? len : 0] = '\n';
+  add_to_buffer(fp, bufsize,buffer, allocbufsize);
+  myfree (fp);
 }
 
 /// prints parmfile fixed option line
