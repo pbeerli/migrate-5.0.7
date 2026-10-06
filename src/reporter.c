@@ -1283,6 +1283,45 @@ void  calc_chain_s(MYREAL *cs, MYREAL *cm, world_fmt *world, long replicate)
 }
 
 ///
+/// per-locus Gelman-Rubin table for the outfile (no-op if nothing computed)
+void print_gelman_rubin_outfile(FILE *file, world_fmt *world)
+{
+  long locus;
+  long n = 0;
+  MYREAL summean = 0.0;
+  MYREAL maxmax = 0.0;
+  if (world->convergence == NULL || world->convergence->locus_gelman_valid == NULL)
+    return;
+  for (locus = 0; locus < world->loci; locus++)
+    if (world->convergence->locus_gelman_valid[locus])
+      n++;
+  if (n == 0)
+    return;
+  fprintf(file,"\n\nGelman-Rubin convergence statistic\n");
+  fprintf(file,"----------------------------------\n\n");
+  fprintf(file,"Values close to 1.0, especially values < 1.2 are a sign of convergence of the\n");
+  fprintf(file,"chains. On very short runs this statistic does not work well\n\n");
+  fprintf(file,"%-8s %14s %17s\n","Locus","Mean sqrt(R)","Maximum sqrt(R)");
+  for (locus = 0; locus < world->loci; locus++)
+    {
+      fprintf(file,"%-8li ", locus+1);
+      if (world->convergence->locus_gelman_valid[locus])
+        {
+          summean += world->convergence->locus_gelmanmeanRall[locus];
+          if (world->convergence->locus_gelmanmaxRall[locus] > maxmax)
+            maxmax = world->convergence->locus_gelmanmaxRall[locus];
+          fprintf(file,"%14f %17f\n", world->convergence->locus_gelmanmeanRall[locus],
+                  world->convergence->locus_gelmanmaxRall[locus]);
+        }
+      else
+        fprintf(file,"%14s %17s\n","-N-","-N-");
+    }
+  if (world->loci > 1)
+    fprintf(file,"%-8s %14f %17f\n","All", summean / (MYREAL) n, maxmax);
+  fprintf(file,"\n\n");
+}
+
+///
 /// report convergence statistic to screen or file
 void convergence_progress(FILE *file, world_fmt *world)
 {

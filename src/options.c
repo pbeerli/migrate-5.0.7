@@ -6322,13 +6322,11 @@ numbercheck (option_fmt * options, char *var, char *value)
     case 42: /* heating=<no | <yes | adaptive | bounded>:numintervals:{temperatures}> */
         switch (uppercase (value[0]))
         {
-        case 'A': //adaptive heating on
+        case 'A': // adaptive heating is not available: static heating
+        case 'B':
+            warning ("heating=%s: adaptive heating is not available, using static heating\n", value);
             options->heating = 1;
-            options->adaptiveheat = STANDARD;
-            break;
-        case 'B': //adaptive heating on
-            options->heating = 1;
-            options->adaptiveheat = BOUNDED;
+            options->adaptiveheat = NOTADAPTIVE;
             break;
         case 'Y':
         case 'P':

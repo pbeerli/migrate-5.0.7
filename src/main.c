@@ -684,7 +684,10 @@ main (int argc, char **argv)
 	// printing additional results
 #ifdef MPI
 	get_mighistdata (EARTH, options);
+	if (options->gelman && options->replicate && options->replicatenum > 0)
+	  mpi_results_master (MIGMPI_GELMAN, EARTH, EARTH->maxreplicate, unpack_gelman_buffer);
 #endif
+	print_gelman_rubin_outfile(EARTH->outfile, EARTH);
 	/* the temperatures for the report; under MPI before mpi_send_stop()
 	   releases the workers, they must answer the request */
 	if (options->heating)
@@ -1813,6 +1816,13 @@ run_locus (world_fmt ** universe, int usize, option_fmt * options,
 	    }
 	}
     }    
+  if(EARTH->cold && options->gelman && !options->has_bayesmdimfile
+     && options->replicate && maxreplicate > 1)
+    {
+      EARTH->convergence->locus_gelmanmeanRall[locus] = EARTH->convergence->gelmanmeanRall;
+      EARTH->convergence->locus_gelmanmaxRall[locus] = EARTH->convergence->gelmanmaxRall;
+      EARTH->convergence->locus_gelman_valid[locus] = TRUE;
+    }
   /* locus checkpoint: the marginal-likelihood sums of this finished locus
      (recover=YES restores them, marginallike.c) */
   ckpt_write_locus (EARTH, options, locus);

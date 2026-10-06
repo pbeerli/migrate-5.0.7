@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.55 Gelman-Rubin statistic under MPI (per-locus table in the outfile,
+             also serial); adaptive heating disabled (it was never active, now a
+             warning and static heating); fixed an MPI crash with sequence data
+             without a categories file (6.1.52-6.1.54).
+
 October 6    Migrate 6.1.54 MCMC fixes from the moves review (codex 7.0.81): locus rate
              modifier move; migration event term in p(G); sequencing-error move (now a
              Metropolis-Hastings move, Beta(1,10) prior); window move generator and

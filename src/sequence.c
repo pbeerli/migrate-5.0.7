@@ -1241,7 +1241,7 @@ void init_tbl (world_fmt * world, long locus)
 	    sumrates = 0.0;
 	    for (i = 0; i < s->numpatterns; i++)
 	      {
-		long ccc = s->numcategs > 0 ? (s->category[s->alias[i] - 1] - 1) : 0;
+		long ccc = (s->numcategs > 1 && s->category != NULL) ? (s->category[s->alias[i] - 1] - 1) : 0;
 		for (j = 0; j < rcategs; j++)
 		  sumrates +=
 		    s->aliasweight[i] * s->siteprobs[j] *

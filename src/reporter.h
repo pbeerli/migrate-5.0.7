@@ -44,6 +44,7 @@ extern void convergence_check (world_fmt * world, boolean progress);
 extern void calc_chain_s(MYREAL *cs, MYREAL *cm, world_fmt *world, long replicate);
 extern void convergence_check_bayes (world_fmt *world, long maxreplicate);
 extern void chain_means (MYREAL *thischainmeans, world_fmt * world);
+extern void print_gelman_rubin_outfile(FILE *file, world_fmt *world);
 extern void convergence_progress(FILE *file, world_fmt *world);
 extern MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYREAL *autoc, MYREAL *effsample);
 extern boolean max_ess(const MYREAL * ess, const  long n, const MYREAL minimum, MYREAL *miness);
