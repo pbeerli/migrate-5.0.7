@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.53 Default burn-in raised from 1000 to 10000 (times long-inc): with
+             1000 the chains were still improving after the burn-in.
+
 October 6    Migrate 6.1.52 Sequence data run about 3x faster (proposals evaluated every site
              instead of the site patterns when no categories file was given; results
              unchanged).
