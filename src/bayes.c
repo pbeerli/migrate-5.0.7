@@ -454,7 +454,6 @@ extern long m2mmm(long frompop, long topop, long numpop);
 }
 */
 //MYREAL probg_treetimesSIMPLE(world_fmt* world)
-static MYREAL probg_treetimes_intervals(world_fmt* world);
 
 MYREAL probg_treetimes(world_fmt* world)
 {
@@ -475,7 +474,7 @@ MYREAL probg_treetimes(world_fmt* world)
             alpha1 = FALSE;
         if (alpha1 && world->has_growth)
           {
-            MYREAL pi = probg_treetimes_intervals(world);
+            MYREAL pi = probg_treetimes_local(world, world->treetimes);
             if (fabs(pp - pi) > worst)
               {
                 worst = fabs(pp - pi);
@@ -488,12 +487,14 @@ MYREAL probg_treetimes(world_fmt* world)
         return mlh_probg_treetimes(world);
 #endif
       }
-    return probg_treetimes_intervals(world);
+    return probg_treetimes_local(world, world->treetimes);
 }
 
-/* density over whole-tree intervals; for Mittag-Leffler one alpha per
-   interval (see docs/mittag_leffler_in_migrate.tex) */
-static MYREAL probg_treetimes_intervals(world_fmt* world)
+/* density over whole-tree intervals of the time list treetimes (the
+   genealogy's own, world->treetimes, or a proposal's); for Mittag-Leffler
+   one alpha per interval (see docs/mittag_leffler_in_migrate.tex). Entries
+   without an event node take type and populations from the list. */
+MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 {
     const MYREAL *geo = world->data->geo;
     //const MYREAL *lgeo = world->data->lgeo;
@@ -511,8 +512,8 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
     MYREAL t1;
     double tx;
     MYREAL *param0 = world->param0;
-    const long T = world->treetimes->T;
-    vtlist *tl = world->treetimes->tl;
+    const long T = treetimes->T;
+    vtlist *tl = treetimes->tl;
     vtlist *tli;
     vtlist *tli1;
     MYREAL mu;
@@ -604,8 +605,16 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
       //printf("%i> %li %li %lf %lf %lf %lf \n" ,myID, k[0], k[1], t0, t1, sumprob, eventprob);
       // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
       // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
-      type = tli->eventnode->type;
-      ypop = tli->eventnode->actualpop;
+      if (tli->eventnode == NULL)
+	{
+	  type = tli->type;
+	  ypop = tli->to;
+	}
+      else
+	{
+	  type = tli->eventnode->type;
+	  ypop = tli->eventnode->actualpop;
+	}
       deltatime = t0 - t1; // should be negative
       deltatime2 = t1 - t0; // should be positive
       if(has_mlalpha)
@@ -717,7 +726,9 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 		    }
 		}
 	    }
-	  long xpop = tli->eventnode->actualpop;
+	  const long from = tli->eventnode == NULL ? tli->from : tli->eventnode->pop;
+	  const long to = tli->eventnode == NULL ? tli->to : tli->eventnode->actualpop;
+	  const long xpop = to;
 	  assert(xpop == ypop);
 	  switch(type)
 	    {
@@ -740,32 +751,32 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 	    case 'm':
 	      if (usem)
 		{
-		  eventprob = log(param0[m2mmm(tli->eventnode->pop,
-					     tli->eventnode->actualpop, (long) numpop)]);
+		  eventprob = log(param0[m2mmm(from,
+					     to, (long) numpop)]);
 		}
 	      else
 		{
-		  eventprob = log(param0[m2mmm(tli->eventnode->pop,
-					     tli->eventnode->actualpop, (long) numpop)]/param0[tli->eventnode->actualpop]);
+		  eventprob = log(param0[m2mmm(from,
+					     to, (long) numpop)]/param0[to]);
 		}
 	      /* the event density is the route's full rate, as in the waiting
 	         term: geo * M / mu_rate (it used to be M alone, wrong for moves
 	         that change the number of migration events or rescale times) */
-	      eventprob += log(geo[m2mmm(tli->eventnode->pop, tli->eventnode->actualpop, (long) numpop)] / mu_rate);
+	      eventprob += log(geo[m2mmm(from, to, (long) numpop)] / mu_rate);
 	      assert(!isnan(eventprob));
 #ifdef DEBUGMIG
 	      _n_mig++;
 	      _total_mig_ep += eventprob;
 	      {
-		long _midx = m2mmm(tli->eventnode->pop,
-				   tli->eventnode->actualpop, (long)numpop);
+		long _midx = m2mmm(from,
+				   to, (long)numpop);
 		if (_midx >= 0 && _midx < DEBUGMIG_MAXPAR)
 		  _nmig_par[_midx]++;
 	      }
 #endif	      
 	      break;
 	    case 'd':
-	      s = get_fixed_species_model(tli->eventnode->pop,tli->eventnode->actualpop, world->species_model, world->species_model_size);
+	      s = get_fixed_species_model(from,to, world->species_model, world->species_model_size);
 	      mu = param0[s->paramindex_mu];
 	      sigma = param0[s->paramindex_sigma];
 	      if (world->species_model_dist == NORMALSHORTCUT_DIST)
@@ -856,273 +867,6 @@ static MYREAL probg_treetimes_intervals(world_fmt* world)
 
 //newlocal
 // used for assignment calculation [see world.c: updating(), speciate.c newtree_update()]
-MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
-{
-    const MYREAL *geo = world->data->geo;
-    //const MYREAL *lgeo = world->data->lgeo;
-    const  long numpop = world->numpop;
-    const  long numpop2 = world->numpop2;
-    //const long locus = world->locus;
-    const  long npp = numpop2 + ( long) world->bayes->mu;
-    const  long nppall = npp + 2 * world->species_model_size; //OK, do not add growth here!
-    species_fmt *s;
-    long i;
-     long pop;
-     long ypop;
-    MYREAL t0;
-    MYREAL t1;
-    double tx;
-    MYREAL *param0 = world->param0;
-    const long T = treetimes->T;
-    vtlist *tl = treetimes->tl;
-    vtlist *tli;
-    vtlist *tli1;
-    MYREAL mu;
-    MYREAL sigma;
-    MYREAL sumprob = 0.0;
-    MYREAL deltatime = 0.0;
-    MYREAL deltatime2 = 0.0;
-    MYREAL waitprobcoal=0.0;
-    MYREAL waitprobmig=0.0;
-    MYREAL waitprob_spec = 0.0;
-    MYREAL eventprob=0.0;
-    long *k;
-    char type;
-    MYREAL pk;
-    boolean usem = world->options->usem;
-    long pop2;
-    long kpop;
-    long msta;
-    long msto;
-    double kpopmurate;
-    double sum;
-    const MYREAL mu_rate = world->options->mu_rates[world->locus];
-    /* coalescence runs at the locus Theta: inheritance scalar x Theta of the
-       reference locus (param0); migration (M = m/mu) does not depend on Ne */
-    const MYREAL theta_rate = mu_rate * world->options->inheritance_scalars[world->locus];
-    double * mlalphas = world->mlalpha;
-    long * mlalphapops = world->options->mlalphapops;
-    //double mlinheritance = world->mlinheritance;
-    //assert(mlinheritance==2.0);
-    boolean has_mlalpha = world->has_mlalpha; //mlalpha<1.0;
-    //boolean hasnot_mlalpha = !has_mlalpha;
-    double mlalpha;
-    double x;
-    double g;
-    long * growpops = world->options->growpops;
-    double *growth=NULL;
-    if (world->has_growth)
-      {
-	growth = world->growth;
-      }
-
-    //double alphapart = exp(LGAMMA(1.0+mlalpha));
-    //const MYREAL lmu_rate = world->options->lmu_rates[world->locus];
-    for(i=1; i<T-1;i++)
-    {
-      tli1 = &tl[i-1];
-      t0 = tli1->age;
-      tli = &tl[i];
-      t1 = tli->age; 
-      k = tli->lineages;// the lineages are filled in the actual timeslice: e.g. tli1=time=0=lasttip lineages are not
-      // build up yet and may look like [4,5], if tli is a 'm' event then the lineages at the event are [5,5] and
-      // after that, say, [6,4] [CHECK ON OTHER TIME INTERVALS -- not done yet]
-      if (tli->eventnode == NULL)
-	{
-	  type = tli->type;
-	  ypop = tli->to;//<=====check
-	}
-      else
-	{
-	  type = tli->eventnode->type;
-	  ypop = tli->eventnode->actualpop;
-	}
-      deltatime = t0 - t1; // should be negative
-      deltatime2 = t1 - t0; // should be positive
-      if(has_mlalpha)
-	{
-	  long xx = mlalphapops[ypop];
-	  if (xx == 0)
-	    mlalpha = 1.0;
-	  else
-	    mlalpha = mlalphas[xx-1];
-
-	  deltatime = -pow(deltatime2,mlalpha);
-	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
-	}
-      /* an interval ending at a tip has its waiting terms but no event:
-         with dated tips these intervals have length (skipping them, as
-         before, dropped part of p(G) and biased Theta low) */
-        {
-	  waitprobcoal = 0.0;
-	  waitprobmig = 0.0;
-	  waitprob_spec = 0.0;
-	  // coalescence with fixed or exp growing population size
-	  for(pop=0;pop<numpop;pop++)
-	    {
-	      kpop = k[pop];
-	      if (kpop>1)
-		{
-		  if (world->has_growth && growpops[pop]!=0 && (fabs(growth[growpops[pop]-1])>EPSILON))
-		    {
-		      x = theta_rate * param0[pop];
-		      g = growth[growpops[pop]-1];
-		      //		  waitprob += kpop * (kpop - 1) / (x * exp(-g * t1));
-		      waitprobcoal +=  -kpop * (kpop - 1) * (exp(g * (t1)) - exp(g * (t0)))/(x * g);
-		      if (isnan(waitprobcoal))
-			waitprobcoal = (double) -HUGE;
-		      assert(!isnan(waitprobcoal));
-		    }
-		  else
-		    {
-		      waitprobcoal += deltatime * kpop * (kpop - 1) / (theta_rate * param0[pop]);
-		      assert(!isnan(waitprobcoal));
-		    }
-		}
-	      msta = world->mstart[pop];
-	      msto = world->mend[pop];
-	      kpopmurate = kpop/mu_rate;
-
-	      sum=0.0;
-	      if (usem)
-		{
-		  for (pop2 = msta; pop2 < msto; pop2++)
-		    {
-		      pk = param0[pop2] * geo[pop2];
-		      sum += kpopmurate * pk; 
-		    }
-		}
-	      else
-		{
-		  for (pop2 = msta; pop2 < msto; pop2++)
-		    {
-		      pk = param0[pop2] / param0[pop]; 
-		      sum += kpopmurate * geo[pop2] * pk;
-		    }
-		}
-	      waitprobmig += sum;
-	    }
-	  waitprobmig *= deltatime;
-	  assert(!isnan(waitprobmig));
-	  if (world->has_speciation)
-	    {
-	      long sindex;
-	      for(sindex=npp; sindex<nppall; sindex++)
-		{
-		  s = get_which_species_model(sindex, world->species_model, world->species_model_size);
-		  if ((s == NULL) || (sindex != s->paramindex_mu))
-		    {
-		      continue;
-		    }
-		  else
-		    {
-		      mu = param0[s->paramindex_mu];
-		      sigma = param0[s->paramindex_sigma];
-		      kpop = k[s->to];
-		      if (kpop>0)
-			waitprob_spec += kpop * (*log_prob_wait_speciate)(t0,t1,mu,sigma,s);
-		      assert(!isnan(waitprob_spec));
-		    }
-		}
-	    }
-	  long from;
-	  long to;
-	  if (tli->eventnode==NULL)
-	    {
-	      from = tli->from;
-	      to = tli->to;
-	    }
-	  else
-	    {
-	    from = tli->eventnode->pop;
-	    to = tli->eventnode->actualpop;
-	    }
-	  switch(type)
-	    {
-	    case 'i':
-	      if (world->has_growth && growpops[from]!= 0 && (fabs(growth[growpops[from]-1])>EPSILON))
-		{
-		  x = theta_rate * param0[from];
-		  g = growth[growpops[from]-1];
-		  eventprob = LOG2 + g * (t1) - LOG(x);
-		  assert(!isnan(eventprob));
-		  //eventprob =  LOG2 + log((exp(g * t1)/(x * g));
-		}
-	      else
-		{
-		  x = theta_rate * param0[from];
-		  eventprob = LOG2 - log(x);
-		  assert(!isnan(eventprob));
-		}
-	      break;
-	    case 'm':
-	      if (usem)
-		{
-		  eventprob = log(param0[m2mmm(from,
-					     to, (long) numpop)]);
-		}
-	      else
-		{
-		  eventprob = log(param0[m2mmm(from,
-					     to, (long) numpop)]/param0[tli->eventnode->actualpop]);
-		}
-	      eventprob += log(geo[m2mmm(from, to, (long) numpop)] / mu_rate);
-	      assert(!isnan(eventprob));
-	      break;
-	    case 'd':
-	      s = get_fixed_species_model(from,to, world->species_model, world->species_model_size);
-	      mu = param0[s->paramindex_mu];
-	      sigma = param0[s->paramindex_sigma];
-	      if (world->species_model_dist == NORMALSHORTCUT_DIST)
-	      	tx = (t0+t1)/2.0;
-	      else
-		tx = t1;
-	      eventprob = (*log_point_prob_speciate)(tx,mu,sigma,s);//-log(k[s->to]) no 1/ necessary;
-	      assert(!isnan(eventprob));
-	      break;
-	    case 't':
-	      eventprob = 0.0;
-	      break;
-	    default:
-	      error("point prob failed");
-	    }
-	}
-      //sumprob += deltatime * (waitprob + waitprob_spec) + eventprob;
-      if(has_mlalpha)
-	{
-	   //mittag-leffle: mlalpha was set from the event population ypop at
-	   //the top of this interval (pop is past the end of its loop here)
-	  double pw = waitprobcoal + waitprobmig + waitprob_spec;
-#ifdef WINDOWS
-	  _Dcomplex pwc = {pw,0.0};
-	  _Dcomplex mlfc = mittag_leffler(mlalpha, mlalpha, pwc);
-#else
-	  MYCOMPLEX mlfc = mittag_leffler(mlalpha, mlalpha, pw);
-#endif
-	  double mlfval = creal(mlfc);    
-	  double mittag_result = LOG(deltatime2)*(mlalpha-1.0) + mlfval + eventprob;
-	  if (type == 't')
-	    {   /* no event: survival E_alpha(pw) instead of the density */
-#ifdef WINDOWS
-	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pwc));
-#else
-	      mittag_result = creal(mittag_leffler(mlalpha, 1.0, pw));
-#endif
-	    }
-	  sumprob += mittag_result;
-	  assert(!isnan(sumprob));
-	  //fprintf(stderr,"%i> locus %li sumprob=%f\n",myID,locus,sumprob);
-	}
-	  else
-	{
-	  sumprob += waitprobcoal + waitprobmig + waitprob_spec + eventprob;
-	  assert(!isnan(sumprob));
-	}
-      //printf("%i> progtreetimes(): sumprob=%f waitcoal=%f + waitmig=%f + waitspec=%f + eventprob=%f\n",myID, sumprob,waitprobcoal,waitprobmig,waitprob_spec, eventprob);
-    }
-    assert(!isnan(sumprob));
-    return sumprob;
-}
 //end new local
 
 /// \brief Calculate Prob(g|param)Prob(D|G) from world->treetimes.

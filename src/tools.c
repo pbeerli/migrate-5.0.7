@@ -3972,7 +3972,7 @@ void add_to_buffer(char *fp, long *bufsize, char **buffer, long *allocbufsize)
       *allocbufsize += 100 * fpsize;
       (*buffer) = (char *) myrealloc (*buffer, (*allocbufsize) * sizeof (char));
     }
-  (*bufsize) += mysnprintf((*buffer) + (*bufsize),LINESIZE,"%s",fp);
+  (*bufsize) += mysnprintf((*buffer) + (*bufsize),(size_t) fpsize,"%s",fp);   /* lines can be longer than LINESIZE */
 }
 
 

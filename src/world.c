@@ -351,8 +351,10 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
 	optnumpop2 = (long) strlen(options->custm);
 	if(optnumpop2>numpop2)
 	  optnumpop2=numpop2;
-	mysnprintf(wopt->custm,LINESIZE, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm);
-	mysnprintf(wopt->custm2,LINESIZE, "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm2);
+	/* the buffers hold numpop2 + 2 characters (a 50 x 50 matrix is longer
+	   than LINESIZE) */
+	mysnprintf(wopt->custm,(size_t) (numpop2 + 2), "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm);
+	mysnprintf(wopt->custm2,(size_t) (numpop2 + 2), "%-*.*s", (int) optnumpop2, (int) optnumpop2, options->custm2);
       }//1229
     if(wopt->thetag==NULL)
       wopt->thetag = (MYREAL *) mycalloc (numpop2 + 2, sizeof (MYREAL));

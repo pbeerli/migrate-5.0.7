@@ -13,7 +13,7 @@
   with truths drawn from the prior (tests/sim).
 
   For every sampled genealogy G of a locus, p(G|phi) is the structured
-  coalescent density of probg_treetimes_intervals():
+  coalescent density of probg_treetimes_local():
 
     sum_i [ c_i (log 2 - log(mu Theta_i)) - A_i(g_i) / (mu Theta_i) + g_i T_i ]
     + sum_ji [ m_ji log M_ji - M_ji S_i / mu ]
@@ -34,7 +34,7 @@
   The joint samples replace the combined ("All") histogram before
   calc_hpd_credibility(), so every report uses them. Handled: divergence
   (split models 'd'/'D': per genealogy and split, the waiting and
-  split-event terms D(mean, std) of probg_treetimes_intervals() on a
+  split-event terms D(mean, std) of probg_treetimes_local() on a
   JC_NM x JC_NS grid over the prior ranges, computed only for kept
   genealogies; Z gets a two-dimensional block per split), Theta and M
   with every grouping of the connection matrix that bayes->map expresses
@@ -616,7 +616,7 @@ jc_row_window (const jc_layout *ly, const double *st, long k, long b, double *L,
 
 /* divergence log-term of every split for the current genealogy: the waiting
    terms of the descendant population's lineages and the split-event
-   densities, exactly as probg_treetimes_intervals() adds them */
+   densities, exactly as probg_treetimes_local() adds them */
 static double
 jc_div_exact (world_fmt *world, long sm, double mu, double sigma)
 {
