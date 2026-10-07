@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.58 Joint combination scales with the free parameters (as codex 7.0.83);
+             many populations: MPI histogram buffers were npp times too large (out of
+             memory), parmfile lines longer than 2048 characters lost a character;
+             samples and joint rows store only the free parameters; faster p(G) for
+             sparse matrices; unused parameter covariance switched off.
+
 October 6    Migrate 6.1.57 Faster joint combination (only the terms of the proposed parameter
              are recomputed; results unchanged); one p(G) function; parmfile lines
              longer than 2048 characters (50 populations).
