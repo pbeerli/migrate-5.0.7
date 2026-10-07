@@ -155,6 +155,7 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
 void traverse_adjust(node *theNode, MYREAL new_old_ratio);
 void recalc_timelist_1 (world_fmt * world, MYREAL new_old_ratio);
 void bayes_save_parameter(world_fmt *world, long pnum, long step);
+static void joint_keep_flagged_all(world_fmt *world, long loci);
 MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_fmt *prior);
 void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long numbin, MYREAL *mini,
                           MYREAL *maxi, double **results,
@@ -3143,10 +3144,12 @@ void bayes_init_histogram(world_fmt * world, option_fmt * options)
     bayes->prettyhist = options->bayespretty;
     bayes->mdiminterval = options->bayesmdiminterval;
     /* loci + 1: the product of the per-locus marginals ("All") when the
-       joint combination fills histogram[loci] ("Joint") */
-    bayes->histogram = (bayeshistogram_fmt *) mycalloc(world->loci + 2,sizeof(bayeshistogram_fmt));
+       joint combination fills histogram[loci] ("Joint"); loci + 2: the
+       joint values as printed in the Joint row (histogram[loci] takes the
+       "All" values back for parameters flagged Joint*) */
+    bayes->histogram = (bayeshistogram_fmt *) mycalloc(world->loci + 3,sizeof(bayeshistogram_fmt));
     
-    for(loc=0; loc < world->loci + 2 * sumloc; loc++)
+    for(loc=0; loc < world->loci + 3 * sumloc; loc++)
     {
         hist = &(bayes->histogram[loc]);
         hist->bins = (long *) mycalloc(npp, sizeof(long));
@@ -3319,14 +3322,19 @@ void bayes_free(world_fmt *world)
             }
         }
         if (sumloc)
-          {   /* the copy of the marginal product ("All" next to "Joint") */
-            bayeshistogram_fmt *h = &world->bayes->histogram[world->loci + 1];
-            myfree(h->bins);
-            myfree(h->datastore);
-            myfree(h->smoothed);
-            myfree(h->results);
-            myfree(h->results2);
-            myfree(h->set95);
+          {   /* the copy of the marginal product ("All" next to "Joint")
+                 and the printed joint values */
+            long extra;
+            for (extra = 1; extra <= 2; extra++)
+              {
+                bayeshistogram_fmt *h = &world->bayes->histogram[world->loci + extra];
+                myfree(h->bins);
+                myfree(h->datastore);
+                myfree(h->smoothed);
+                myfree(h->results);
+                myfree(h->results2);
+                myfree(h->set95);
+              }
           }
         myfree(world->bayes->histogram);
     }
@@ -3465,7 +3473,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
         else if(locus == world->loci + 1)
           {   /* the joint multi-locus combination */
             strcpy(st,"Joint ");
-            hist = &bayes->histogram[world->loci];
+            hist = &bayes->histogram[world->loci + 2];   /* the joint values, flagged ones too */
           }
         else
 	  mysnprintf(st,7, "%5li ", locus + 1);
@@ -5511,6 +5519,8 @@ void bayes_combine_loci(world_fmt * world)
     //covariance_summary(world);
     /// calculate the credibility intervals, histograms, means etc
   calc_hpd_credibility(world, loci, world->numpop2, np2);
+  if (bayes->jointrow)
+    joint_keep_flagged_all(world, loci);
     bayes->priors = priors; //save the priors
     myfree(touched);
   //myfree(kahan_c);
@@ -5519,6 +5529,43 @@ void bayes_combine_loci(world_fmt * world)
     myfree(counts);
 }
 ////////////////////////////////////////////////////////////////////////////////
+
+/* The Joint row reports the joint values of every parameter (kept in
+   histogram[loci + 2]); a parameter the bootstrap guard flags (Joint*) is
+   not to be trusted, so histogram[loci], which the figures and the other
+   tables use, takes back the product of the per-locus marginals ("All",
+   histogram[loci + 1]) for it. */
+static void joint_keep_flagged_all(world_fmt *world, long loci)
+{
+  bayes_fmt *bayes = world->bayes;
+  bayeshistogram_fmt *target = &bayes->histogram[loci];
+  bayeshistogram_fmt *all = &bayes->histogram[loci + 1];
+  bayeshistogram_fmt *jrow = &bayes->histogram[loci + 2];
+  const long np = target->numparam;
+  long p, b, nb = 0;
+  memcpy(jrow->datastore, target->datastore, sizeof(MYREAL) * (size_t) (11 * np));
+  for (p = 0; p < np; p++)
+    {
+      if (bayes->map[p][1] != INVALID && jc_param_flagged(world, p))
+        {
+          const size_t n = (size_t) target->bins[p];
+          for (b = 0; b < 11; b++)
+            target->datastore[b * np + p] = all->datastore[b * np + p];
+          if (target->results != NULL && all->results != NULL)
+            memcpy(target->results + nb, all->results + nb, sizeof(double) * n);
+          if (target->results2 != NULL && all->results2 != NULL)
+            memcpy(target->results2 + nb, all->results2 + nb, sizeof(double) * n);
+          if (target->smoothed != NULL && all->smoothed != NULL)
+            target->smoothed[p] = all->smoothed[p];
+          if (target->set95 != NULL && all->set95 != NULL)
+            {
+              memcpy(target->set95 + nb, all->set95 + nb, n);
+              memcpy(target->set50 + nb, all->set50 + nb, n);
+            }
+        }
+      nb += target->bins[p];
+    }
+}
 
 // calculates the HPC credibility set and also calculates the posterior singlelocus-histogram
 void calculate_credibility_interval(world_fmt * world, long locus)

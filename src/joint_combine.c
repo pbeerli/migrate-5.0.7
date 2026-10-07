@@ -3298,8 +3298,10 @@ jc_print_mcerr (world_fmt *world, const jc_store *js, FILE *out)
     FPRINTF (out, "Boot err: the error of the median from the genealogy sampling alone (block\n"
                   "bootstrap over each locus' genealogies, %d replicates reweighting %d trace points;\n"
                   "median reweighting ESS %.0f). Above %.2f posterior sd, or with a reweighting ESS\n"
-                  "below %d, the Joint estimate has a large genealogy-sampling error (*): more\n"
-                  "genealogies per locus (longer chains or replicates) are needed to confirm it.\n\n",
+                  "below %d, the Joint estimate has a large genealogy-sampling error (*): it is\n"
+                  "shown in the Joint* row but should not be trusted, and the plots and the other\n"
+                  "tables use the All values for it; more genealogies per locus (longer chains or\n"
+                  "replicates) are needed to confirm it.\n\n",
              JC_BOOTB, JC_BOOTK, js->boot_ess, JC_BOOTFLAG, JC_BOOTK / 4);
   FPRINTF (out, "Parameter                    Median     MC error   Blocks: lowest  highest  Post. sd   Ratio   Boot err\n");
   FPRINTF (out, "------------------------------------------------------------------------------------------------------\n");
@@ -3317,8 +3319,9 @@ jc_print_mcerr (world_fmt *world, const jc_store *js, FILE *out)
   if (flagged)
     FPRINTF (out, "(*) %ld estimate%s with a large Monte Carlo error\n", flagged, flagged > 1 ? "s" : "");
   if (nf)
-    FPRINTF (out, "(*) %ld Joint estimate%s with a large genealogy-sampling error (Joint* rows)\n",
-             nf, nf > 1 ? "s" : "");
+    FPRINTF (out, "(*) %ld Joint estimate%s with a large genealogy-sampling error (Joint* rows;\n"
+                  "    the plots and the other tables use All for %s)\n",
+             nf, nf > 1 ? "s" : "", nf > 1 ? "them" : "it");
   myfree (rows);
 }
 
@@ -3333,7 +3336,7 @@ jc_print_note (world_fmt *world, FILE *out)
     FPRINTF (out, "(All)   the product of the per-locus marginal posteriors (each parameter on its own)\n"
                   "(Joint) the joint multi-locus combination over %li loci (%li-%li stored\n"
                   "        genealogies per locus, up to %li used per locus); the plots and the\n"
-                  "        other tables use it\n",
+                  "        other tables use it, except for Joint* parameters (they use All)\n",
              js->nloci_used, js->tmin, js->tmax, jc_maxsamples (world, js->nrow));
   if (js != NULL && js->done)
     {
