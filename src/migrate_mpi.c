@@ -3394,7 +3394,6 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
 	  bufsize += 3 * hist->bins[i];   /* set50, set95 and mass per bin (was 3*npp*bins:
 	                                     13 GB per worker at 50 populations) */
 	}
-      bufsize += npp*npp;
     }
   // 2 + 3*heatedchains pack_BF_buffer
   bufsize += 3 + 3 * world->options->heated_chains + 3 * TI_NBINS;
@@ -3556,23 +3555,7 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	    world->bayes->histtotal[locus * npp + pa] = hist->bins[pa];
 	    //
 	  }
-	if(hist->covariance==NULL)
-	  {
-	    doublevec2d(&hist->covariance,npp,npp);
-	  }
-	for(i=0;i<npp;i++)
-	  {
-	    if(world->bayes->map[i][1] != INVALID)
-	      {
-		for(j=0;j<npp;j++)
-		  {
-		    if(world->bayes->map[j][1] != INVALID)
-		      {
-			hist->covariance[i][j] = buffer[z++];
-		      }
-		  }
-	      }
-	  }
+	/* the covariance matrix is no longer computed or sent */
       }
     // BF material
 #ifdef DEBUG
@@ -3910,20 +3893,7 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
 	  }
 	numbins += hist->bins[i];
       }
-    // pack covariance matrix
-    for(i=0;i<npp;i++)
-      {
-	 if(bayes->map[i][1] != INVALID)
-	   {
-	     for(j=0;j<npp;j++)
-	       {
-		 if(bayes->map[j][1] != INVALID)
-		   {
-		     (*buffer)[z++] = hist->covariance[i][j];
-		   }
-	       }
-	   }
-      }
+    /* the covariance matrix is no longer computed or sent */
     return z;
 }
 
