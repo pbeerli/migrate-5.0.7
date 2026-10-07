@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 7    Migrate 6.1.61 Parmfile writer: usertree, NODATA and tipdate-file always written,
+             corrected comments; read-summary and datatype=G (reanalysis of an old run)
+             removed, now ignored with a warning.
+
 October 7    Migrate 6.1.60 Joint* parameters (large genealogy-sampling error): the Joint row still
              shows the joint values, but the plots and the other tables use All for them.
 
