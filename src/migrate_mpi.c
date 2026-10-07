@@ -3391,7 +3391,8 @@ pack_bayes_buffer (MYREAL **buffer, world_fmt * world,
       bufsize += 12*npp;
       for(i=0; i < npp; i++)
 	{
-	  bufsize += (3 * npp * hist->bins[i]); //total bufsize now npp(12npp+3npp*bins)
+	  bufsize += 3 * hist->bins[i];   /* set50, set95 and mass per bin (was 3*npp*bins:
+	                                     13 GB per worker at 50 populations) */
 	}
       bufsize += npp*npp;
     }
@@ -3521,9 +3522,12 @@ void unpack_hist_bayes_buffer(MYREAL *buffer, bayes_fmt *bayes, world_fmt *world
 	  }
 	hist->binsum = total; 
 	// this steps kills poor memory machines [setting results to floats may help a little]
-	hist->results = (double *) mycalloc(total * npp, sizeof(double));
-	hist->set95 = (char *) mycalloc(total * npp * 2 + 2, sizeof(char));
-	hist->set50 = hist->set95 + (total * npp + 1);
+	/* sized as in a serial run (binsum, histogram.c): total is already the
+	   sum over the parameters (was total * npp: 4.5 GB on the master at 50
+	   populations) */
+	hist->results = (double *) mycalloc(total + 1, sizeof(double));
+	hist->set95 = (char *) mycalloc(total * 2 + 2, sizeof(char));
+	hist->set50 = hist->set95 + (total + 1);
 	long valids=0;
 	for(i = 0; i < npp; ++i)
 	  {
