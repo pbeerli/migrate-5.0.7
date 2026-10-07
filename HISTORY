@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 7    Migrate 6.1.60 Joint* parameters (large genealogy-sampling error): the Joint row still
+             shows the joint values, but the plots and the other tables use All for them.
+
 October 6    Migrate 6.1.59 Window move with a sparse rate matrix: same results, much faster with
              many populations (it was unusable at 50).
 
