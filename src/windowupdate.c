@@ -472,6 +472,144 @@ uniformization_rate (const MYREAL * Q, long d)
   return mu * 1.05 + 1e-9;
 }
 
+/* R = I + Q/mu in compressed rows. A stepping-stone model has 3 numpop
+   nonzeros instead of numpop^2; the dense powers of R used before cost
+   numpop^3 per power and made the move unusable at 50 populations. */
+typedef struct
+{
+  long d;
+  long *rp;                     /* d + 1 row starts */
+  long *ci;                     /* column of each nonzero */
+  MYREAL *v;                    /* value of each nonzero */
+  MYREAL mu;                    /* uniformization rate */
+} sparse_R;
+
+static void
+sparseR_build (const MYREAL * Q, long d, sparse_R * R)
+{
+  long i, j, nz = 0;
+  R->d = d;
+  R->mu = uniformization_rate (Q, d);
+  R->rp = (long *) mycalloc (d + 1, sizeof (long));
+  for (i = 0; i < d; i++)
+    for (j = 0; j < d; j++)
+      if (i == j || Q[i * d + j] != 0.0)
+        nz++;
+  R->ci = (long *) mycalloc (nz > 0 ? nz : 1, sizeof (long));
+  R->v = (MYREAL *) mycalloc (nz > 0 ? nz : 1, sizeof (MYREAL));
+  nz = 0;
+  for (i = 0; i < d; i++)
+    {
+      R->rp[i] = nz;
+      for (j = 0; j < d; j++)
+        if (i == j || Q[i * d + j] != 0.0)
+          {
+            R->ci[nz] = j;
+            R->v[nz] = ((i == j) ? 1.0 : 0.0) + Q[i * d + j] / R->mu;
+            nz++;
+          }
+    }
+  R->rp[d] = nz;
+}
+
+static void
+sparseR_free (sparse_R * R)
+{
+  myfree (R->rp);
+  myfree (R->ci);
+  myfree (R->v);
+}
+
+/* y = x R (row vector) */
+static void
+row_times_R (const sparse_R * R, const MYREAL * x, MYREAL * y)
+{
+  long i, k;
+  for (i = 0; i < R->d; i++)
+    y[i] = 0.0;
+  for (i = 0; i < R->d; i++)
+    if (x[i] != 0.0)
+      for (k = R->rp[i]; k < R->rp[i + 1]; k++)
+        y[R->ci[k]] += x[i] * R->v[k];
+}
+
+/* y = R x (column vector) */
+static void
+R_times_col (const sparse_R * R, const MYREAL * x, MYREAL * y)
+{
+  long i, k;
+  for (i = 0; i < R->d; i++)
+    {
+      MYREAL sum = 0.0;
+      for (k = R->rp[i]; k < R->rp[i + 1]; k++)
+        sum += R->v[k] * x[R->ci[k]];
+      y[i] = sum;
+    }
+}
+
+/* out = m exp(Q dt) (row = TRUE) or exp(Q dt) m (row = FALSE) by the
+   uniformization series, stopped when the remaining Poisson mass is below
+   1e-15; long steps (mu dt > 30) are split so that exp(-mu dt) stays
+   representable. x and y are scratch vectors of length d; out may not
+   alias m. */
+static void
+expQ_apply (const sparse_R * R, const MYREAL * m, MYREAL dt, MYREAL * out,
+            MYREAL * x, MYREAL * y, boolean row)
+{
+  const long d = R->d;
+  const MYREAL lam_all = R->mu * dt;
+  const long nsplit = lam_all > 30.0 ? (long) ceil (lam_all / 30.0) : 1;
+  const MYREAL lam = lam_all / (MYREAL) nsplit;
+  long part, n, i;
+  for (i = 0; i < d; i++)
+    out[i] = m[i];
+  for (part = 0; part < nsplit; part++)
+    {
+      MYREAL w = EXP (-lam), cum = w;
+      for (i = 0; i < d; i++)
+        {
+          x[i] = out[i];
+          out[i] = w * x[i];
+        }
+      for (n = 1; 1.0 - cum > 1e-15 && n < 10000; n++)
+        {
+          MYREAL *t;
+          if (row)
+            row_times_R (R, x, y);
+          else
+            R_times_col (R, x, y);
+          t = x;
+          x = y;
+          y = t;
+          w *= lam / (MYREAL) n;
+          cum += w;
+          for (i = 0; i < d; i++)
+            out[i] += w * x[i];
+        }
+    }
+}
+
+/* the series length used by the bridges (unchanged from the dense code) */
+static long
+unif_nmax (MYREAL lam)
+{
+  return (long) (lam + 10.0 * sqrt ((double) lam) + 20.0);
+}
+
+/* the columns R^n e_b, n = 0..nmax ((nmax+1) x d): everything a bridge
+   ending in state b needs from the powers of R */
+static MYREAL *
+bridge_columns (const sparse_R * R, long b, long nmax)
+{
+  const long d = R->d;
+  MYREAL *V = (MYREAL *) mycalloc ((size_t) ((nmax + 1) * d), sizeof (MYREAL));
+  long n;
+  V[b] = 1.0;
+  for (n = 1; n <= nmax; n++)
+    R_times_col (R, &V[(n - 1) * d], &V[n * d]);
+  return V;
+}
+
 /* P(T) = exp(-lam) * sum_n lam^n/n! * R^n, lam = mu*T -- the same
    uniformization series used by the sampler, evaluated in full rather than
    conditioned on an endpoint. This is used ONLY for validating the sampler
@@ -551,19 +689,24 @@ static MYREAL
 log_bridge_density (const MYREAL * Q, long d, MYREAL T, long start, long end,
                      const migr_table_fmt * path, long path_n, MYREAL t0)
 {
-  MYREAL mu = uniformization_rate (Q, d);
-  unif_fmt u;
-  MYREAL *P;
-  MYREAL logZ;
-  MYREAL logpd;
+  sparse_R R;
+  MYREAL lam, P = 0.0, logfact = 0.0, logZ, logpd;
+  MYREAL *V;
+  long n, nmax;
 
-  unif_build (Q, d, T, mu, &u);
-  P = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
-  ctmc_transition_matrix (&u, mu * T, P);
-  logZ = LOG (P[start * d + end] > 1e-300 ? P[start * d + end] : 1e-300);
-  myfree (P);
-  unif_free (&u);
-
+  sparseR_build (Q, d, &R);
+  lam = R.mu * T;
+  nmax = unif_nmax (lam);
+  V = bridge_columns (&R, end, nmax);
+  for (n = 0; n <= nmax; n++)       /* P(T)[start][end], as the bridge sampler weighs it */
+    {
+      if (n > 0)
+        logfact += LOG ((MYREAL) n);
+      P += EXP (-lam + (n > 0 ? n * LOG (lam) : 0.0) - logfact) * V[n * d + start];
+    }
+  myfree (V);
+  sparseR_free (&R);
+  logZ = LOG (P > 1e-300 ? P : 1e-300);
   logpd = log_path_density (Q, d, T, start, path, path_n, t0);
   return logpd - logZ;
 }
@@ -593,8 +736,9 @@ static migr_table_fmt *
 ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
              long *out_n)
 {
-  MYREAL mu = uniformization_rate (Q, d);
-  unif_fmt u;
+  sparse_R R;
+  MYREAL *V;                    /* columns R^n e_b */
+  long nmax;
   MYREAL lam;
   MYREAL *w;
   MYREAL logfact = 0.0;
@@ -602,20 +746,22 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
   MYREAL *logw;
   MYREAL tot;
   MYREAL r, cum;
-  long n, i, j, chosen_n = -1;
+  long n, i, k, chosen_n = -1;
   long *states;
   MYREAL *ts;
   migr_table_fmt *out;
   long nout;
   long prev;
 
-  unif_build (Q, d, T, mu, &u);
-  lam = mu * T;
+  sparseR_build (Q, d, &R);
+  lam = R.mu * T;
+  nmax = unif_nmax (lam);
+  V = bridge_columns (&R, b, nmax);
 
-  logw = (MYREAL *) mycalloc (u.nmax + 1, sizeof (MYREAL));
-  for (n = 0; n <= u.nmax; n++)
+  logw = (MYREAL *) mycalloc (nmax + 1, sizeof (MYREAL));
+  for (n = 0; n <= nmax; n++)
     {
-      MYREAL rab = RPOW (&u, n, a, b);
+      MYREAL rab = V[n * d + a];
       MYREAL logpois;
       if (n == 0)
         logpois = -lam;
@@ -628,9 +774,9 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
       if (logw[n] > maxlw)
         maxlw = logw[n];
     }
-  w = (MYREAL *) mycalloc (u.nmax + 1, sizeof (MYREAL));
+  w = (MYREAL *) mycalloc (nmax + 1, sizeof (MYREAL));
   tot = 0.0;
-  for (n = 0; n <= u.nmax; n++)
+  for (n = 0; n <= nmax; n++)
     {
       w[n] = EXP (logw[n] - maxlw);
       tot += w[n];
@@ -639,7 +785,7 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
 
   r = UNIF_RANDUM () * tot;
   cum = 0.0;
-  for (n = 0; n <= u.nmax; n++)
+  for (n = 0; n <= nmax; n++)
     {
       cum += w[n];
       if (cum >= r)
@@ -649,12 +795,13 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
         }
     }
   if (chosen_n < 0)
-    chosen_n = u.nmax;          /* rounding fallback, matches the Python np.random.choice edge */
+    chosen_n = nmax;            /* rounding fallback, matches the Python np.random.choice edge */
   myfree (w);
 
   if (chosen_n == 0)
     {
-      unif_free (&u);
+      myfree (V);
+      sparseR_free (&R);
       *out_n = 0;
       return NULL;
     }
@@ -663,43 +810,41 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
   states[0] = a;
   for (i = 0; i < chosen_n - 1; i++)
     {
-      MYREAL *pr = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+      /* only the nonzeros of row s of R can be the next state */
       MYREAL prtot = 0.0;
       MYREAL rr, c;
       long s = states[i];
       long chosen_s = -1;
+      const MYREAL *col = &V[(chosen_n - i - 1) * d];
 
-      for (j = 0; j < d; j++)
-        {
-          pr[j] = RPOW (&u, 1, s, j) * RPOW (&u, chosen_n - i - 1, j, b);
-          prtot += pr[j];
-        }
+      for (k = R.rp[s]; k < R.rp[s + 1]; k++)
+        prtot += R.v[k] * col[R.ci[k]];
       if (prtot <= 0.0)
         {
-          myfree (pr);
           myfree (states);
-          unif_free (&u);
+          myfree (V);
+          sparseR_free (&R);
           *out_n = -1;
           return NULL;
         }
       rr = UNIF_RANDUM () * prtot;
       c = 0.0;
-      for (j = 0; j < d; j++)
+      for (k = R.rp[s]; k < R.rp[s + 1]; k++)
         {
-          c += pr[j];
+          c += R.v[k] * col[R.ci[k]];
           if (c >= rr)
             {
-              chosen_s = j;
+              chosen_s = R.ci[k];
               break;
             }
         }
       if (chosen_s < 0)
-        chosen_s = d - 1;
-      myfree (pr);
+        chosen_s = R.ci[R.rp[s + 1] - 1];
       states[i + 1] = chosen_s;
     }
   states[chosen_n] = b;
-  unif_free (&u);
+  myfree (V);
+  sparseR_free (&R);
 
   ts = (MYREAL *) mycalloc (chosen_n, sizeof (MYREAL));
   for (i = 0; i < chosen_n; i++)
@@ -879,21 +1024,70 @@ typedef struct
   long nnodes;                  /* 2*sumtips-1: valid range of world->nodep[] */
   MYREAL *chk0;                 /* [nnodes*d]: birth message (tip: one-hot at
                                     tip->pop; internal: the merged, renormalized
-                                    distribution at coalescence -- doubles as
-                                    the Python prototype's separate
-                                    merge_part[v], which is identical to
-                                    chk0[v] for every internal v there too) */
-  MYREAL *Tacc;                 /* [nnodes*d*d]: accumulated effective
-                                    (migration + bystander-reweight) operator
-                                    from birth to the lineage's own death;
-                                    identity if it never survived an interval */
+                                    distribution at coalescence) */
+  /* the accumulated operator T_v of a lineage (migration + bystander
+     reweighting from its birth to its death) is needed only for window
+     nodes, and only as the column of its parent's label: instead of a
+     dense d x d product per lineage and interval, the window lineages keep
+     their intervals (length and reweighting vector) and the column is
+     computed on demand (tacc_column()) */
+  sparse_R R;                   /* R = I + Q/mu of this pass */
+  long *rec_n;                  /* [nnodes]: intervals recorded (window nodes only) */
+  long *rec_alloc;
+  MYREAL **rec_dt;              /* [nnodes][rec_n] */
+  MYREAL **rec_e;               /* [nnodes][rec_n*d]: exp(-dt * hazard) */
 } forward_ctx;
 
 static void
 forward_ctx_free (forward_ctx * ctx)
 {
+  long i;
   myfree (ctx->chk0);
-  myfree (ctx->Tacc);
+  for (i = 0; i < ctx->nnodes; i++)
+    {
+      myfree (ctx->rec_dt[i]);
+      myfree (ctx->rec_e[i]);
+    }
+  myfree (ctx->rec_dt);
+  myfree (ctx->rec_e);
+  myfree (ctx->rec_n);
+  myfree (ctx->rec_alloc);
+  sparseR_free (&ctx->R);
+}
+
+static void
+forward_record (forward_ctx * ctx, long idx, MYREAL dt, const MYREAL * e)
+{
+  const long d = ctx->d;
+  if (ctx->rec_n[idx] >= ctx->rec_alloc[idx])
+    {
+      ctx->rec_alloc[idx] = 2 * ctx->rec_alloc[idx] + 16;
+      ctx->rec_dt[idx] = (MYREAL *) myrealloc (ctx->rec_dt[idx], sizeof (MYREAL) * (size_t) ctx->rec_alloc[idx]);
+      ctx->rec_e[idx] = (MYREAL *) myrealloc (ctx->rec_e[idx], sizeof (MYREAL) * (size_t) (ctx->rec_alloc[idx] * d));
+    }
+  ctx->rec_dt[idx][ctx->rec_n[idx]] = dt;
+  memcpy (&ctx->rec_e[idx][ctx->rec_n[idx] * d], e, sizeof (MYREAL) * (size_t) d);
+  ctx->rec_n[idx]++;
+}
+
+/* column y of T_v = S_1 S_2 ... S_k, S_j = exp(Q dt_j) diag(e_j): applied
+   to e_y from the last interval back */
+static void
+tacc_column (const forward_ctx * ctx, long idx, long y, MYREAL * col)
+{
+  const long d = ctx->d;
+  MYREAL *tmp = (MYREAL *) mycalloc (3 * d, sizeof (MYREAL));
+  long r, k;
+  for (k = 0; k < d; k++)
+    col[k] = (k == y) ? 1.0 : 0.0;
+  for (r = ctx->rec_n[idx] - 1; r >= 0; r--)
+    {
+      const MYREAL *e = &ctx->rec_e[idx][r * d];
+      for (k = 0; k < d; k++)
+        tmp[k] = e[k] * col[k];
+      expQ_apply (&ctx->R, tmp, ctx->rec_dt[idx][r], col, tmp + d, tmp + 2 * d, FALSE);
+    }
+  myfree (tmp);
 }
 
 /* Mean-field forward pass: propagates each lineage's population-membership
@@ -912,7 +1106,8 @@ forward_ctx_free (forward_ctx * ctx)
    an earlier more complicated design was abandoned, is recorded in the
    Python prototype's own file header/project memory). */
 static void
-forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
+forward_bystander (world_fmt * world, const MYREAL * Q, node ** window, long window_n,
+                   forward_ctx * ctx)
 {
   const long d = world->numpop;
   const long sumtips = world->sumtips;
@@ -925,13 +1120,21 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
   MYREAL *active_msg;
   long nactive;
   MYREAL t_prev;
-  MYREAL *Pdt, *step_op, *migrated, *c_vec, *pv, *tmp_mat, *raw_vec;
+  MYREAL *migrated, *c_vec, *e_vec, *pv, *total, *sx, *sy;
+  boolean *recorded;
   long i, j, k, t;
 
   ctx->d = d;
   ctx->nnodes = nnodes;
   ctx->chk0 = (MYREAL *) mycalloc (nnodes * d, sizeof (MYREAL));
-  ctx->Tacc = (MYREAL *) mycalloc (nnodes * d * d, sizeof (MYREAL));
+  ctx->rec_n = (long *) mycalloc (nnodes, sizeof (long));
+  ctx->rec_alloc = (long *) mycalloc (nnodes, sizeof (long));
+  ctx->rec_dt = (MYREAL **) mycalloc (nnodes, sizeof (MYREAL *));
+  ctx->rec_e = (MYREAL **) mycalloc (nnodes, sizeof (MYREAL *));
+  sparseR_build (Q, d, &ctx->R);
+  recorded = (boolean *) mycalloc (nnodes, sizeof (boolean));
+  for (i = 0; i < window_n; i++)
+    recorded[node_index (world, window[i])] = TRUE;
 
   /* pair coalescence rate 2/theta with the locus scale theta = r h Theta,
      as in probg_treetimes_local() (was 1/Theta; proposal only, the
@@ -949,7 +1152,6 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
       node *tip = world->nodep[i];
       for (j = 0; j < d; j++)
         ctx->chk0[i * d + j] = (j == tip->pop) ? 1.0 : 0.0;
-      dmat_eye (&ctx->Tacc[i * d * d], d);
     }
 
   order_idx = sorted_internal_indices (world);
@@ -967,13 +1169,13 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
   nactive = sumtips;
   t_prev = 0.0;
 
-  Pdt = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
-  step_op = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
   migrated = (MYREAL *) mycalloc (sumtips * d, sizeof (MYREAL));
   c_vec = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+  e_vec = (MYREAL *) mycalloc (d, sizeof (MYREAL));
   pv = (MYREAL *) mycalloc (d, sizeof (MYREAL));
-  tmp_mat = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
-  raw_vec = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+  total = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+  sx = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+  sy = (MYREAL *) mycalloc (d, sizeof (MYREAL));
 
   for (t = 0; t < ninternal; t++)
     {
@@ -985,19 +1187,6 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
       long slot_a = -1, slot_b = -1;
       MYREAL s;
 
-      if (dt > 1e-14)
-        {
-          MYREAL mu = uniformization_rate (Q, d);
-          unif_fmt u;
-          unif_build (Q, d, dt, mu, &u);
-          ctmc_transition_matrix (&u, mu * dt, Pdt);
-          unif_free (&u);
-        }
-      else
-        {
-          dmat_eye (Pdt, d);
-        }
-
       for (i = 0; i < nactive; i++)
         {
           if (active_v[i] == ca)
@@ -1008,43 +1197,44 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
       if (slot_a < 0 || slot_b < 0)
         error ("forward_bystander: merging child not found in active set");
 
+      /* every message through exp(Q dt), and their sum */
+      for (k = 0; k < d; k++)
+        total[k] = 0.0;
       for (i = 0; i < nactive; i++)
-        vec_mat_mul (&active_msg[i * d], Pdt, &migrated[i * d], d);
+        {
+          if (dt > 1e-14)
+            expQ_apply (&ctx->R, &active_msg[i * d], dt, &migrated[i * d], sx, sy, TRUE);
+          else
+            memcpy (&migrated[i * d], &active_msg[i * d], sizeof (MYREAL) * (size_t) d);
+          for (k = 0; k < d; k++)
+            total[k] += migrated[i * d + k];
+        }
 
       for (i = 0; i < nactive; i++)
         {
-          boolean i_is_pair = (i == slot_a || i == slot_b);
+          /* hazard of coalescing with the other lineages (the merging pair
+             does not count against each other) */
+          const boolean i_is_pair = (i == slot_a || i == slot_b);
           for (k = 0; k < d; k++)
-            c_vec[k] = 0.0;
-          for (j = 0; j < nactive; j++)
             {
-              if (j == i)
-                continue;
-              if (i_is_pair && (j == slot_a || j == slot_b))
-                continue;
-              for (k = 0; k < d; k++)
-                c_vec[k] += migrated[j * d + k];
+              c_vec[k] = total[k] - migrated[i * d + k];
+              if (i_is_pair)
+                c_vec[k] -= migrated[(i == slot_a ? slot_b : slot_a) * d + k];
+              c_vec[k] *= invtheta[k];
+              e_vec[k] = EXP (-dt * c_vec[k]);
             }
-          for (k = 0; k < d; k++)
-            c_vec[k] *= invtheta[k];
+          if (recorded[active_idx[i]])
+            forward_record (ctx, active_idx[i], dt > 1e-14 ? dt : 0.0, e_vec);
 
-          for (j = 0; j < d; j++)
-            for (k = 0; k < d; k++)
-              step_op[j * d + k] = Pdt[j * d + k] * EXP (-dt * c_vec[k]);
-
-          {
-            MYREAL *cur = &ctx->Tacc[active_idx[i] * d * d];
-            dmat_mul (cur, step_op, tmp_mat, d);
-            memcpy (cur, tmp_mat, (size_t) (d * d) * sizeof (MYREAL));
-          }
-
-          vec_mat_mul (&active_msg[i * d], step_op, raw_vec, d);
           s = 0.0;
           for (k = 0; k < d; k++)
-            s += raw_vec[k];
+            {
+              pv[k] = migrated[i * d + k] * e_vec[k];
+              s += pv[k];
+            }
           if (s > 0.0)
             for (k = 0; k < d; k++)
-              active_msg[i * d + k] = raw_vec[k] / s;
+              active_msg[i * d + k] = pv[k] / s;
           else
             for (k = 0; k < d; k++)
               active_msg[i * d + k] = migrated[i * d + k];
@@ -1058,7 +1248,6 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
         s += pv[k];
       for (k = 0; k < d; k++)
         ctx->chk0[vidx * d + k] = pv[k] / s;
-      dmat_eye (&ctx->Tacc[vidx * d * d], d);
 
       active_v[slot_a] = v;
       active_idx[slot_a] = vidx;
@@ -1081,13 +1270,14 @@ forward_bystander (world_fmt * world, const MYREAL * Q, forward_ctx * ctx)
   myfree (active_v);
   myfree (active_idx);
   myfree (active_msg);
-  myfree (Pdt);
-  myfree (step_op);
   myfree (migrated);
   myfree (c_vec);
+  myfree (e_vec);
   myfree (pv);
-  myfree (tmp_mat);
-  myfree (raw_vec);
+  myfree (total);
+  myfree (sx);
+  myfree (sy);
+  myfree (recorded);
 }
 
 /* Windowed forward-filtering/backward-sampling over internal-node
@@ -1169,10 +1359,10 @@ sample_or_score_labels (world_fmt * world, const forward_ctx * ctx,
             {
               MYREAL tot = 0.0;
               long x, state;
+              tacc_column (ctx, cidx, new_pop[vidx], w);
               for (x = 0; x < d; x++)
                 {
-                  w[x] = ctx->chk0[cidx * d + x]
-                         * ctx->Tacc[cidx * d * d + x * d + new_pop[vidx]];
+                  w[x] *= ctx->chk0[cidx * d + x];
                   tot += w[x];
                 }
               if (tot <= 0.0)
@@ -1531,7 +1721,7 @@ windowed_joint_update (world_fmt * world)
         MYREAL *Qdbg = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
         forward_ctx ctxdbg;
         build_Q (world, -1, 0.0, Qdbg);
-        forward_bystander (world, Qdbg, &ctxdbg);
+        forward_bystander (world, Qdbg, window, window_n, &ctxdbg);
         window_ffbs_selftest (world, &ctxdbg, window, window_n);
         forward_ctx_free (&ctxdbg);
         myfree (Qdbg);
@@ -1541,7 +1731,7 @@ windowed_joint_update (world_fmt * world)
   /* forward pass + FFBS under M' (fresh draw for window nodes) */
   Qp = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
   build_Q (world, which, Mnew, Qp);
-  forward_bystander (world, Qp, &ctxp);
+  forward_bystander (world, Qp, window, window_n, &ctxp);
   new_pop = (long *) mycalloc (ctxp.nnodes, sizeof (long));
   logq_labels_new = sample_or_score_labels (world, &ctxp, window, window_n,
                                              TRUE, new_pop);
@@ -1559,7 +1749,7 @@ windowed_joint_update (world_fmt * world)
      current window populations -- the reverse-direction logq term) */
   Qm = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
   build_Q (world, -1, 0.0, Qm);
-  forward_bystander (world, Qm, &ctxo);
+  forward_bystander (world, Qm, window, window_n, &ctxo);
   dummy_pop = (long *) mycalloc (ctxo.nnodes, sizeof (long));
   logq_labels_old = sample_or_score_labels (world, &ctxo, window, window_n,
                                              FALSE, dummy_pop);
