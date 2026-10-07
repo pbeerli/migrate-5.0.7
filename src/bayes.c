@@ -4218,7 +4218,8 @@ void construct_locus_histogram(world_fmt *world, long locus, MYREAL *mini, MYREA
     //  {
     //    construct_locusgrowth_histogram(world, locus, mini, maxi, results);
     //  }
-    covariance_bayes(world,locus);
+    /* the parameter covariance was computed here but never reported or used
+       (npp^2 per locus: 50 MB at 50 populations); switched off 2026-10-06 */
     myfree(visited);
 }
 

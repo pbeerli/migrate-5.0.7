@@ -429,8 +429,6 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		  bayes->histogram[locus].results = (double *) mycalloc(bayes->histogram[locus].binsum + 1, sizeof(double));
 		  bayes->histogram[locus].set95 = (char *) mycalloc(bayes->histogram[locus].binsum* 2 + 2, sizeof(char));
 		  bayes->histogram[locus].set50 = world->bayes->histogram[locus].set95 + bayes->histogram[locus].binsum + 1;
-		  if(bayes->histogram[locus].covariance==NULL)
-		    doublevec2d(&bayes->histogram[locus].covariance,npa,npa);
 		}
 	      hist = &bayes->histogram[locus];
 	      numbinsall = 0;
@@ -480,23 +478,6 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		}	     
 	      
 	      hist->n = n[locus]; //assumes that all are the same (should be!)
-	      for(j0=0;j0 < numpop2; j0++)
-		{
-		  if(shortcut(j0,world,&j))
-		    continue;
-		  else
-		    {
-		      for(z0=0;z0 < numpop2; z0++)
-			{
-			  if(shortcut(z0,world,&z))
-			    continue;
-			  else
-			    {
-			      hist->covariance[j][z] += (params[z+2] - hist->means[z]) * (params[j+2]-oldmeans[j]); 
-			    }
-			}
-		    }
-		}	  
 	      //	      if(world->options->datatype == 'g')
 	      if(options->checkpointing)
 		{
