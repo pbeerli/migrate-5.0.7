@@ -392,7 +392,12 @@ myfgets (char *buffer, long bufsize, FILE * infile)
       //ch = fgetc (infile);
       buffer[count] = ch;
       count++;
-      ch = (char) fgetc (infile);
+      if (count < bufsize)
+        ch = (char) fgetc (infile);
+      else
+        ch = '\0';   /* buffer full: the rest of the line stays for the next
+                        call (reading one more character here lost it, which
+                        shifted a 50 x 50 custom-migration matrix) */
     }
   if (ch == '\r')
     {
