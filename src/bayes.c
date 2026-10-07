@@ -2518,6 +2518,40 @@ bayes_update (world_fmt * world)
 //
 // fill bayes record in array for histograms and bayesfile
 // set parameter meaning according to option settings
+/* The recorded samples (bayes->params) keep only the parameters that
+   bayes->map marks valid (the free and tied matrix entries, rate, growth,
+   ...): a full row has numparam = numpop^2 + ... entries, 2500 for 50
+   populations of which a stepping-stone model estimates 150. The columns
+   are fixed for a run. MPI already sends only these values. */
+void bayes_store_setup(world_fmt *world)
+{
+  bayes_fmt *bayes = world->bayes;
+  const long n = world->numparam;
+  long i;
+  if (bayes->scol != NULL && bayes->nstore > 0)
+    return;
+  bayes->scol = (long *) myrealloc(bayes->scol, sizeof(long) * (size_t) (n > 0 ? n : 1));
+  bayes->sparam = (long *) myrealloc(bayes->sparam, sizeof(long) * (size_t) (n > 0 ? n : 1));
+  bayes->nstore = 0;
+  for (i = 0; i < n; i++)
+    {
+      if (bayes->map[i][1] != INVALID)
+        {
+          bayes->scol[i] = bayes->nstore;
+          bayes->sparam[bayes->nstore++] = i;
+        }
+      else
+        bayes->scol[i] = -1;
+    }
+}
+
+/* length of a recorded row */
+long bayes_rowlen(world_fmt *world)
+{
+  bayes_store_setup(world);
+  return 2 + world->bayes->nstore;
+}
+
 void bayes_save_parameter(world_fmt *world, long pnum, long step)
 {
   //needs addition of world->mlalpha
@@ -2531,7 +2565,15 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     long nn           = 2 + n;
     long numpop       = world->numpop;
     long numpop2      = world->numpop2;
-    long nnpnum       = nn * pnum;
+    static MYREAL *full = NULL;   /* the full row: printed to the bayes-allfile */
+    static long fullalloc = 0;
+    if (fullalloc < nn)
+      {
+        full = (MYREAL *) myrealloc(full, sizeof(MYREAL) * (size_t) nn);
+        fullalloc = nn;
+      }
+    const long rowlen = bayes_rowlen(world);
+    long k;
     boolean mu        = world->bayes->mu;
     //  MYREAL murate     = world->options->meanmu[world->locus] * world->options->mu_rates[world->locus];
     MYREAL murate     = world->options->mu_rates[world->locus];
@@ -2539,32 +2581,40 @@ void bayes_save_parameter(world_fmt *world, long pnum, long step)
     worldoption_fmt *wopt = world->options;
     bayes_fmt * bayes = world->bayes;
     //MYREAL nm;
-    (bayes->params+(nnpnum))[0] = bayes->oldval;
-    (bayes->params+(nnpnum))[1] = world->likelihood[world->G];
+    full[0] = bayes->oldval;
+    full[1] = world->likelihood[world->G];
 
     //assums that all parameter vallues are consistentin the param0 vector
     //growth and mlalpha may be problematic with this
     /* Theta is recorded on the reference-locus scale (param0) for every
        locus, whatever its inheritance scalar, so that loci combine */
-    memcpy(bayes->params+(nnpnum+2), param0,sizeof(MYREAL) * (size_t) n);
+    memcpy(full+2, param0,sizeof(MYREAL) * (size_t) n);
     if(mu)
     {
         // we only write one rate per record because the locus is known
-        (bayes->params+(nnpnum+2))[numpop2] = murate;
+        (full+2)[numpop2] = murate;
     }
     if(world->has_growth)
       {
 	// check whether this is needed
-	memcpy(bayes->params+(nnpnum+2+ns), world->growth, sizeof(double)* (size_t) world->grownum);
+	memcpy(full+2+ns, world->growth, sizeof(double)* (size_t) world->grownum);
       }
     if(world->has_mlalpha && world->tri_mlalpha != FIXED)
       {
 	// check whether this is needed
-	memcpy(bayes->params+(nnpnum+2+ng), world->mlalpha, sizeof(double)* (size_t) world->mlalphanum);
+	memcpy(full+2+ng, world->mlalpha, sizeof(double)* (size_t) world->mlalphanum);
       }
+    /* the recorded row: the two log values and the stored columns */
+    {
+      MYREAL *row = bayes->params + rowlen * pnum;
+      row[0] = full[0];
+      row[1] = full[1];
+      for (k = 0; k < bayes->nstore; k++)
+        row[2 + k] = full[2 + bayes->sparam[k]];
+    }
     if(wopt->has_bayesmdimfile)
     {
-      print_bayes_tofile(world->bayesmdimfile, bayes->params+nnpnum, bayes, world, numpop2, bayes->mdiminterval, world->locus, world->replicate, step);
+      print_bayes_tofile(world->bayesmdimfile, full, bayes, world, numpop2, bayes->mdiminterval, world->locus, world->replicate, step);
     }
 }
 
@@ -2756,7 +2806,7 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
 // Save the Bayesian results for printout into bayesfile
 void bayes_save(world_fmt *world, long step)
 {
-  long np           = 2 + world->numparam; //world->numpop2 + (world->bayes->mu) + world->species_model_size * 2 + world->grownum;// + growth
+  long np           = bayes_rowlen(world);   /* 2 + the stored columns */
   long pnum         = world->bayes->numparams;
   long allocparams  = world->bayes->allocparams;
     
@@ -4048,8 +4098,8 @@ void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long 
     bayes_fmt *bayes = world->bayes;
     long      j, j0;
     long      i;
-    long      np = npa;
-    long      npx = np + 2;
+    long      npx = bayes_rowlen(world);   /* 2 + stored columns */
+    const long col = 2 + bayes->scol[pa];
     long      bin;
     long      nb;
     
@@ -4061,8 +4111,8 @@ void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long 
     //float *q = (float *) mycalloc(bayes->numparams,sizeof(float));
     for(i=0;i < bayes->numparams; i++)
     {
-        floorindex = npx * i + 2;
-        value = params[floorindex+pa];
+        floorindex = npx * i;
+        value = params[floorindex+col];
         p[i] = (float) value;
     }
     qsort(p, (size_t) bayes->numparams, sizeof(float), floatcmp);

@@ -150,12 +150,58 @@ void correlationBayes(world_fmt *world, long locus, MYREAL **cov, MYREAL ***corr
     }
 }
 
+/* covariance of the recorded samples (bayes->params: rows of 2 + stored
+   columns, see bayes_store_setup()), indexed by parameter like
+   covarianceBayes(); unlike that function the means use the same columns
+   as the products (covarianceBayes() reads the means two columns early) */
+static void covarianceBayesRows(world_fmt *world, long T, long locus, MYREAL ***cov)
+{
+  (void) locus;
+  const long nn = world->numparam;
+  const long rowlen = bayes_rowlen(world);
+  const long *scol = world->bayes->scol;
+  const MYREAL *params = world->bayes->params;
+  MYREAL *xn;
+  MYREAL **cn;
+  long i, k0, k, l0, l;
+  doublevec1d(&xn,nn);
+  doublevec2d(cov,nn,nn);
+  cn = *cov;
+  if (T < 1)
+    {
+      myfree(xn);
+      return;
+    }
+  for (i = 0; i < T; i++)
+    {
+      const MYREAL *x = params + i * rowlen + 2;
+      for (k0 = 0; k0 < nn; k0++)
+        if (!shortcut(k0, world, &k) && scol[k] >= 0)
+          xn[k] += (x[scol[k]] - xn[k]) / (MYREAL) (i + 1);
+    }
+  for (i = 0; i < T; i++)
+    {
+      const MYREAL *x = params + i * rowlen + 2;
+      for (k0 = 0; k0 < nn; k0++)
+        {
+          if (shortcut(k0, world, &k) || scol[k] < 0)
+            continue;
+          for (l0 = 0; l0 < nn; l0++)
+            {
+              if (shortcut(l0, world, &l) || scol[l] < 0)
+                continue;
+              cn[k][l] += (x[scol[k]] - xn[k]) * (x[scol[l]] - xn[l]) / (MYREAL) T;
+            }
+        }
+    }
+  myfree(xn);
+}
+
 // function implementation: this is the API 
 void covariance_bayes(world_fmt *world, long locus)
 {
-  long offset=2;
   world->bayes->histogram[locus].n = world->bayes->numparams;
-  covarianceBayes(world,world->bayes->numparams,world->bayes->params, offset, locus,&world->bayes->histogram[locus].covariance);
+  covarianceBayesRows(world, world->bayes->numparams, locus, &world->bayes->histogram[locus].covariance);
 }
 
 //void covariance_bayes2(world_fmt *world, long locus, MYREAL *params)/
