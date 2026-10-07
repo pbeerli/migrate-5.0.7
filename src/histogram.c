@@ -478,7 +478,6 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		}	     
 	      
 	      hist->n = n[locus]; //assumes that all are the same (should be!)
-	      //	      if(world->options->datatype == 'g')
 	      if(options->checkpointing)
 		{
 		  for(t=0;t<hc;t++)
@@ -547,25 +546,6 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 #ifdef DEBUG
   printf("End reading the bayesallfile back into the system\n");
 #endif
-  if(world->options->datatype == 'g')
-    {
-      // reset the archiving machinery
-      memset(world->auto_archive,0, sizeof(MYREAL) * (size_t) (2 * (npa + 1)));
-      nnn = 1;
-	     //for(j=0;j<world->loci;j++)
-	     //{
-	  
-	  for(t=0;t<npa; t++)
-	    {
-	      // onepass mean of autocorrelation
-	      world->auto_archive[t] += (autocorrelation[t] - world->auto_archive[t])/nnn;
-	      // summing ess values
-	      world->ess_archive[t] += ess[t];
-	      //printf("j=%li t=%li %f\n", j, t, world->ess_archive[t]);
-	    }
-	  nnn++;
-	     //}
-    }
   myfree(params);
   myfree(oldmeans);
   myfree(autocorrelation);

@@ -1152,8 +1152,6 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
     pdf_new_page(options->title);
     pdf_master_title(options->title);//, &left_margin);
     pdf_print_options(world, options, data);
-    if(options->datatype!='g')
-      {
 	pdf_print_data_summary(world, options, data,  &page_height, &left_margin);
 	if (options->verbose)
 	  {
@@ -1161,7 +1159,6 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
 	    if(options->murates_fromdata)
 	      pdf_print_mutationrate_weights(options->mu_rates, options->segregs, options->wattersons, world->loci);
 	  }
-      }
     ////////////////////////////////////
 }
 
@@ -1992,13 +1989,6 @@ pdf_bayes_print_accept(world_fmt *world)
     pdf_advance(&page_height);
     
     // This needs more attention but will need more stuff to safe
-    if(world->options->datatype == 'g')
-    {
-	    pdf_print_contents_at(left_margin, page_height, "not available with datatype=Genealogy");
-	    pdf_advance(&page_height);
-	    myfree(stempo);
-	    return;
-    }
     
     pdf_print_contents_at(left_margin, page_height, "Parameter");
     pdf_print_contents_at(250, page_height, "Accepted changes");
@@ -2143,13 +2133,6 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
     pdf_advance(&page_height);
     
     // This needs more attention but will need more stuff to safe
-    if(world->options->datatype == 'g')
-    {
-	    pdf_print_contents_at(left_margin, page_height, "not available with datatype=Genealogy");
-	    pdf_advance(&page_height);
-	    myfree(stempo);
-	    return;
-    }
     
     pdf_print_contents_at(left_margin, page_height, "Parameter");
     pdf_print_contents_at(250, page_height, "Priormean/std");
@@ -3604,8 +3587,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
   paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
   parammgen = paramtgen + LINESIZE;
 
-    if (options->datatype != 'g')
-    {
         switch ((short) options->autoseed)
         {
             case AUTO:
@@ -3626,7 +3607,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
                 break;
         }
 	fill_printvar_startparam(options, &paramtgen, &parammgen);
-    }
     HPDF_Page_SetFontAndSize (page, helvob, 18.0);
     w = (double) HPDF_Page_TextWidth(page, title);
     page_width = (double) HPDF_Page_GetWidth(page);
@@ -3684,10 +3664,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             pdf_print_contents_at(left_margin, page_height,"Datatype:");
             pdf_printf_right_next(left_margin, &page_height,"Ancestral state method\n");
             break;
-        case 'g':
-            pdf_print_contents_at(left_margin, page_height,"Datatype:");
-            pdf_printf_right_next(left_margin, &page_height,"Genealogy summary of an older run\n");
-            break;
     }
     
     pdf_advance(&page_height);
@@ -3734,8 +3710,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
         pdf_advance(&page_height);
     }
     
-    if (options->datatype != 'g')
-    {
         pdf_print_contents_at(left_margin, page_height,"Random number seed:");
         pdf_printf_right_next(left_margin, &page_height,"(%s)%s%20li", seedgen, " ",
                               options->saveseed);
@@ -3804,7 +3778,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
                 pdf_advance(&page_height);
             }
         }
-    }
     pdf_print_connection_table (world, options, data);
     pdf_print_distance_table (world, options, data);
     pdf_print_param_order(world);
@@ -4118,8 +4091,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_advance(&page_height);
     //*/
     
-    if (options->datatype != 'g')
-    {
         pdf_print_contents_at(left_margin, page_height,"Markov chain settings:");
         pdf_printf_right_next(left_margin, &page_height, "Long chain");
         pdf_print_contents_at(left_margin, page_height,"Number of chains");
@@ -4173,12 +4144,9 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             pdf_printf_right_next(left_margin, &page_height,"Swapping interval is %li\n",
                                   options->heating_interval);
         }
-    }
     
     pdf_advance(&page_height);
     pdf_printf_next(left_margin, &page_height,"Print options:\n");
-    if (options->datatype != 'g')
-    {
         pdf_print_contents_at(left_margin + 10, page_height,"Data file:");
         pdf_printf_right_next(left_margin, &page_height,"%s", options->infilename);
 	pdf_printf_right_next(left_margin, &page_height,"%s", options->parmfilename);
@@ -4190,11 +4158,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
                               : "NO");
         pdf_print_contents_at(left_margin + 10, page_height,"Output file:");
         pdf_printf_right_next(left_margin, &page_height,"%s", options->outfilename);
-        if(options->writesum)
-        {
-            pdf_print_contents_at(left_margin + 10, page_height,"Summary of genealogies for further run:");
-            pdf_printf_right_next(left_margin, &page_height,"%s", options->sumfilename);
-        }
         if(options->writelog)
         {
             pdf_print_contents_at(left_margin + 10, page_height,"Log file:");
@@ -4230,14 +4193,6 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             pdf_print_contents_at(left_margin + 10, page_height,"Histogram of the frequency of migration events");
             pdf_printf_right_next(left_margin, &page_height,"%s", options->mighistfilename);
         }
-    }
-    else
-    {
-        pdf_print_contents_at(left_margin + 10, page_height,"Data file:");
-        pdf_printf_right_next(left_margin, &page_height,"%s", options->infilename);
-        pdf_print_contents_at(left_margin + 10, page_height,"Output file:");
-        pdf_printf_right_next(left_margin, &page_height,"%s", options->outfilename);
-    }
 
     //*orig_page_height = page_height;
     //*orig_left_margin = left_margin;
@@ -5320,14 +5275,7 @@ void pdf_print_popstring(double *lx, long pop, world_fmt *world, option_fmt *opt
   (void) world;
     double *ly = &page_height;
     //    char popstring[LINESIZE];
-    if (options->readsum)
-    {
-        pdf_printf(lx[0], *ly, 'L', "%2li:",pop+1);
-    }
-    else
-    {
         pdf_printf(lx[0],*ly, 'L', "%2li:%10.10s",pop+1, data->popnames[options->newpops[pop]-1]);
-    }
 }
 
 

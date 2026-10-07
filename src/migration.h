@@ -476,7 +476,6 @@ typedef struct _data
     FILE *utreefile;        //!< user tree input file
     FILE *weightfile;       //!< site weighting file
     FILE *catfile;          //!< site categories file
-    FILE *sumfile;          //!< intermediate output summary file
     FILE *distfile;         //!< distance file among individuals, instead of treefile
     FILE *geofile;          //!< geographic distance among sampling locations
     FILE *divfile;          //!< fixed divergence time among populations
@@ -815,7 +814,6 @@ typedef struct _option
   char *utreefilename;
   char *catfilename;
   char *weightfilename;
-  char *sumfilename;
   char *mighistfilename;
   char *skylinefilename;
   char *distfilename;
@@ -987,9 +985,7 @@ typedef struct _option
   long heating_interval;
   long heated_chains;
   /* save genealogy summary options */
-  boolean readsum;
   boolean checkpointing;
-  boolean writesum;
   /* threading over loci */
   int cpu;
   //
@@ -1403,7 +1399,6 @@ typedef struct _worlddata
   MYREAL *lgeo;
   long *maxalleles;
   seqmodel_fmt **seq;
-  FILE *sumfile;
   MYREAL freq;
   MYREAL freqlast;
   tipdate_fmt ***sampledates;

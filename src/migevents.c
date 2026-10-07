@@ -58,7 +58,6 @@ void setup_mig_coal_events (world_fmt * world, option_fmt * options);
 void minmax (histogram_fmt * hist, float *tempmin, float *tempmax);
 void destroy_mig_coal_events (world_fmt * world);
 void print_event_values_list(FILE *file, long locus, duo **eventbins, MYREAL eventbinsize, long *eventbinnum, world_fmt* world);
-void read_event_values_fromfile(FILE *file, world_fmt *world);
 void print_event_values_tofile(FILE *file,  world_fmt *world);
 void prepare_event_values(world_fmt *world, MYREAL *sums0,MYREAL *sums1);
 void print_event_values_title(FILE *file, boolean progress);
@@ -531,60 +530,6 @@ void print_event_values_list(FILE *file, long locus, duo **eventbins, MYREAL eve
 ///
 /// read events from mighistfile and push them into the mighistlocus structure
 #define SOME_ELEMENTS 100
-void read_event_values_fromfile(FILE *file, world_fmt *world)
-{
-  long locus;
-  long pop;
-  long i;
-//  MYREAL age;
-  char *input;
-  char *inptr;
-  duo **eventbins;
-  long *eventbinnum;
-  //MYREAL eventbinsize;
-  long spacer=0;
-  long *allocsize;
-  long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
-
-  input = (char *) mycalloc(SUPERLINESIZE, sizeof(char));
-  allocsize = (long *) mycalloc((npall*world->loci),sizeof(long));
-  for(i=0;i<npall*world->loci;i++)
-    {
-      allocsize[i]=1;
-    }
-  while(FGETS(input,SUPERLINESIZE,file) != EOF)
-    {
-      // grab the commentlines
-      while(input[0]=='#')
-	{
-	  FGETS(input,LINESIZE,file);
-	}
-      // read the mighistfile
-      if(input !=NULL)
-	{
-	  inptr = input;
-	  locus      = atol(strsep(&inptr,"\t"))-1;
-	  spacer = locus * npall;
-	  if(locus == -1)
-	    error("help");
-	  pop       = atol(strsep(&inptr,"\t"))-1;
-	  i          = atol(strsep(&inptr,"\t"))-1;
-	  //age        = atof(strsep(&inptr,"\t"));
-      (void) strsep(&inptr,"\t");
-	  eventbins =  world->mighistloci[locus].migeventbins;
-	  eventbinnum = world->mighistloci[locus].migeventbinnum;
-	  eventbinnum[pop] = i+1;
-	  if(allocsize[spacer + pop] < eventbinnum[pop])
-	    {
-	      allocsize[spacer + pop] += SOME_ELEMENTS;
-	      eventbins[pop] = (duo *) myrealloc(eventbins[pop],allocsize[spacer + pop] * sizeof(duo));
-	    }
-	  eventbins[pop][i][0] = (float) atof(strsep(&inptr,"\t"));
-	  eventbins[pop][i][1] = (float) atof(strsep(&inptr,"\t"));
-	}
-    }
-  myfree(allocsize);
-}
 
 
 void print_event_values_tofile(FILE *file,  world_fmt *world)
@@ -815,20 +760,12 @@ void print_event_values(world_fmt * world)
 	sums0 = (MYREAL *) mycalloc((world->loci * npall * 2),sizeof(MYREAL));
 	sums1 = sums0 + (world->loci * npall);
 
-	if(world->options->datatype != 'g')
-	  {
 	    // prepare event histogram for printing and get total of observations
 	    // for all (sums0) and for the mrcas only (sums1)
 	    prepare_event_values(world,sums0, sums1);
 	    
 	    // print event to file
 	    print_event_values_tofile(world->mighistfile, world);
-	  }
-	else
-	  {
-	    read_event_values_fromfile(world->mighistfile,world);
-	    prepare_event_values(world,sums0, sums1);
-	  }
         // print title to screen
         print_event_values_title(stdout, world->options->progress);
         

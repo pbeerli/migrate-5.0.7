@@ -941,12 +941,8 @@ void read_header (FILE * infile, data_fmt * data, option_fmt * options)
 	if(!(title[0] == '\0'))
 	  strcpy(options->title,title);
         break;
-    case 'g':   /* fall through if a menu change forces to analyze data
-                               instead of using the already sampled genealogies */
-        if (options->datatype == 'g')
-            break;
-        else
-            memmove (input, input + 1, (strlen (input) - 1) * sizeof (char));
+    case 'g':   /* old genealogy-summary marker: skip it and read the data */
+        memmove (input, input + 1, (strlen (input) - 1) * sizeof (char));
     default:
       if(input[0]== '<')
 	{

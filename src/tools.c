@@ -890,8 +890,6 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
 #ifdef MPI
       setup_filehandle_db((void *) stdout, world, options,data);
 #endif
-      if (!options->readsum || options->checkpointing)
-	{
 	  openfile (&data->infile, options->infilename, "r+",  NULL);
 	  if (options->usertree)
 	    openfile (&data->utreefile, options->utreefilename, "r+",  NULL);
@@ -901,21 +899,13 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
 	    openfile (&data->catfile, options->catfilename, "r+",  NULL);
 	  if (options->dist)
 	    openfile (&data->distfile, options->distfilename, "r+",  NULL);
-	  if (options->writesum)
-	    openfile (&data->sumfile, options->sumfilename, "w+",  NULL);
-	}
-      else
-	{
-	  if(!options->bayes_infer)
-	    openfile (&data->sumfile, options->sumfilename, "r+",  NULL);
-	}
       
       openfile (&world->outfile, options->outfilename, "w+",  NULL);
 #ifdef MPI
       setup_filehandle_db((void *) world->outfile, world, options,data);
 #endif
       
-      if (options->treeprint > 0 && (!options->readsum))
+      if (options->treeprint > 0)
 	{
 	  openfile (&world->treefile, options->treefilename, "w+",  NULL);
 #ifdef MPI
@@ -925,33 +915,19 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
       
       if (options->mighist)
 	{
-	  if(options->datatype != 'g')
-	    {
 	      if(options->checkpointing)
 		openfile (&world->mighistfile, options->mighistfilename, "a+", NULL);
 	      else
 		openfile (&world->mighistfile, options->mighistfilename, "w+", NULL);
-	    }
-	  else
-	    {
-	      openfile (&world->mighistfile, options->mighistfilename, "r+", NULL);
-	    }
 #ifdef MPI
 	  setup_filehandle_db((void *) world->mighistfile, world, options, data);
 #endif			
 	  if(options->skyline)
 	    {
-	      if(options->datatype != 'g')
-		{
 		  if(options->checkpointing)
 		    openfile (&world->skylinefile, options->skylinefilename, "a+", NULL);
 		  else
 		    openfile (&world->skylinefile, options->skylinefilename, "w+", NULL);
-		}
-	      else
-		{
-		  openfile (&world->skylinefile, options->skylinefilename, "r+", NULL);
-		}
 	    }
 #ifdef MPI
 	  setup_filehandle_db((void *) world->skylinefile, world, options, data);
@@ -1025,7 +1001,7 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
 	  
 	  if(options->has_bayesmdimfile)
 	    {
-	      if(options->datatype != 'g' && !options->checkpointing)
+	      if(!options->checkpointing)
 		{
 #ifdef MPI
 #ifndef PARALIO
@@ -1125,7 +1101,7 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
       //assumess same order as in the master
       j=1; //zero is stdout
       world->outfile = filedb[j++].file;
-      if (options->treeprint > 0 && (!options->readsum))
+      if (options->treeprint > 0)
 	world->treefile = filedb[j++].file;
       if (options->mighist)
 	world->mighistfile = filedb[j++].file;
@@ -1167,8 +1143,6 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 {
     if(myID==MASTER)
     {
-      if (!options->readsum)
-	{
 	  FClose (data->infile);
 	  //  if (options->treeprint > 0)
 	  //  FClose (world->treefile);
@@ -1180,10 +1154,7 @@ exit_files (world_fmt * world, data_fmt * data, option_fmt * options)
 	    FClose (data->catfile);
 	  if (options->dist)
 	    FClose (data->distfile);
-	}
       
-      if (options->writesum || options->readsum)
-	FClose (data->sumfile);
       
       FClose (world->outfile);
       

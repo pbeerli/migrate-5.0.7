@@ -96,7 +96,7 @@ extern int profiledone;
 
 extern void broadcast_options (option_fmt * options);
 
-extern void mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt *options, data_fmt *data, boolean options_readsum, boolean menu);
+extern void mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt *options, data_fmt *data, boolean menu);
 
 extern void mpi_runloci_worker (world_fmt ** universe, int usize,
                                     option_fmt * options, data_fmt * data,
