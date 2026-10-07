@@ -174,7 +174,6 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define OUTTREENUM 11
 #define MATHFILE "mathfile"
 #define MATHFILENUM 12
-#define SUMFILE "sumfile"
 #define SUMFILENUM 13
 #define MIGHISTFILE "mighistfile"
 #define MIGHISTFILENUM 14

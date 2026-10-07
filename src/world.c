@@ -191,7 +191,7 @@ void advance_clone_like (world_fmt * world, long accepted, long *j);
 void polish_world (world_fmt * world);
 void fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop);
 void fill_worlddata (worlddata_fmt * wdata, world_fmt * world,
-                     data_fmt * data, long numpop, boolean readsum);
+                     data_fmt * data, long numpop);
 void print_replicate(world_fmt *world, long maxrep, long rep, long locus);
 #ifdef LONGSUM
 void print_fluctuate_header(world_fmt *world);
@@ -510,7 +510,7 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
 /// copies data related variables into a structure wolrd->data
 void
 fill_worlddata (worlddata_fmt * wdata, world_fmt * world,
-                data_fmt * data, long numpop, boolean readsum)
+                data_fmt * data, long numpop)
 {
     long numpop2 = numpop * numpop;
     wdata->skiploci =
@@ -519,8 +519,6 @@ fill_worlddata (worlddata_fmt * wdata, world_fmt * world,
     memcpy (wdata->geo, data->geo, sizeof (MYREAL) * (size_t) numpop2);
     wdata->lgeo = (MYREAL *) mycalloc (1, sizeof (MYREAL) * (size_t) numpop2);
     memcpy (wdata->lgeo, data->lgeo, sizeof (MYREAL) * (size_t) numpop2);
-    if (!readsum)
-    {
       wdata->maxalleles = (long *) mycalloc ((2 * data->loci), sizeof (long));
         memcpy (wdata->maxalleles, data->maxalleles,
                 sizeof (long) * (size_t) data->loci);
@@ -540,14 +538,12 @@ fill_worlddata (worlddata_fmt * wdata, world_fmt * world,
 		   sizeof (long) * (size_t) data->loci);
 	    wdata->seq[0]->addon = data->seq[0]->addon;
 	  }
-        wdata->sumfile = data->sumfile;
         wdata->sampledates = data->sampledates;
 	wdata->maxsampledate = data->maxsampledate;
 	wdata->numind = data->numind;
 #ifdef UEP        
         wdata->uepsites = data->uepsites;
 #endif
-    }
     wdata->locusweight = (MYREAL *) mycalloc(data->loci+1, sizeof(MYREAL));
     memcpy(wdata->locusweight,data->locusweight,sizeof(MYREAL)*(size_t) data->loci);//invariant loci treatment
 #ifdef DEBUG
@@ -637,9 +633,7 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	}
       if (world->has_unassigned)
 	fill_world_unassigned(world);
-      fill_worlddata (world->data, world, data, numpop, options->readsum);
-      if (!options->readsum)
-	{
+      fill_worlddata (world->data, world, data, numpop);
 	  world->loci = data->loci;
 	  world->skipped = 0;
 	  world->numpop = numpop;
@@ -677,7 +671,6 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 	      world->options->treeinmemory = FALSE;
 	      world->options->treeprint = myNONE;
 	    }
-	}
       custmlen = (long) strlen (options->custm);
       fillup_custm (custmlen, world, options);
 
@@ -1083,14 +1076,11 @@ print_list (world_fmt ** universe, option_fmt * options, data_fmt * data)
     maxreplicate = (options->replicate ?
                     ((options->replicatenum > 0) ?
                      options->replicatenum  : options->lchains ) : 1);
-    if(!options->readsum)
-      {
 #ifdef DEBUG_MPI
 	printf("%i> before unpacking results buffer in master",myID);
 #endif
 	mpi_results_master (MIGMPI_RESULT, EARTH, maxreplicate,
 			    unpack_result_buffer);
-      }
 #endif
     
     print_results (universe, options, data);
@@ -1099,11 +1089,8 @@ print_list (world_fmt ** universe, option_fmt * options, data_fmt * data)
     print_fluctuate(universe,options,data);
 #endif /*LONGSUM*/
     
-    if (!options->readsum)
-    {
         if (options->printfst)
             print_fst (EARTH, options, data, EARTH->fstparam);
-    }
     //if (EARTH->options->plot && EARTH->numpop>1)
     //{
     //    plot_surface (EARTH, options, data, EARTH->plane,
@@ -1184,7 +1171,6 @@ void set_ticks (MYREAL **ticks, MYREAL *plotrange, short type)
 //    FPRINTF (outfile, "                (4) %f, (5) %f, (6) %f\n",
 //             ticks[3], ticks[4], ticks[5]);
 //    /* change: show only over all */
-//    if (!options->readsum)
 //    {
 //        if (world->loci == 1)
 //        {
@@ -1203,13 +1189,10 @@ void set_ticks (MYREAL **ticks, MYREAL *plotrange, short type)
 //                           world->options->migration_model);
 //             }
 //        }
-//    if ((loci - world->skipped > 1) || (options->readsum))
 //    {
 //        FPRINTF (outfile, "\n%s\n\n",
-//                 (options->readsum) ? ((loci - world->skipped >
 //                                        1) ? "Over all loci" : "Over locus 1") :
 //                 "Over all loci");
-//        locus = (options->readsum) ? ((loci - world->skipped >
 //                                       1) ? loci : 0) : loci;
 //        
 //        plot_surface_header2 (outfile, locus,
@@ -1414,10 +1397,7 @@ free_world(world_fmt *world, option_fmt *options)
 	myfree(world->data->seq[0]->weight);
 	myfree(world->data->seq[0]);
     }
-    if (!options->readsum)
-      {
 	myfree(world->data->maxalleles); // frees also data->sites
-      }
     myfree(world->data->seq);
     myfree(world->data->locusweight);
     if(world->cold)
@@ -3293,14 +3273,7 @@ print_result_header (char *titletext, world_fmt * world)
 void print_popstring(long pop, world_fmt *world, option_fmt *options, data_fmt *data)
 {
     char popstring[LINESIZE];
-    if (options->readsum)
-    {
-        mysnprintf(popstring,LINESIZE, "%2li: ", pop + 1);
-    }
-    else
-    {
         mysnprintf(popstring,LINESIZE, "%2li: %s", pop + 1, data->popnames[options->newpops[pop]-1]);
-    }
     FPRINTF (world->outfile, "%-14.14s ", popstring);
 }
 
@@ -3523,7 +3496,7 @@ klone (world_fmt * original, world_fmt * kopie,
     }
 
   // copy data parts
-  fill_worlddata (kopie->data, original, data, np, options->readsum);
+  fill_worlddata (kopie->data, original, data, np);
   /* mighistloci not copied */
   kopie->options->datatype = original->options->datatype;
   // the tree was copied in earlier versions [<2.3] using:   copy_tree (original, kopie);

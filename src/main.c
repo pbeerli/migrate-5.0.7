@@ -287,7 +287,6 @@ void
 print_heating_progress (world_fmt ** universe,
                         worldoption_fmt * options, long stepinc);
 
-boolean analyze_oldbayesdata(world_fmt **universe, option_fmt *options, data_fmt *data, long *outfilepos);
 void print_theta0(FILE *file, world_fmt *world, long maxreplicate);
 //void profile_tables (option_fmt * options, world_fmt * world, long *gmaxptr);
 
@@ -382,7 +381,6 @@ main (int argc, char **argv)
   long      Gmax       = 0;
   long      outfilepos = 0;
   data_fmt  *data;
-  boolean   restarted_bayes_bool=FALSE;
   option_fmt *options;
   world_fmt **universe;
 #ifdef MPI
@@ -572,7 +570,7 @@ main (int argc, char **argv)
     //fprintf(stderr,"myID=%i myRepID=%i\n",myID, myRepID);    
     //---------------------------------------------------------------------------------------------
     // sampling phase
-    if (!options->readsum && !options->checkpointing) // all go here except when reading old runs
+    if (!options->checkpointing)
       {
         if (myID == MASTER)
           ckpt_remove_all (options, EARTH->loci); /* checkpoints of an earlier run */
@@ -640,15 +638,8 @@ main (int argc, char **argv)
 		//  }
 		//else
 		//{
-	    	//options->readsum = TRUE;
-	    	//options->checkpointing = FALSE;
-	    	//restarted_bayes_bool = analyze_oldbayesdata(universe, options, data, &outfilepos);
 		//}
 	  }
-	  else
-	    {
-	      restarted_bayes_bool = analyze_oldbayesdata(universe, options, data, &outfilepos);
-	    }
       }
     
     //---------------------------------------------------------------------------------------------
@@ -665,8 +656,7 @@ main (int argc, char **argv)
 #endif
     // if bayes intermediate data recording is ON then reset the file
     // for reading for printing and combining, else use the material still in RAM
-    if(!restarted_bayes_bool)
-      reset_bayesmdimfile(EARTH, options);
+    reset_bayesmdimfile(EARTH, options);
 
     //---------------------------------------------------------------------------------------------
     // printing main results
@@ -1048,7 +1038,7 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
 		reset_haplotypes(EARTH,locus);
 	      }
 	  }
-	mpi_runloci_master (data->loci, EARTH->who, EARTH, options, data, options->readsum, options->menu);
+	mpi_runloci_master (data->loci, EARTH->who, EARTH, options, data, options->menu);
       }
     else
       {
@@ -1381,79 +1371,6 @@ print_heating_progress2 (FILE * file, worldoption_fmt * options,
 }
 
 
-boolean analyze_oldbayesdata(world_fmt **universe, option_fmt *options, data_fmt *data, long *outfilepos)
-{
-  (void) outfilepos;
-  world_fmt *world = universe[0];
-#ifndef MPI
-  long pop;
-#endif
-  long locus;
-  char **files = NULL;
-  long numfiles=1;
-  charvec2d(&files,numfiles,LINESIZE);
-  // insert code for number of files and allocation and naming
-  strcpy(files[0],options->bayesmdimfilename);
-  // read data from bayesfile
-  world->cold=TRUE;
-  // reads some minimal information form the header of the bayesallfile
-  // this only works with files written with migrate 2.5+
-#ifdef MPI
-  if(myID==MASTER)
-    {
-      warning("does not work correctly yet");
-      read_from_bayesmdim_minimal_info(world->bayesmdimfile, world, options, data);
-      read_geofile (data, options, world->numpop);
-      alloc_sticksize(options,data, (world->numpop*world->numpop+2L*world->numpop));
-      options->newpops_numalloc = world->numpop;
-      options->newpops = (long*) mycalloc(options->newpops_numalloc, sizeof(long));
-      calculate_newpop_numpop(options,data);
-      data->locusweight =
-	(MYREAL *) mycalloc (1, sizeof (MYREAL) * (size_t) (data->loci + 1));
-      for (locus=0;locus < data->loci; locus++)
-	{
-	  data->locusweight[locus]=1.0;
-	}
-      /*options->newpops_numalloc = world->numpop;
-      options->newpops = (long*) mycalloc(options->newpops_numalloc, sizeof(long));
-      for(pop=0;pop<world->numpop;pop++)
-      options->newpops[pop]=pop+1;*/
-      init_world (world, data, options);
-	read_bayes_fromfile(world->bayesmdimfile, world, options,files, numfiles);
-    }
-#else
-  read_from_bayesmdim_minimal_info(world->bayesmdimfile, world, options, data);
-  read_geofile (data, options, world->numpop);
-  alloc_sticksize(options,data, (size_t) (data->numpop*data->numpop+2*data->numpop));
-  options->newpops_numalloc = world->numpop;
-  options->newpops = (long*) mycalloc(options->newpops_numalloc, sizeof(long));
-  for(pop=0;pop<world->numpop;pop++)
-    options->newpops[pop]=pop+1;
-  data->locusweight =
-    (MYREAL *) mycalloc (1, sizeof (MYREAL) * (size_t) (data->loci + 1));
-  for (locus=0;locus < data->loci; locus++)
-    {
-      data->locusweight[locus]=1.0;
-    }
-  init_world (world, data, options);
-    read_bayes_fromfile(world->bayesmdimfile, world, options,files, numfiles);
-#endif
-  //set_meanmu(world,options);
-  pdf_master_init(world, options, data);
-  for(locus=0;locus<world->loci;locus++)
-    {
-      if(world->data->skiploci[locus])
-	continue;
-      if(world->bayes->histogram[locus].results == NULL)
-	{
-	  world->data->skiploci[locus] = TRUE;
-	  continue;
-	}
-      calc_hpd_credibility(world, locus, world->numpop2, world->numparam);//world->numpop2 + world->bayes->mu+2*world->species_model_size + world->grownum);
-    }
-  myfree(files);
-  return TRUE;
-}
 
 /// \brief setup a locus
 /// 

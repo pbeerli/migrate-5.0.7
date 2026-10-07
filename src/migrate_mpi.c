@@ -348,7 +348,7 @@ compute_lpt_dispatch_order(long loci, data_fmt *data, world_fmt *world)
 ///
 void
 mpi_runloci_master (long loci, int *who, world_fmt *world, option_fmt * options,
-		    data_fmt *data, boolean options_readsum, boolean menu)
+		    data_fmt *data, boolean menu)
 {
     int tag;
     int ll;

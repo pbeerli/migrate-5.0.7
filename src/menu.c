@@ -151,7 +151,6 @@ extern time_t startseconds;
 #define MI_INFILE 1
 #define MI_RAND 2
 #define MI_TITLE  3
-#define MI_SUMREAD 4
 #define MI_PROGRESS 5
 #define MI_PRINTDATA 6
 #define MI_OUTFILE 7
@@ -428,9 +427,6 @@ get_menu(option_fmt * options, world_fmt *world, data_fmt *data)
     //sequence data the datalines and tree - tips can match
     // msats or EP data is ambiguos concerning the tree.
       }
-  if (options->datatype == 'g')
-    //prevents overwriting sumfile
-    options->writesum = FALSE;
 
 #ifdef UEP
 
@@ -497,15 +493,7 @@ void            setup_datatype(char *datatype, option_fmt * options)
       //case 'f':
       //strcpy(datatype, "ancestral state reconstruction method");
       //break;
-      //case 'g':
-      //strcpy(datatype, "Genealogy summary");
-      //options->readsum = TRUE;
-      //break;
     default:
-      //if (options->readsum) {
-      //options->datatype = 'g';
-      //strcpy(datatype, "Genealogy summary");
-      //} else {
       options->datatype = 's';
       strcpy(datatype, "DNA sequence model");
 	//}
@@ -779,7 +767,6 @@ void current_datatype_text(char *text, option_fmt *options)
     case 'f':
       mysnprintf(text, LINESIZE, "%22.22s", menu_sequence_submodeltype(options->sequence_model));
       break;
-    case 'g':
     default:
       mysnprintf(text, LINESIZE,  "Model not specified"); 
       break;
@@ -980,9 +967,6 @@ menuData(option_fmt * options, char datatype[]) {
 	display_seq_mutationmodel(text, starttree, options);
 	break;
 	
-      case 'g':
-	printf("       [Reanalyze an old run]\n");
-	break;
       }
     printf("\n\n");
     printf("  Are the settings correct?\n");
@@ -1239,8 +1223,6 @@ menuData(option_fmt * options, char datatype[]) {
 	options->rate[0] = 1.0;
       }
     }
-    if (options->datatype != 'g')
-      options->readsum = FALSE;
   }
   while (uppercase(input[0]) != 'Y');
 
@@ -1304,17 +1286,6 @@ menuInput(option_fmt * options) {
     //else
     //  printf("%39.39s\n", options->title);
 
-    if (options->readsum && !options->bayes_infer) {
-      printf("  %2i    Summary of genealogies are read from %s\n",
-	     MI_SUMREAD, options->sumfilename);
-    }
-    else
-      {
-	if (options->readsum && options->bayes_infer) {
-	  printf("  %2i    Bayesian output data are read from %s\n",
-		 MI_SUMREAD, options->bayesmdimfilename);
-	}
-      }
     printf("\n  OUTPUT:\n");
 
     printf("  %2i   Print indications of progress of run? %25.25s\n",
@@ -1463,46 +1434,6 @@ menuInput(option_fmt * options) {
 	  options->title[0] = '\0';
 	else
 	  mysnprintf(options->title,LINESIZE,"%80.80s", input);
-	break;
-      case MI_SUMREAD:
-	if(!options->bayes_infer)
-	  {
-	    printf
-	      (" What is the filename for the summary of genealogies\n[Default: %s]\n===> ",
-	       SUMFILE);
-	    fflush(stdout); FGETS(input, LINESIZE, stdin);
-	    if (input[0] == '\0')
-	      strcpy(options->sumfilename, SUMFILE);
-	    else {
-	      strcpy(options->sumfilename, input);
-	    }
-	  }
-	else
-	  {
-	    printf
-	      (" What is the filename of the recorded Bayes data\n[Default: %s]\n===> ",
-	       BAYESMDIMFILE);
-	    fflush(stdout); FGETS(input, LINESIZE, stdin);
-	    if (input[0] == '\0')
-	      strcpy(options->bayesmdimfilename, BAYESMDIMFILE);
-	    else {
-	      strcpy(options->bayesmdimfilename, input);
-	    }
-	    unpad(options->bayesmdimfilename, " ");
-#ifdef ZNZ
-	    extension = strrchr(options->bayesmdimfilename,'.');
-	    if(extension!=NULL && !strncmp(extension,".gz",3))
-	      {
-		options->use_compressed = 1;
-	      }
-	    else
-	      {
-		options->use_compressed = 0;
-	      }
-#else
-	    options->use_compressed = 0;
-#endif
-	  }
 	break;
       case MI_PROGRESS:
 	printf("  Progress report during the run? <YES | NO>\n===> ");

@@ -81,7 +81,6 @@ void weighted_average(float xn, float wn, float *xo, float *wo,
 void average(float x, float *mean, float *var, float *n);
 void calc_bin_average(tetra *bin, float val, float weight);
 void print_expected_values_list(FILE *file, long locus, tetra **eventbins, MYREAL eventbinsize, long *eventbinnum, world_fmt *world);
-void read_expected_values_fromfile(FILE *file, world_fmt *world);
 void print_expected_values_tofile(FILE *file,  world_fmt *world);
 void prepare_expected_values(world_fmt *world);
 void print_expected_values_title(FILE *file, boolean progress);
@@ -548,66 +547,6 @@ void print_expected_values_list(FILE *file, long locus, tetra **eventbins, MYREA
 }
 
 #define SOME_ELEMENTS 100
-void read_expected_values_fromfile(FILE *file, world_fmt *world)
-{
-  long locus;
-  long pop;
-  long i;
- // MYREAL age;
-  char *input;
-  char *inptr;
-  tetra **eventbins;
-  long *eventbinnum;
-//xcode  MYREAL eventbinsize;
-  long spacer;
-  long * allocsize;
-  long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
-
-  allocsize = (long *) mycalloc((size_t) (npall*world->loci),sizeof(long));
-  for(i=0;i<npall*world->loci;i++)
-    {
-      allocsize[i]=1;
-    }
-  input = (char *) mycalloc(SUPERLINESIZE, sizeof(char));
-  while(FGETS(input,SUPERLINESIZE,file) != EOF)
-    {
-      // grab the commentlines
-      while(input[0]=='#')
-	{
-	  FGETS(input,LINESIZE,file);
-	}
-      // read the skylinefile
-      if(input !=NULL)
-	{
-	  inptr = input;
-	  locus      = atol(strsep(&inptr,"\t"))-1;
-	  spacer = locus * npall;
-	  if(locus == -1)
-	    error("help");
-	  pop       = atol(strsep(&inptr,"\t"))-1;
-	  i          = atol(strsep(&inptr,"\t"))-1;
-	  //xcode age        = atof(strsep(&inptr,"\t"));
-      (void) strsep(&inptr,"\t");
-
-	  eventbins =  world->mighistloci[locus].eventbins;
-	  eventbinnum = world->mighistloci[locus].eventbinnum;
-	  //xcode eventbinsize = world->mighistloci[locus].eventbinsize;
-	  eventbinnum[pop] = i+1;
-	  if(allocsize[spacer + pop] < eventbinnum[pop])
-	    {
-	      allocsize[spacer + pop] += SOME_ELEMENTS;
-	      eventbins[pop] = (tetra *) myrealloc(eventbins[pop], allocsize[spacer + pop] * sizeof(tetra));
-	    }
-	  eventbins[pop][i][0] = (float) atof(strsep(&inptr,"\t"));
-	  eventbins[pop][i][1] = (float) atof(strsep(&inptr,"\t"));
-	  eventbins[pop][i][2] = (float) atof(strsep(&inptr,"\t"));
-	  eventbins[pop][i][3] = 0.0f;
-	  eventbins[pop][i][4] = (float) atof(strsep(&inptr,"\t"));
-	  eventbins[pop][i][5] = (float) atof(strsep(&inptr,"\t"));
-	}
-    }
-  myfree(allocsize);
-}
 
 void print_expected_values_tofile(FILE *file,  world_fmt *world)
 {
@@ -910,17 +849,10 @@ void print_expected_values(world_fmt * world, option_fmt *options)
   long npall = world->numpop2 + world->bayes->mu + world->species_model_size * 2;
   if(world->options->skyline)
     {
-      if(world->options->datatype != 'g')
-	{
 	  // prepare skyline histogram for printing
 	  prepare_expected_values(world);
 	  // print skyline to file
 	  print_expected_values_tofile(world->skylinefile, world);
-	}
-      else
-	{
-	  read_expected_values_fromfile(world->skylinefile,world);
-	}
       // print title to screen
       print_expected_values_title(stdout, world->options->progress);
       // print title to ascii-outfile

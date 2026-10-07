@@ -374,7 +374,6 @@ void init_options (option_fmt * options)
 #endif
     init_filename( &options->logfilename, LOGFILE);
     //init_filename( &options->mathfilename, MATHFILE);
-    init_filename( &options->sumfilename, SUMFILE);
     init_filename( &options->treefilename, TREEFILE);
     init_filename( &options->utreefilename, UTREEFILE);
     init_filename( &options->catfilename, CATFILE);
@@ -565,9 +564,7 @@ void init_options (option_fmt * options)
     /* genealogy summary options-[this relates to ML and options have beeen
        excised -- these settings remain to make sure that downstream nothing
        breaks */
-    options->readsum = FALSE;
     options->checkpointing = FALSE;
-    options->writesum = FALSE;
     /*threading over loci */
     options->cpu = 1;
     //
@@ -1010,8 +1007,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
   char * priorkind = (char *) mycalloc(LINESIZE, sizeof(char));
   paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
   parammgen = paramtgen + LINESIZE;
-  if (options->datatype != 'g')
-    {
         switch ((short) options->autoseed)
         {
         case AUTO:
@@ -1032,7 +1027,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
             break;
         }
 	fill_printvar_startparam(options,&paramtgen, &parammgen);
-    }
     fprintf (file, "Options in use:\n");
     fprintf (file, "---------------\n\n");
     fprintf (file, "Analysis strategy is BAYESIAN INFERENCE\n");
@@ -1262,8 +1256,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
       //case 'f':
       //fprintf (file, "Datatype: Ancestral state method\n");
       //break;
-      //case 'g':
-      //fprintf (file, "Datatype: Genealogy summary of an older run\n");
       //break;
     }
 
@@ -1314,8 +1306,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	  fprintf (file, "\nData set was subsampled: used a random sample of size: %li\n(no specific random number stream for subset was specified)\n", options->randomsubset);
       }
 
-    if (options->datatype != 'g')
-    {
       fprintf (file, "\n%-80s\n", generator);
 #ifndef QUASIRANDOM      
       fprintf (file, "Random number seed (%s)%s%20li\n", seedgen, " ",
@@ -1375,8 +1365,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 		   options->uepfreq0,options->uepfreq1);
 	}
 #endif /*UEP*/
-      if (options->datatype != 'g')
-      {
         fprintf (file, "\nMarkov chain settings:\n");
 	if(!options->bayes_infer)
 	  {
@@ -1473,10 +1461,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
             fprintf (file, "   Parameter-likelihood epsilon:        %20.5f\n",
                      options->lcepsilon);
         }
-    }
     fprintf (file, "\nPrint options:\n");
-    if (options->datatype != 'g')
-    {
       fprintf (file, "   Data file: %46.46s\n", options->infilename);
       fprintf (file, "   Parameter file: %41.41s\n", options->parmfilename);
       mysnprintf(mytext,LINESIZE,"%s", options->haplotyping ? (options->haplotyping_report ? "YES: report of haplotype probabilities" : "YES: NO report of haplotype probabilities") : "NO");
@@ -1513,7 +1498,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
                      "Yes, only the best");
             break;
         }
-    }
 
     if (options->mighist)
     {
@@ -1581,7 +1565,6 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 		     options->df, options->profileparamtype ? "M=m/mu" : "4Nm");
 	  }
       }
-    }
     myfree(paramtgen);
     myfree(priorkind);
 }
@@ -2730,7 +2713,6 @@ void free_options_filenames(option_fmt * options)
     myfree( options->pdfoutfilename);
 #endif
     myfree( options->logfilename);
-    myfree( options->sumfilename);
     myfree( options->treefilename);
     myfree( options->utreefilename);
     myfree( options->catfilename);
@@ -3161,8 +3143,6 @@ void print_parm_datatype(long *bufsize, char **buffer, long * allocbufsize, opti
             //print_parm_mutable(bufsize, buffer, allocbufsize, "recover=%s", options->checkpointing ? "YES" : "NO"); 
             //print_parm_mutable(bufsize, buffer, allocbufsize, "fast-likelihood=%s", options->fastlike ? "YES" : "NO"); 
             //break;
-	    //case 'g':
-            //print_parm(bufsize, buffer, allocbufsize,"datatype=GenealogySummaryOlderRun");
             //break;
         default:
             error ("the parmfile-writer contains an error");
