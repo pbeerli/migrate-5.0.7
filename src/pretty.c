@@ -4021,7 +4021,7 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	  // parity with the ASCII version in options.c (print_update_frequencies),
 	  // which already shows this detail; the PDF table was missing it.
 	  mysnprintf(mytextf, LINESIZE, "%.5f / %li", world->options->window_delta, world->options->window_size);
-	  pdf_print_tableline(width2, "%s %s", "  window step sd / branches per move", mytextf);
+	  pdf_print_tableline(width2, "%s %s", "  window log-M step / branches per move", mytextf);
 	  pdf_advance(&page_height);
 	}
       pdf_advance(&page_height);

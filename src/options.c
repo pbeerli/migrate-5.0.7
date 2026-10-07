@@ -521,7 +521,7 @@ void init_options (option_fmt * options)
     options->scaler_updatefreq = -1.0; // unset: 0.1 for Mittag-Leffler runs, else off (set_updating_choices)
     options->scaler_delta = 0.2;      // multiplier bound b = 1.2
     options->window_updatefreq = 0.0; // opt-in: the windowed joint local-M move is off by default
-    options->window_delta = 0.03;     // local-M lognormal-RW step sd
+    options->window_delta = 0.03;     // half-width of the uniform log-M step
     options->window_size = 4;         // branches jointly resampled per move
     options->parameter_updatefreq =0.2;
     options->haplotype_updatefreq = 0.2;
@@ -3175,7 +3175,15 @@ void print_parm_tipdate(long *bufsize, char **buffer, long *allocbufsize, option
   long pos;
   long locus;
   char *input;
-  if(options->has_datefile)
+  print_parm_br(bufsize, buffer, allocbufsize);
+  print_parm_comment(bufsize, buffer, allocbufsize, "Sampling dates of the individuals (ancient DNA, time series)");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  Syntax tipdate-file=< NO | YES:datefile >");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    with YES also give generation-per-year=VALUE (default 1.0) and");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    mutationrate-per-year={rate_locus1, rate_locus2, ...} (the last value");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    is used for the remaining loci)");
+  if(!options->has_datefile)
+    print_parm(bufsize, buffer, allocbufsize, "tipdate-file=NO");
+  else
   {
     print_parm_mutable(bufsize, buffer, allocbufsize, "tipdate-file=YES:%s", options->datefilename); 
     print_parm_mutable(bufsize, buffer, allocbufsize, "generation-per-year=%f", options->generation_year); 
@@ -3308,16 +3316,17 @@ void print_parm_randomsubset(long * bufsize, char **buffer, long *allocbufsize, 
    
 void print_parm_usertree(long * bufsize, char **buffer, long *allocbufsize, option_fmt *options)
 {
-  (void) options;
     print_parm_br(bufsize, buffer, allocbufsize);
-    print_parm_comment(bufsize, buffer, allocbufsize, "         usertree=<RANDOM>");
-    print_parm_comment(bufsize, buffer, allocbufsize, "               Default is RANDOM,");
-    print_parm_comment(bufsize, buffer, allocbufsize, "               currently no other start trees are allowed");
-    //if (options->randomtree)
-    //{
-    print_parm(bufsize, buffer, allocbufsize, "usertree=RANDOMTREE");
+    print_parm_comment(bufsize, buffer, allocbufsize, "         usertree=< RANDOM | TREE:treefile >");
+    print_parm_comment(bufsize, buffer, allocbufsize, "               RANDOM (default): each replicate starts from a random genealogy");
+    print_parm_comment(bufsize, buffer, allocbufsize, "               TREE:treefile reads a start tree (sequence data only; not tested");
+    print_parm_comment(bufsize, buffer, allocbufsize, "               recently); AUTOMATIC/UPGMA/DISTANCE are accepted but start randomly");
+    if (options->usertree)
+      print_parm_mutable(bufsize, buffer, allocbufsize, "usertree=TREE:%s", options->utreefilename);
+    else
+      print_parm(bufsize, buffer, allocbufsize, "usertree=RANDOM");
     print_parm_br(bufsize, buffer, allocbufsize);
-}    
+}
 
 /// print the theta starting parameters
 void print_parm_theta(long *bufsize, char ** buffer, long *allocbufsize, option_fmt * options)
@@ -4000,7 +4009,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_comment(&bufsize, buffer, allocbufsize,"                  the second parameter defines the probability that the repeat number");
   print_parm_comment(&bufsize, buffer, allocbufsize,"                  is increasing, this value cannot be larger than 0.666, I suggest 0.5.");
   print_parm_comment(&bufsize, buffer, allocbufsize,"                  Example: micro-submodel=2:{0.5,0.5}");
-  print_parm_comment(&bufsize, buffer, allocbufsize,"         micro-threshold=<INTEGER> Default is 10 [MICRO only, NEEDS TO BE EVEN!],");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"         micro-threshold=<INTEGER> Default is 20 [MICRO only, NEEDS TO BE EVEN!],");
   print_parm_comment(&bufsize, buffer, allocbufsize,"               smaller values speed up analysis, but might also");
   print_parm_comment(&bufsize, buffer, allocbufsize,"               crash, large values slow down analysis considerably.");
   print_parm_comment(&bufsize, buffer, allocbufsize,"               Change this value only when you suspect that your");
@@ -4062,7 +4071,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_haplotyping(&bufsize, buffer, allocbufsize, options);
   print_parm_newpops(&bufsize, buffer, allocbufsize, options, data);
   print_parm_randomsubset(&bufsize, buffer, allocbufsize, options);
-  //print_parm_usertree(&bufsize, buffer, allocbufsize, options);
+  print_parm_usertree(&bufsize, buffer, allocbufsize, options);
   
 #ifdef UEP
     // unique event polymorphisms
@@ -4081,7 +4090,7 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
       {
 	print_parm_mutable(&bufsize, buffer, allocbufsize, "uep=YES:%s", options->uepfilename);
 	print_parm_mutable(&bufsize, buffer, allocbufsize, "uep-rates=%f:%f", options->uepmu, options->uepnu);
-        print_parm_mutable(&bufsize, buffer, allocbufsize, "uep-bases=%f:%f", options->uepfreq0, options->uepfreq1);
+        print_parm_mutable(&bufsize, buffer, allocbufsize, "uep-bases=%f:%f", options->uepfreq1, options->uepfreq0);
       }
     else
       {
@@ -4097,11 +4106,10 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax infile=FILEPATH");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "infile=%s", options->infilename);
     print_parm_br(&bufsize, buffer, allocbufsize);
-    if(options->prioralone)
-      {
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "NODATA=Yes");
-	print_parm_br(&bufsize, buffer, allocbufsize);
-      }
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Ignore the data and sample from the prior (checks that the moves recover the prior)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax NODATA=< YES | NO >");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "NODATA=%s", options->prioralone ? "YES" : "NO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Random number seed specification");
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax random-seed=<AUTO | OWN:< seedfile | value >");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     AUTO           uses computer system clock to generate seed");
@@ -4507,17 +4515,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_br(&bufsize, buffer, allocbufsize);
     
     print_parm_comment(&bufsize, buffer, allocbufsize, "Bayesian MCMC Strategy method");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "      updatefreq=VALUE VALUE VALUE VALUE VALUE VALUE");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "        VALUE is a ratio between 0 and 1");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              ratio of how many times the genealogy is updated compared to the parameters");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              If the value is 0.4 in a 2-population scenario and with 1000000 steps");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              The tree will be evaluated 400000 times, Theta_1, Theta_2, M_21, and M_12");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              will be each evaluated 125000 times. The second value is the ratio for parameter");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              updates, and the third value is the frequency of hapltype updates.");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              the fourth values is for assignment of individual updates");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              The values do not need add up to 1.0 but will be recalculated to do so");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              For example: 1.0 2.0 0.1 0.0 results in 0.32 treeupdates 0.65 parameter ");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              updates and 0.03 haplotype updates");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "      updatefreq=...   see the named form further below");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       bayes-posteriorbins=VALUE VALUE");
     print_parm_comment(&bufsize, buffer, allocbufsize, "           VALUE      is the number of bins in the posterior distribution histogram for Theta or M");
 #ifdef PRETTY
@@ -4578,7 +4576,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "Search OPTIONS");    
     print_parm_comment(&bufsize, buffer, allocbufsize, "       long-inc=VALUE      VALUE is the number of updates that are not recorded");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       long-sample=VALUE   VALUE is the number of sampled updates");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       burn-in=VALUE       VALUE is the number of updates to discard at the beginning");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       burn-in=VALUE       VALUE x long-inc updates are discarded at the beginning");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       auto-tune=<NO | YES:VALUE>  VALUE the the target acceptance ratio");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                            if value is missing, it is set to 0.44");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       assign=<YES:<FREQ|UNIFORM<:{pop1,pop2,...}>> | NO>    YES will assign individuals to populations");
@@ -4594,17 +4592,19 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c (Mittag-Leffler: Theta*c^alpha,");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); 0.1 by default");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with mittag-leffler-alpha, otherwise 0 (off);");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped for tipdates/growth/skyline/speciation]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with mittag-leffler-alpha, otherwise 0 (off); the move is");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped with tip dates, growth, skyline, divergence, an");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       estimated rate modifier, or a migration model not all *]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 turns the scaler off; a move left out of the line keeps its default");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     names not listed keep their current value");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha [scaler]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  local-M lognormal-RW step sd for the window move");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  window move: log M changes by a uniform step on (-VALUE,VALUE)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-size=VALUE   branches jointly resampled per window move");
     // an unset scaler weight is left out so the Mittag-Leffler default still applies
     if (options->scaler_updatefreq < 0.0)
@@ -4779,6 +4779,14 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     //    print_parm_mutable(&bufsize, buffer, allocbufsize, "resistance=%f", options->minmigsumstat);
     //    print_parm_br(&bufsize, buffer, allocbufsize);
     
+    print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Older option names that are still read (do not use in new parmfiles):");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  long-steps=VALUE          same as long-sample=VALUE");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  bayesfile=FILE            same as bayes-file=YES:FILE");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  useroldtree=YES:FILE      same as usertree=TREE:FILE");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  randomtree=YES|NO, distfile=YES|NO   obsolete, use usertree=");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "  read-summary=, datatype=G obsolete: reanalysis of an old run is no longer");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                            supported; ignored with a warning");
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm(&bufsize, buffer, allocbufsize, "end");
@@ -5193,9 +5201,9 @@ booleancheck (option_fmt * options, char *var, char *value)
         options->weights = (boolean) check;
         set_filename(value, "YES", &options->weightfilename);
         break;
-    case 11:   /* read-summary  <yes | no> */
-        options->readsum = (boolean) check;
-        options->datatype = 'g';
+    case 11:   /* read-summary  <yes | no>: OBSOLETE, ignored */
+        if (check)
+          warning("OBSOLETE option read-summary=YES (reanalysis of an old run) is ignored\n");
         break;
 	//case 12:   /* write-summary =  <yes | no> */
         //options->writesum = (boolean) check;
@@ -5595,7 +5603,7 @@ void print_update_frequencies (FILE * file, world_fmt * world)
 	     1.0 + world->options->scaler_delta);
   fprintf (file, "Window (local-M + windowed history)      %9.5f\n", p[WINDOWUPDATE]);
   if (p[WINDOWUPDATE] > 0.0)
-    fprintf (file, "   window step sd / branches per move     %9.5f / %li\n",
+    fprintf (file, "   window log-M step / branches per move  %9.5f / %li\n",
 	     world->options->window_delta, world->options->window_size);
   fprintf (file, "\n");
 }
@@ -5872,8 +5880,8 @@ numbercheck (option_fmt * options, char *var, char *value)
             break;
         case 'g':
         case 'G':
-            options->datatype = 'g';
-            options->readsum = TRUE;
+            warning("OBSOLETE datatype=G (reanalysis of an old run) is no longer supported; using sequence data\n");
+            options->datatype = 's';
             break;
         default:
             options->datatype = 's';
@@ -6470,7 +6478,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    }
 	}
       break;
-    case 69: /*window-delta: local-M lognormal-RW step sd for the windowed move*/
+    case 69: /*window-delta: half-width of the uniform log-M step of the window move*/
       get_next_word(&value,":,; ",&tmp);
       if(tmp != NULL)
 	{
