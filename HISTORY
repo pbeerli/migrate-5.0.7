@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 6    Migrate 6.1.59 Window move with a sparse rate matrix: same results, much faster with
+             many populations (it was unusable at 50).
+
 October 6    Migrate 6.1.58 Joint combination scales with the free parameters (as codex 7.0.83);
              many populations: MPI histogram buffers were npp times too large (out of
              memory), parmfile lines longer than 2048 characters lost a character;
