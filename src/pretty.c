@@ -1718,7 +1718,7 @@ void pdf_print_bayestable(world_fmt *world)
             else if(locus == world->loci + 1)
               {
                 strcpy(st,"Joint ");
-                hist = &bayes->histogram[world->loci];
+                hist = &bayes->histogram[world->loci + 2];   /* the joint values, flagged ones too */
               }
             else
                 mysnprintf(st,STRSIZE,"%5li ",locus + 1);
@@ -1860,7 +1860,7 @@ void pdf_print_bayestable(world_fmt *world)
                    "All: the product of the per-locus marginal posteriors (each parameter on its own);");
         pdf_advance(&page_height);
         pdf_printf(left_margin, page_height, 'L', "%s",
-                   "Joint: the joint multi-locus combination (used by the posterior plots).");
+                   "Joint: the joint multi-locus combination (used by the posterior plots, except Joint*).");
         for (jj0 = 0; jj0 < world->numparam; jj0++)
             if (!shortcut(jj0, world, &jj) && jj == jj0 && jc_param_flagged(world, jj))
                 nf++;
@@ -1868,10 +1868,13 @@ void pdf_print_bayestable(world_fmt *world)
         {
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height, 'L', "%s",
-                       "Joint*: large genealogy-sampling error; more genealogies per locus (longer chains");
+                       "Joint*: large genealogy-sampling error, not to be trusted; the plots and the other");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height, 'L', "%s",
-                       "or replicates) are needed to confirm it (see the Monte Carlo error table).");
+                       "tables use All for it. More genealogies per locus (longer chains or replicates)");
+            pdf_advance(&page_height);
+            pdf_printf(left_margin, page_height, 'L', "%s",
+                       "are needed to confirm it (see the Monte Carlo error table).");
         }
         pdf_advance(&page_height);
     }
@@ -1914,7 +1917,7 @@ void pdf_joint_mcerr_table(world_fmt *world)
   pdf_print_contents_at(left_margin, page_height,
                         "differences between independent runs. Boot err: genealogy-sampling error (block bootstrap");
   pdf_advance(&page_height);
-  mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: large error, more genealogies needed.",
+  mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: not to be trusted, plots and tables use All.",
              bootess);
   pdf_print_contents_at(left_margin, page_height, line);
   pdf_advance(&page_height);
