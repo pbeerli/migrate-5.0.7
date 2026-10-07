@@ -640,7 +640,11 @@ typedef struct _bayes
   MYREAL *alphaorigparam; // alpha value for gamma (original [used for Hyperp])
   MYREAL *betaparam; // beta value for gamma
   // record all changes of parameters
-  MYREAL *params;  // save for parameter vectors
+  MYREAL *params;  // save for parameter vectors: rows of 2 + nstore values
+                   // [log p(G|phi)p(phi), log L, then the stored columns]
+  long nstore;     // stored columns: the parameters bayes->map marks valid
+  long *scol;      // per parameter (numparam): its column, or -1 (not stored)
+  long *sparam;    // per stored column: its parameter
   long allocparams; //number of allocated parameter vectors
   long numparams;  //number of saved parameter vectors
   long paramnum;  // which param one is working with

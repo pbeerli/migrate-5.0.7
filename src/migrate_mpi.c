@@ -4280,26 +4280,24 @@ long unpack_single_bayes_buffer(MYREAL *buffer,bayes_fmt * bayes, world_fmt * wo
     world->bayes->numparams=0;
   
   pnum += world->bayes->numparams;
+  /* rows of 2 + stored columns (bayes_store_setup()): the values arrive in
+     the same order, the valid parameters */
+  const long rowlen = bayes_rowlen(world);
   if(pnum >=world->bayes->allocparams)
     {
       allocparams = pnum + 1;
-      world->bayes->params = (MYREAL *) myrealloc(world->bayes->params,sizeof(MYREAL)*allocparams*nn);
+      world->bayes->params = (MYREAL *) myrealloc(world->bayes->params,sizeof(MYREAL)*allocparams*rowlen);
     }
   world->bayes->allocparams = allocparams;
   for(i = world->bayes->numparams; i < pnum; ++i)
     {
+      MYREAL *row = world->bayes->params + rowlen * i;
       // the first element is log(p(d|g)p(g|param))
-      (world->bayes->params+(nn*i))[0] = buffer[z++];
+      row[0] = buffer[z++];
       // the second element is log(p(d|g))
-      (world->bayes->params+(nn*i))[1] = buffer[z++];
-      //fprintf (stdout, "%i> receive params line %li ", myID, i);
-      for (j = 2; j < nn; ++j) 
-	  {
-	    if(bayes->map[j-2][1] != INVALID)
-	      (world->bayes->params+(nn*i))[j] = buffer[z++];
-	    //fprintf (stdout, "%f ", (world->bayes->params+(nn*i + 1))[j]);
-	  }
-      //fprintf (stdout, "\n");
+      row[1] = buffer[z++];
+      for (j = 0; j < world->bayes->nstore; ++j)
+        row[2 + j] = buffer[z++];
     }
   world->bayes->numparams = pnum;
   // acceptance ratios are added to the ones we have already
@@ -4340,7 +4338,7 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     bufsize = 2 * (nng); //acceptance ratio: params + tree
     bufsize += 4;        // scaler and window acceptance and trials
     bufsize += 2;        // loci + numparams
-    bufsize += world->bayes->numparams * nn;
+    bufsize += world->bayes->numparams * bayes_rowlen(world);   /* the recorded rows */
     bufsize += 3 + world->options->heated_chains + 1;
     //printf("%i> bufsize in pack_single_bayes_buffer()=%li\n",myID,bufsize);
     (*buffer) = (MYREAL *) myrealloc(*buffer, bufsize * sizeof(MYREAL));
@@ -4357,16 +4355,16 @@ long pack_single_bayes_buffer(MYREAL **buffer, bayes_fmt *bayes, world_fmt *worl
     (*buffer)[z++] = (MYREAL) locus;
     (*buffer)[z++] = (MYREAL) bayes->numparams;
 
+    const long rowlen = bayes_rowlen(world);
     for(i = 0; i < world->bayes->numparams; ++i)
       {
-	//the first and second elements are logprob                                                                                   
-	(*buffer)[z++] = (bayes->params+(i*nn))[0];
-	(*buffer)[z++] = (bayes->params+(i*nn))[1];
-	for (j = 2; j < nn; ++j) //the first and second elements are logprob                                              
-	  {
-	    if(bayes->map[j-2][1] != INVALID)
-	      (*buffer)[z++] = (bayes->params+(i*nn))[j];
-	  }
+	/* the two log values and the stored columns (the valid parameters,
+	   in order) */
+	const MYREAL *row = bayes->params + i * rowlen;
+	(*buffer)[z++] = row[0];
+	(*buffer)[z++] = row[1];
+	for (j = 0; j < bayes->nstore; ++j)
+	  (*buffer)[z++] = row[2 + j];
       }
     // for the parameters                                                                                                           
     for (j = 0; j < nng-1; ++j)

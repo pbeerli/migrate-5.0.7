@@ -39,6 +39,7 @@ Routines that report progress and also calculates Gelman-Rubin convergence stati
 */
 
 #include "migration.h"
+#include "bayes.h"
 #include "mcmc.h"
 
 
@@ -1114,7 +1115,7 @@ MYREAL
 calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
 {
   //long T            = world->convergence->chain_counts[world->rep];
-  long nn           = 2+world->numparam;
+  long nn           = bayes_rowlen(world);   /* 2 + stored columns */
   const long first  = world->convergence->rep_firstrow;
   long pnum         = world->bayes->numparams - first;
   
@@ -1134,7 +1135,9 @@ calc_s_bayes (long tthis, MYREAL *tc, world_fmt * world)
      parameter's raw samples against a mean two columns over (or, for
      tthis 0/1, against oldval/likelihood entirely), corrupting the
      within-chain variance for essentially every parameter. */
-  i = tthis + 2;
+  if (world->bayes->scol[tthis] < 0)
+    return 0.0;
+  i = world->bayes->scol[tthis] + 2;
   for (j = first; j < first + pnum /*T*/; j++)
     {
       xx = params[j * nn + i] - tc[tthis];
@@ -1201,7 +1204,8 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
   long              i;
   long              j;
   MYREAL           *params  = world->bayes->params;
-  long              nn      = 2+world->numparam;
+  long              nn      = bayes_rowlen(world);   /* 2 + stored columns */
+  const long        np      = world->numparam;
   if (T < 1)
     return;
 
@@ -1216,16 +1220,16 @@ void chain_means_bayes (MYREAL *thischainmeans, world_fmt * world)
      from migrate-codex-7. */
   for (j = first; j < first + T; j++)
     {
-      for (i = 2; i < nn; i++)
+      for (i = 0; i < np; i++)
         {
-	  if (world->bayes->map[i-2][1] != INVALID)
-	      thischainmeans[i-2]           += params[j * nn + i];
+	  if (world->bayes->scol[i] >= 0)
+	      thischainmeans[i]           += params[j * nn + 2 + world->bayes->scol[i]];
         }
     }
-  for (i = 2; i < nn; i++)
+  for (i = 0; i < np; i++)
     {
-      if (world->bayes->map[i-2][1] != INVALID)
-          thischainmeans[i-2]           /= T;
+      if (world->bayes->scol[i] >= 0)
+          thischainmeans[i]           /= T;
     }
 }
 

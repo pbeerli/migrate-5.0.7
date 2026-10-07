@@ -152,6 +152,10 @@ typedef struct
   long *off_A;              /* per population: offset of A_i on the grid */
   double *ggrid;            /* per group: JC_NG growth values */
   long *rep;                /* per matrix entry: its parameter, or -1 (fixed) */
+  long *mslot;              /* per matrix entry: its migration-count slot in a row, or -1
+                               (only entries with a parameter: a 50-population stepping
+                               stone keeps 100 of 2450) */
+  long nmig;                /* migration-count slots per row (and per segment) */
   double *fixed;            /* per matrix entry: value when fixed */
   boolean usem;             /* migration parameters are M (else xNm) */
   boolean *xnm;             /* per matrix entry: parameter is xNm (use-M=NO, S/M) */
@@ -191,6 +195,7 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->off_A);
   myfree (ly->ggrid);
   myfree (ly->rep);
+  myfree (ly->mslot);
   myfree (ly->xnm);
   myfree (ly->fixed);
   myfree (ly->split_model);
@@ -230,7 +235,6 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
   ly->off_K = numpop;
   ly->off_S = 2 * numpop;
   ly->off_m = 3 * numpop;
-  ly->nrow = 3 * numpop + (world->numpop2 - numpop);
   ly->usem = world->options->usem;
   ly->rep = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
   ly->xnm = (boolean *) mycalloc ((size_t) world->numpop2, sizeof (boolean));
@@ -243,6 +247,11 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->rep[p] = (r >= 0 && r < world->numpop2 && strchr ("0c", world->options->custm2[p]) == NULL) ? r : -1;
       ly->fixed[p] = world->param0[p];
     }
+  ly->mslot = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
+  ly->nmig = 0;
+  for (p = 0; p < world->numpop2; p++)
+    ly->mslot[p] = (p >= numpop && ly->rep[p] >= 0) ? ly->nmig++ : -1;
+  ly->nrow = 3 * numpop + ly->nmig;
   ly->pop_slot = (long *) mycalloc ((size_t) numpop, sizeof (long));
   ly->off_t = (long *) mycalloc ((size_t) numpop, sizeof (long));
   ly->off_A = (long *) mycalloc ((size_t) numpop, sizeof (long));
@@ -803,11 +812,11 @@ jc_record_sample (world_fmt *world)
       else if (type == 'm')
         {
           const long j = m2mmm (tl[i].eventnode->pop, tl[i].eventnode->actualpop, numpop);
-          if (j >= numpop && j < world->numpop2)
+          if (j >= numpop && j < world->numpop2 && ly.mslot[j] >= 0)
             {
-              st[ly.off_m + j - numpop] += 1.0;
+              st[ly.off_m + ly.mslot[j]] += 1.0;
               if (ly.nseg > 1)
-                st[ly.off_sm + jc_seg (&ly, t1) * (world->numpop2 - numpop) + j - numpop] += 1.0;
+                st[ly.off_sm + jc_seg (&ly, t1) * ly.nmig + ly.mslot[j]] += 1.0;
             }
         }
     }
@@ -1028,7 +1037,7 @@ jc_mig_term (const jc_layout *ly, const double *st, long e, double x, double mu)
   if (x <= 0.0)
     return -HUGE_VAL;
   m2mm (e, ly->numpop, &from, &to);
-  const double m = st[ly->off_m + e - ly->numpop];
+  const double m = ly->mslot[e] >= 0 ? st[ly->off_m + ly->mslot[e]] : 0.0;
   return (m > 0.0 ? m * jc_log_memo (x, &lx, &ll) : 0.0) - x * st[ly->off_S + to] / mu;
 }
 
@@ -1052,7 +1061,7 @@ jc_mig_seg_term (const jc_layout *ly, const double *st, long e, long sg, double 
   if (x <= 0.0)
     return -HUGE_VAL;
   m2mm (e, ly->numpop, &from, &to);
-  const double m = st[ly->off_sm + sg * (ly->numpop2 - ly->numpop) + e - ly->numpop];
+  const double m = ly->mslot[e] >= 0 ? st[ly->off_sm + sg * ly->nmig + ly->mslot[e]] : 0.0;
   return (m > 0.0 ? m * jc_log_memo (x, &lx, &ll) : 0.0) - x * st[ly->off_sS + sg * ly->numpop + to] / mu;
 }
 

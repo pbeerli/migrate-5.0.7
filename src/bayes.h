@@ -37,6 +37,8 @@ extern void bayes_free(world_fmt *world);
 extern void bayes_fill(world_fmt *world, option_fmt *options);
 extern void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options);
 extern void bayes_save(world_fmt *world, long step);
+extern void bayes_store_setup(world_fmt *world);
+extern long bayes_rowlen(world_fmt *world);
 extern void bayes_stat(world_fmt *world, data_fmt *data);
 extern long setup_bayes_map(longpair *map, world_fmt *world, long size);
 extern void bayes_init_histogram(world_fmt * world, option_fmt * options);
