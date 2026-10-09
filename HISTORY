@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 8    Migrate 6.1.62 Window move about 2.4x faster: one forward pass serves the move and its
+             reverse, stopped early, lineages batched.
+
 October 7    Migrate 6.1.61 Parmfile writer: usertree, NODATA and tipdate-file always written,
              corrected comments; read-summary and datatype=G (reanalysis of an old run)
              removed, now ignored with a warning.
