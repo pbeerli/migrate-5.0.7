@@ -589,6 +589,45 @@ expQ_apply (const sparse_R * R, const MYREAL * m, MYREAL dt, MYREAL * out,
     }
 }
 
+/* expQ_apply (row = TRUE) for nrow row vectors at once (m, out: nrow x d,
+   x, y: scratch of the same size): every row shares dt, so the series
+   length and the Poisson weights are computed once per interval; each row
+   gets exactly the same arithmetic as a single expQ_apply() call */
+static void
+expQ_apply_rows (const sparse_R * R, const MYREAL * m, long nrow, MYREAL dt,
+                 MYREAL * out, MYREAL * x, MYREAL * y)
+{
+  const long d = R->d;
+  const long nd = nrow * d;
+  const MYREAL lam_all = R->mu * dt;
+  const long nsplit = lam_all > 30.0 ? (long) ceil (lam_all / 30.0) : 1;
+  const MYREAL lam = lam_all / (MYREAL) nsplit;
+  long part, n, i, r;
+  memcpy (out, m, sizeof (MYREAL) * (size_t) nd);
+  for (part = 0; part < nsplit; part++)
+    {
+      MYREAL w = EXP (-lam), cum = w;
+      for (i = 0; i < nd; i++)
+        {
+          x[i] = out[i];
+          out[i] = w * x[i];
+        }
+      for (n = 1; 1.0 - cum > 1e-15 && n < 10000; n++)
+        {
+          MYREAL *t;
+          for (r = 0; r < nrow; r++)
+            row_times_R (R, x + r * d, y + r * d);
+          t = x;
+          x = y;
+          y = t;
+          w *= lam / (MYREAL) n;
+          cum += w;
+          for (i = 0; i < nd; i++)
+            out[i] += w * x[i];
+        }
+    }
+}
+
 /* the series length used by the bridges (unchanged from the dense code) */
 static long
 unif_nmax (MYREAL lam)
@@ -1122,6 +1161,7 @@ forward_bystander (world_fmt * world, const MYREAL * Q, node ** window, long win
   MYREAL t_prev;
   MYREAL *migrated, *c_vec, *e_vec, *pv, *total, *sx, *sy;
   boolean *recorded;
+  long window_alive;
   long i, j, k, t;
 
   ctx->d = d;
@@ -1174,8 +1214,9 @@ forward_bystander (world_fmt * world, const MYREAL * Q, node ** window, long win
   e_vec = (MYREAL *) mycalloc (d, sizeof (MYREAL));
   pv = (MYREAL *) mycalloc (d, sizeof (MYREAL));
   total = (MYREAL *) mycalloc (d, sizeof (MYREAL));
-  sx = (MYREAL *) mycalloc (d, sizeof (MYREAL));
-  sy = (MYREAL *) mycalloc (d, sizeof (MYREAL));
+  sx = (MYREAL *) mycalloc (sumtips * d, sizeof (MYREAL));
+  sy = (MYREAL *) mycalloc (sumtips * d, sizeof (MYREAL));
+  window_alive = window_n;
 
   for (t = 0; t < ninternal; t++)
     {
@@ -1198,17 +1239,15 @@ forward_bystander (world_fmt * world, const MYREAL * Q, node ** window, long win
         error ("forward_bystander: merging child not found in active set");
 
       /* every message through exp(Q dt), and their sum */
+      if (dt > 1e-14)
+        expQ_apply_rows (&ctx->R, active_msg, nactive, dt, migrated, sx, sy);
+      else
+        memcpy (migrated, active_msg, sizeof (MYREAL) * (size_t) (nactive * d));
       for (k = 0; k < d; k++)
         total[k] = 0.0;
       for (i = 0; i < nactive; i++)
-        {
-          if (dt > 1e-14)
-            expQ_apply (&ctx->R, &active_msg[i * d], dt, &migrated[i * d], sx, sy, TRUE);
-          else
-            memcpy (&migrated[i * d], &active_msg[i * d], sizeof (MYREAL) * (size_t) d);
-          for (k = 0; k < d; k++)
-            total[k] += migrated[i * d + k];
-        }
+        for (k = 0; k < d; k++)
+          total[k] += migrated[i * d + k];
 
       for (i = 0; i < nactive; i++)
         {
@@ -1239,6 +1278,16 @@ forward_bystander (world_fmt * world, const MYREAL * Q, node ** window, long win
             for (k = 0; k < d; k++)
               active_msg[i * d + k] = migrated[i * d + k];
         }
+
+      /* nothing older is needed once every window lineage has ended (its
+         birth message and its intervals are recorded); a window MRCA ends
+         the pass anyway */
+      if (recorded[active_idx[slot_a]])
+        window_alive--;
+      if (recorded[active_idx[slot_b]])
+        window_alive--;
+      if (window_alive == 0)
+        break;
 
       for (k = 0; k < d; k++)
         pv[k] = active_msg[slot_a * d + k] * active_msg[slot_b * d + k]
@@ -1665,7 +1714,7 @@ windowed_joint_update (world_fmt * world)
   node **window, **touched;
   long window_n, touched_n;
   MYREAL *Qp, *Qm;
-  forward_ctx ctxp, ctxo;
+  forward_ctx ctxp;
   long *new_pop, *dummy_pop;
   MYREAL logq_labels_new, logq_labels_old;
   MYREAL oldfull, oldlogprior;
@@ -1728,10 +1777,22 @@ windowed_joint_update (world_fmt * world)
       }
     }
 
-  /* forward pass + FFBS under M' (fresh draw for window nodes) */
+  /* one forward pass serves both directions: it does not depend on the
+     internal labels, only on the tree times, the tip populations and Q, and
+     with Q at the geometric mean sqrt(M M') the move and its reverse use
+     the same label proposal; it draws the window nodes (fresh) and scores
+     their current populations (the reverse-direction logq term). The
+     bridges below keep Q(M') and Q(M). */
   Qp = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
   build_Q (world, which, Mnew, Qp);
-  forward_bystander (world, Qp, window, window_n, &ctxp);
+  Qm = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
+  build_Q (world, -1, 0.0, Qm);
+  {
+    MYREAL *Qbar = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
+    build_Q (world, which, sqrt (Mold * Mnew), Qbar);
+    forward_bystander (world, Qbar, window, window_n, &ctxp);
+    myfree (Qbar);
+  }
   new_pop = (long *) mycalloc (ctxp.nnodes, sizeof (long));
   logq_labels_new = sample_or_score_labels (world, &ctxp, window, window_n,
                                              TRUE, new_pop);
@@ -1739,19 +1800,14 @@ windowed_joint_update (world_fmt * world)
     {
       forward_ctx_free (&ctxp);
       myfree (Qp);
+      myfree (Qm);
       myfree (new_pop);
       myfree (window);
       myfree (touched);
       return 0;
     }
-
-  /* forward pass + FFBS under the CURRENT M (scoring the tree's own
-     current window populations -- the reverse-direction logq term) */
-  Qm = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
-  build_Q (world, -1, 0.0, Qm);
-  forward_bystander (world, Qm, window, window_n, &ctxo);
-  dummy_pop = (long *) mycalloc (ctxo.nnodes, sizeof (long));
-  logq_labels_old = sample_or_score_labels (world, &ctxo, window, window_n,
+  dummy_pop = (long *) mycalloc (ctxp.nnodes, sizeof (long));
+  logq_labels_old = sample_or_score_labels (world, &ctxp, window, window_n,
                                              FALSE, dummy_pop);
   myfree (dummy_pop);
 
@@ -1834,7 +1890,7 @@ windowed_joint_update (world_fmt * world)
       myfree (b_a_old); myfree (b_b_old); myfree (b_a_new); myfree (b_b_new);
       myfree (b_old_events); myfree (b_new_events);
       myfree (b_old_n); myfree (b_new_n);
-      forward_ctx_free (&ctxp); forward_ctx_free (&ctxo);
+      forward_ctx_free (&ctxp);
       myfree (Qp); myfree (Qm); myfree (new_pop);
       myfree (window); myfree (touched);
       return 0;
@@ -2037,7 +2093,6 @@ windowed_joint_update (world_fmt * world)
   myfree (b_old_events); myfree (b_new_events);
   myfree (b_old_n); myfree (b_new_n);
   forward_ctx_free (&ctxp);
-  forward_ctx_free (&ctxo);
   myfree (Qp); myfree (Qm); myfree (new_pop);
   myfree (window); myfree (touched);
 
