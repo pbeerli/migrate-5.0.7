@@ -2487,9 +2487,22 @@ synchronize_param (world_fmt * world, option_fmt * options)
                 }
                 break;
             default:
+	      /* letter groups (a, b, ...): only the first entry of a group
+	         gets a start value (set_mystartparams() skips the others,
+	         they are not in the Bayes map), the others start at 0 and the
+	         start genealogy could not connect the populations */
+	      if (islower ((int) type))
+		{
+		  const long lo = (i < world->numpop) ? 0 : world->numpop;
+		  for (z = lo; z < i; z++)
+		    if (world->options->custm2[z] == type)
+		      {
+			world->param0[i] = world->param0[z];
+			break;
+		      }
+		}
 	      break;
-	      // do nothing , this assumes that the user has specified multiple groups using
-	      // the a,b,c,.... syntax
+	      // the user has specified multiple groups using the a,b,c,.... syntax
 	      //                warning ("The migration connection matrix is misspecified\nOnly these are allowed\n* s S m M 0 (=zero)\nSupplied value was: %c\ncustom-migration=%s\n", type, world->options->custm);
 	      //error("[Program exits]");
             }
