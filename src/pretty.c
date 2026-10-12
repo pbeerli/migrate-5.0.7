@@ -1544,9 +1544,44 @@ void pdf_print_contents_at(double x, double y, char *title)
     {
         stripped[--len] = '\0';
     }
-    HPDF_Page_BeginText(page);
-    HPDF_Page_TextOut(page,  (float) x, (float) y, stripped);
-    HPDF_Page_EndText(page);
+    /* Padding with runs of spaces (fixed-width names, right-aligned
+       numbers) is layout, not text (accessibility checkers flag it): draw
+       each piece between such runs at exactly the x it had in the padded
+       string, keeping one space at the end of a piece that is followed by
+       more text. Leading and trailing spaces are not drawn. */
+    {
+        char piece[LINESIZE];
+        char prefix[LINESIZE];
+        size_t i = 0;
+        size_t n = len;
+        HPDF_Page_BeginText(page);
+        while (i < n)
+        {
+            size_t s = i;
+            size_t e;
+            size_t k;
+            double off;
+            while (s < n && stripped[s] == ' ')
+                s++;
+            if (s >= n)
+                break;
+            e = s;
+            while (e < n && !(stripped[e] == ' ' && (e + 1 >= n || stripped[e+1] == ' ')))
+                e++;
+            memcpy(prefix, stripped, s);
+            prefix[s] = '\0';
+            off = s > 0 ? (double) HPDF_Page_TextWidth(page, prefix) : 0.0;
+            memcpy(piece, stripped + s, e - s);
+            k = e - s;
+            for (i = e; i < n && stripped[i] == ' '; i++)
+                ;
+            if (i < n)
+                piece[k++] = ' ';
+            piece[k] = '\0';
+            HPDF_Page_TextOut(page, (float) (x + off), (float) y, piece);
+        }
+        HPDF_Page_EndText(page);
+    }
 }
 
 ///
@@ -3893,7 +3928,7 @@ void pdf_migrate_logo_lines(double x, double y, double stretch)
 void pdf_print_time(double startx, double *pageheight, char text[])
 {
     char nowstr[LINESIZE];
-    get_time(nowstr, "  %c");
+    get_time(nowstr, "%c");
     if (nowstr[0] != '\0')
         pdf_printf(startx, *pageheight, 'L',"%s %s", text, nowstr);
     pdf_advance(pageheight);
@@ -3911,7 +3946,7 @@ void pdf_print_end_time(double *mypage_height)
     char runtime[LINESIZE];
     title = (char *) mycalloc(LINESIZE,sizeof(char));
     
-    get_time(nowstr, "  %c");
+    get_time(nowstr, "%c");
     endseconds = time(0);
     get_runtime(runtime,startseconds,endseconds);
     mysnprintf(title,LINESIZE,"Program finished at %s [%s]", nowstr, runtime);
@@ -5286,17 +5321,22 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	pch[ci] = cch[ci] - cch[ci-1];
       pdf_print_contents_at(left_margin, page_height,"Update frequencies (effective probability per step)");
       pdf_advance(&page_height);
-      /* row-level TR/TD as in the proposal table above; this table has
-         no drawn header row in 5.0.7, so none is tagged */
+      /* no drawn header row: each row's move name is its row header (TH) */
       pretty_ua_suspend_content_same_page(page);
       table_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
       for (ci = 0; ci < NUMBER_OF_UPDATES; ci++)
 	{
 	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", chnames[ci]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
 	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f", pch[ci]);
-	  pdf_print_tableline(width2, "%s %s", chnames[ci], mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TD */
 	  pretty_ua_pop(); /* TR */
@@ -5305,10 +5345,16 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
       if (pch[SCALERUPDATE] > 0.0)
 	{
 	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", "  scaler multiplier bound b = 1 + delta");
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
 	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f", 1.0 + world->options->scaler_delta);
-	  pdf_print_tableline(width2, "%s %s", "  scaler multiplier bound b = 1 + delta", mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TD */
 	  pretty_ua_pop(); /* TR */
@@ -5319,10 +5365,16 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	  // parity with the ASCII version in options.c (print_update_frequencies),
 	  // which already shows this detail; the PDF table was missing it.
 	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", "  window log-M step / branches per move");
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
 	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f / %li", world->options->window_delta, world->options->window_size);
-	  pdf_print_tableline(width2, "%s %s", "  window log-M step / branches per move", mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TD */
 	  pretty_ua_pop(); /* TR */
