@@ -76,6 +76,7 @@ HPDF_Font cour;
 int page_counter;
 char pdf_pagetitle[LINESIZE+1];
 char pdf_time[LINESIZE+1];
+#define ALLELEDATA_FONTSIZE 8.0 /* allelic data listing */
 double page_height;
 double left_margin;
 extern int numcpu;
@@ -6687,34 +6688,35 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
         }
     }
     // calculate columnwidth for in page units for individual name and locus column
+    // the listing uses a smaller font so that more loci fit on a line
+    HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
     column_width[1] = 5.0 + (double) (mysnprintf(stemp,LINESIZE, "%-*.*s", (int) options->nmlength,
 					    (int) options->nmlength, data->indnames[0][0][0]));
     w = (double) HPDF_Page_TextWidth(page, stemp);
     pixel = w / options->nmlength;
     column_width[0] = margin;
-    column_width[1] = margin + w;
-    total = margin + w;
+    column_width[1] = margin + w + 2.0 * pixel;
+    total = margin + w + 2.0 * pixel;
+    /* column_width[locus+1] is where locus starts; a locus that would cross
+       the right border starts the next line */
     for (locus = 0; locus < data->loci; locus++)
     {
-        column_width[locus+2] *= pixel;
-        total += column_width[locus+2];
-        if(total > (page_width - 55))
-        {
+        double lw = column_width[locus+2] * pixel;
+        if(locus > 0 && total + lw > (page_width - 55))
             total = margin;
-            column_width[locus+2] = total;
-        }
-        else
-        {
-            column_width[locus+2] = total;
-        }
+        column_width[locus+1] = total;
+        total += lw;
+        column_width[locus+2] = total;
     }
     
     for (pop = 0; pop < data->numpop; pop++)
     {
+        HPDF_Page_SetFontAndSize (page, helv, 10.0); /* header labels as on the first page */
         if(pop==0)
             pdf_print_dataheader (FIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
         else
             pdf_print_dataheader (NOTFIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
+        HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
         
         for (ind = 0; ind < data->numind[pop][0]; ind++)
         {
@@ -6746,11 +6748,16 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
             oldpage_height = page_height;
             pdf_advance(&page_height);
             if(oldpage_height < page_height)
+            {
+                HPDF_Page_SetFontAndSize (page, helv, 10.0);
                 pdf_print_dataheader (NOTFIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
+                HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
+            }
             
         }
     }
     pretty_ua_pop(); /* TABLE */
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
     myfree(column_width);
 }
 
