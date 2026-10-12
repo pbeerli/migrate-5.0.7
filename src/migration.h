@@ -913,6 +913,7 @@ typedef struct _option
   MYREAL unassigned_updatefreq;
   MYREAL seqerror_updatefreq;
   MYREAL mlalpha_updatefreq;
+  long updatefreq_given; //bit (1<<TREEUPDATE etc.) per move named in updatefreq=
   //int bayesprior[4];
   int bayespretty;
   long bayes_priors_num;
