@@ -6567,7 +6567,7 @@ void pdf_print_dataheader (boolean first, char *title, double *column_width, lon
         pretty_ua_push(HPDF_UA_ROLE_TABLE);
         pretty_ua_push(HPDF_UA_ROLE_CAPTION);
         pretty_ua_begin_content(page);
-        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "\n%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
+        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
         pretty_ua_end_content(page);
         pretty_ua_pop(); /* CAPTION: population name */
         pdf_advance(&page_height); /* after the caption/header cell is closed */
@@ -6580,7 +6580,7 @@ void pdf_print_dataheader (boolean first, char *title, double *column_width, lon
         pretty_ua_push(HPDF_UA_ROLE_TH);
         pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
         pretty_ua_begin_content(page);
-        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "\n%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
+        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
         pretty_ua_end_content(page);
         pretty_ua_pop(); /* TH: population name (repeat) */
         pdf_advance(&page_height); /* after the caption/header cell is closed */
