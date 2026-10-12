@@ -12,6 +12,8 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 12   Migrate 6.1.64 The PDF report now includes the Gelman-Rubin convergence table.
+
 October 12   Migrate 6.1.63 heating=YES:1:LINEAR:N and heating=YES:1:POWER:N generate the temperature
              ladder (POWER puts more chains near the hot end); custom-migration letter
              groups start at the first member's value.
