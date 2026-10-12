@@ -1180,6 +1180,7 @@ int pdf_init(void)
   /* Create a new PDF document. */
   //  doc = pdf_doc_new();
   //pdf_doc_new_doc(doc);
+  get_time (pdf_time, "%H:%M:%S"); /* page footers, from the first page on */
   doc = HPDF_New (error_handler, NULL);
   if (!doc) {
     printf ("error: cannot create PdfDoc object\n");

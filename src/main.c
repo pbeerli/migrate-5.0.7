@@ -389,6 +389,7 @@ main (int argc, char **argv)
  mpisizeof = MPI_DOUBLE;
 #endif
 #endif
+  startseconds = time(0); /* runtime also without the title banner (menu=NO, progress=NO) */
 
  //#ifdef DEBUG
  //proptimes = fopen("proptimes",'w');
