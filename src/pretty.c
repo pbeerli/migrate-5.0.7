@@ -3419,10 +3419,12 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     left_margin = 55;
     //double page_width;
     //page_width = HPDF_Page_GetWidth(page);
-    /* close the TABLE opened in pdf_bayes_factor_rawscores_header(),
-       which tables.c only calls with heating */
-    if (world->options->heating)
-        pretty_ua_pop(); /* TABLE */
+    /* without heating there is no marginal likelihood page (tables.c);
+       the legend would land on whatever page was drawn last */
+    if (!world->options->heating)
+        return;
+    /* close the TABLE opened in pdf_bayes_factor_rawscores_header() */
+    pretty_ua_pop(); /* TABLE */
     pdf_advance(&page_height);
     pretty_ua_push(HPDF_UA_ROLE_P);
     pretty_ua_begin_content(page);
@@ -3775,8 +3777,40 @@ reducing the number of parameters may help.";
         tmp = strsep(&buffer,"\n");
         while(tmp!=NULL)
         {
-            pdf_printf(left_margin, page_height,'L',"%s",tmp);
-            pdf_advance(&page_height);
+            /* break long notes at a space, continuation lines indented */
+            double indent = 0.0;
+            char *rest = tmp;
+            while (*rest != '\0')
+            {
+                size_t n = strlen(rest);
+                char keep;
+                for (;;)
+                {
+                    size_t m = n;
+                    keep = rest[n];
+                    rest[n] = '\0';
+                    w = (double) HPDF_Page_TextWidth(page, rest);
+                    rest[n] = keep;
+                    if (w <= page_width - 110 - indent)
+                        break;
+                    while (m > 0 && rest[m-1] != ' ')
+                        m--;
+                    if (m <= 1)       /* one long word: print it whole */
+                        break;
+                    n = m - 1;        /* up to the space */
+                }
+                keep = rest[n];
+                rest[n] = '\0';
+                pdf_printf(left_margin + indent, page_height,'L',"%s",rest);
+                pdf_advance(&page_height);
+                rest[n] = keep;
+                rest += n;
+                while (*rest == ' ')
+                    rest++;
+                indent = 15.0;
+            }
+            if (*tmp == '\0')
+                pdf_advance(&page_height);
             tmp = strsep(&buffer,"\n");
         }
         myfree(b);
@@ -4472,10 +4506,9 @@ void    pdf_print_connection_table (world_fmt * world, option_fmt *options, data
     }
     pretty_ua_pop(); /* TABLE */
     pretty_ua_resume_content_same_page(page);
-    pdf_advance(&page_height);
-    pdf_advance(&page_height);
     if (world->has_growth) //!(world->options->growpops[0] == 0 && world->options->growpops_numalloc==1))
       {
+	pdf_advance(&page_height);
 	for (i = 0; i < data->numpop; i++)
 	  {
 	    lx = left_margin + 110;
@@ -4484,7 +4517,6 @@ void    pdf_print_connection_table (world_fmt * world, option_fmt *options, data
 	    pdf_printf(lx, page_height, 'L', "%s", (world->options->growpops[options->newpops[i]-1]>0) ?  "growing/shrinking" : "constant size");
 	  }
       }
-    pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
 
@@ -4627,7 +4659,6 @@ void pdf_print_param_order(world_fmt *world)
 		      pretty_ua_end_content(page);
 		      pretty_ua_pop(); /* LI */
 		      li_closed = TRUE;
-		      pdf_advance(&page_height);
 		    }
 		  else
 		    {
@@ -4932,9 +4963,8 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
         pdf_print_contents_at(left_margin, page_height,"Random number seed:");
         pdf_printf_right_next(left_margin, &page_height,"(%s)%s%20li", seedgen, " ",
                               options->saveseed);
-        pdf_printf_next(left_margin, &page_height,"Start parameters:");
-        pdf_advance(&page_height);
-        pdf_print_contents_at(left_margin, page_height,"Theta values were generated");
+        pdf_printf_next(left_margin, &page_height,"Start values:");
+        pdf_print_contents_at(left_margin + 10, page_height,"Theta values were generated");
         pdf_printf_right_next(left_margin, &page_height," %s", paramtgen);
         if (options->startguess[THETAPRIOR][0] == OWN)
         {
@@ -4946,15 +4976,14 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             {
 	      pdf_printf_cell(&left_margin, &page_height, page_width-55.0, "%.5f", (double) options->startparam.theta[i]);
             }
+            //left_margin = *orig_left_margin;
+            pdf_advance(&page_height);
         }
         
-        //left_margin = *orig_left_margin;
-        pdf_advance(&page_height);
-        
         if(options->usem)
-            pdf_print_contents_at(left_margin, page_height,"M values were generated");
+            pdf_print_contents_at(left_margin + 10, page_height,"M values were generated");
         else
-            pdf_print_contents_at(left_margin, page_height,"xNm values were generated");
+            pdf_print_contents_at(left_margin + 10, page_height,"xNm values were generated");
         
         pdf_printf_right_next(left_margin, &page_height," %s", parammgen);
         
@@ -9377,7 +9406,6 @@ void pdf_print_citation(char type[],world_fmt *world)
 	    pdf_advance(&page_height);
             break;
         case 'L': // maximum likelihood
-            pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli P., 1998. Estimation of migration rates and population sizes in geographically structured populations.");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    In Advances in Molecular Ecology, G. R. Carvalho, ed., vol. 306 of NATO sciences series, Series A: Life sciences,");
@@ -9406,7 +9434,6 @@ void pdf_print_citation(char type[],world_fmt *world)
                 pdf_advance(&page_height);
             }
         case 'B': // Bayesian inference
-            pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli P., 2006. Comparison of Bayesian and maximum-likelihood inference of population genetic parameters.");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    Bioinformatics 22:341-345");
@@ -9430,8 +9457,6 @@ void pdf_print_citation(char type[],world_fmt *world)
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    and C. Vernesi, eds., vol. 17 of Conservation Biology, Cambridge University Press, Cambridge UK, pp. 42-79.");
             pdf_advance(&page_height);
-
-	    pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli, P., S. Mashayekhi, M. Sadeghi, M. Khodaei, and K. Shaw, 2019. Population genetic inference with migrate.");
 	    pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    Current Protocols in Bioinformatics, 68(1):e87.");
