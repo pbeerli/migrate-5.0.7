@@ -3521,7 +3521,6 @@ read_heatvalues(option_fmt * options) {
   char           *tmp;
   char            input[LINESIZE];
   MYREAL          diff = 0.;
-  MYREAL          x;
   FPRINTF(stdout, " ");
   printf("Enter %li \"temperatures\"\n", options->heated_chains);
   printf("[The coldest temperature, which is the first, has to be 1\n");
@@ -3533,6 +3532,8 @@ read_heatvalues(option_fmt * options) {
 	  "                           [exponential increase: 1 @ 10]\n");
   FPRINTF(stdout,
 	  "or, most lazily, let me suggest a range [simply type a #]\n");
+  FPRINTF(stdout,
+	  "or a power ladder with more hot chains  [simply type a p]\n");
   FPRINTF(stdout,"@@@@@ For model comparison, the range of temperatures @@@@@\n");
   FPRINTF(stdout,"@@@@@ MUST include a very hot chain (>100000.0)       @@@@@\n");
   printf("===> ");
@@ -3550,17 +3551,9 @@ read_heatvalues(option_fmt * options) {
   else 
     {
       if (strstr(input, "#")) 
-	{
-	  options->heat[0] = 1.0;
-	  diff = 1./(options->heated_chains - 1);
-	  x = 1 - diff;
-	  for (i = 1; i < options->heated_chains-1; i++)
-	    {
-	      options->heat[i] = 1./ x;
-	      x -= diff;
-	    }
-	  options->heat[i] = 1000000.;
-	}
+	set_heating_ladder(options, options->heated_chains, FALSE);
+      else if (tolower(input[0]) == 'p')
+	set_heating_ladder(options, options->heated_chains, TRUE);
       else
 	{
 	  if (strstr(input, "@")) 
