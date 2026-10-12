@@ -1329,6 +1329,8 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
        empty second-line cell), one TR per locus and the All row */
     pretty_ua_push(HPDF_UA_ROLE_TABLE);
     ly  = page_height;
+    /* one header row: each column label is one TH, also when it is
+       printed on two lines */
     pretty_ua_push(HPDF_UA_ROLE_TR);
     pretty_ua_push(HPDF_UA_ROLE_TH);
     pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
@@ -1340,8 +1342,9 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
     pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
     pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[1]-10.0, "Relative");
+    pdf_print_line_element(lx, ly - LINESTRETCH, offset[1], "mutation rate");
     pretty_ua_end_content(page);
-    pretty_ua_pop(); /* TH: Relative */
+    pretty_ua_pop(); /* TH: Relative mutation rate */
     pretty_ua_push(HPDF_UA_ROLE_TH);
     pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
     pretty_ua_begin_content(page);
@@ -1349,52 +1352,23 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
     {
         pdf_print_line_element(lx, ly, offset[2]-7.0, "Watterson's");
         symbol_Theta(lx+offset[2],ly ,11, -1);
+        pdf_print_line_element(lx, ly - LINESTRETCH, offset[2], "(per site)");
         pretty_ua_end_content(page);
-        pretty_ua_pop(); /* TH: Watterson's Theta */
+        pretty_ua_pop(); /* TH: Watterson's Theta (per site) */
         pretty_ua_push(HPDF_UA_ROLE_TH);
         pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
         pretty_ua_begin_content(page);
         pdf_print_line_element(lx, ly, offset[3]+10.0, "Segregating");
+        pdf_print_line_element(lx, ly - LINESTRETCH, offset[3], "sites");
     }
     else
     {
         pdf_print_line_element(lx, ly, offset[2], "Number of alleles");
     }
     pretty_ua_end_content(page);
-    pretty_ua_pop(); /* TH: Segregating / Number of alleles */
-    pretty_ua_pop(); /* TR: header row 1 */
+    pretty_ua_pop(); /* TH: Segregating sites / Number of alleles */
+    pretty_ua_pop(); /* TR: header row */
     pdf_advance(&page_height);
-    ly = page_height;
-    pretty_ua_push(HPDF_UA_ROLE_TR);
-    pretty_ua_push(HPDF_UA_ROLE_TH);
-    pretty_ua_pop(); /* TH: empty placeholder (Locus) */
-    pretty_ua_push(HPDF_UA_ROLE_TH);
-    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
-    pretty_ua_begin_content(page);
-    pdf_print_line_element(lx, ly, offset[1], "mutation rate");
-    pretty_ua_end_content(page);
-    pretty_ua_pop(); /* TH */
-    if(wattersons!=NULL)
-    {
-        pretty_ua_push(HPDF_UA_ROLE_TH);
-        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
-        pretty_ua_begin_content(page);
-        pdf_print_line_element(lx, ly, offset[2], "(per site)");
-        pretty_ua_end_content(page);
-        pretty_ua_pop(); /* TH */
-        pretty_ua_push(HPDF_UA_ROLE_TH);
-        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
-        pretty_ua_begin_content(page);
-        pdf_print_line_element(lx, ly, offset[3], "sites");
-        pretty_ua_end_content(page);
-        pretty_ua_pop(); /* TH */
-    }
-    else
-    {
-        pretty_ua_push(HPDF_UA_ROLE_TH);
-        pretty_ua_pop(); /* TH: empty placeholder (Number of alleles) */
-    }
-    pretty_ua_pop(); /* TR: header row 2 */
     pdf_advance(&page_height);
     //ly = page_height;
     pretty_ua_begin_artifact(page);
@@ -8650,8 +8624,8 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                         elements[linenumber][0] = (char *) mycalloc(7, sizeof(char));
                         elements[linenumber][1] = (char *) mycalloc(12, sizeof(char));
                         elements[linenumber][2] = (char *) mycalloc(LINELENGTH, sizeof(char));
-                        mysnprintf(elements[linenumber][0],LINESIZE," ");
-                        mysnprintf(elements[linenumber][1],LINESIZE," ");
+                        mysnprintf(elements[linenumber][0],LINESIZE,"%5li ",locus+1); /* continuation line */
+                        mysnprintf(elements[linenumber][1],LINESIZE, "%-10.10s ", data->popnames[pop]);
                         count += mysnprintf(elements[linenumber][2] + count,LINESIZE,"%s ",name);
                     }
                 }
