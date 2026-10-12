@@ -91,6 +91,7 @@ void pdf_migrate_logo_lines(double x, double y, double stretch);
 void pdf_print_time(double startx, double *pageheight, char text[]);
 boolean  pdf_advance(double *page_height);
 void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, option_fmt * options);
+void pdf_print_seqdata_note (world_fmt * world, data_fmt * data);
 void pdf_printf_next(double x, double *y, char string[], ...);
 void pdf_printf_ralign(double rx, double y, char string[], ...);
 void pdf_printf(double x, double y, char align, char string[], ...);
@@ -6764,6 +6765,31 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
 
 
 
+/// note in place of the sequence data listing (the outfile has it)
+void pdf_print_seqdata_note (world_fmt * world, data_fmt * data)
+{
+    double page_width;
+    long pop, locus;
+    long sites = 0;
+    long ind = 0;
+    (void) world;
+    for (locus = 0; locus < data->loci; locus++)
+        sites += data->totalsites != NULL ? data->totalsites[locus] : 0;
+    for (pop = 0; pop < data->numpop; pop++)
+        ind += data->numind[pop][0];
+    left_margin = 55;
+    pdf_print_section_title(&page_width, &page_height, "Sequence data");
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
+    pdf_printf(left_margin, page_height, 'L', "%li individuals, %li loci, %li sites.", ind, data->loci, sites);
+    pdf_advance(&page_height);
+    pdf_printf(left_margin, page_height, 'L', "The sequences are not listed in the PDF report; the outfile lists them (print-data=YES).");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
+    pdf_advance(&page_height);
+}
+
 void
 pdf_print_data (world_fmt * world, option_fmt * options, data_fmt * data)
 {
@@ -6781,7 +6807,9 @@ pdf_print_data (world_fmt * world, option_fmt * options, data_fmt * data)
             case 'h':
             case 'u':
             case 'f':
-                pdf_print_seqdata (left_margin, world, data, options);
+                /* sequence listings run to hundreds of pages: only the
+                   outfile lists them */
+                pdf_print_seqdata_note (world, data);
                 break;
             case '@':
                 warning("PDF-printing of mixed data is not implemented ,yet\n");
