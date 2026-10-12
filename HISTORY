@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 12   Migrate 6.1.65 Potential problems lists default move weights and default priors of
+             active forces; a move weight of 0 turns its force off; saved parmfiles write
+             defaults as comments; default SPLIT prior is the largest Theta prior, SPLITSTD
+             an exponential; MPI and serial runs now use the same default priors.
+
 October 12   Migrate 6.1.64 The PDF report now includes the Gelman-Rubin convergence table.
 
 October 12   Migrate 6.1.63 heating=YES:1:LINEAR:N and heating=YES:1:POWER:N generate the temperature
