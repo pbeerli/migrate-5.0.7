@@ -130,6 +130,6 @@ extern double trunc_random_normal2(double mi, double ma, double mean, double std
 extern void init_hyperpriorrecord(hyper_fmt ** hyperp, long numparam);
 
 extern prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * options);
-extern long set_all_default_priors(option_fmt *options);
+extern void default_prior(long priortype, option_fmt * options, prior_fmt *result);
 
 #endif

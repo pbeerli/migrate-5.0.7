@@ -39,6 +39,7 @@ priors.c supplies prior distributions
 #include "definitions.h"
 #include "tools.h" 
 #include "sighandler.h"
+#include "options.h"
 
 #ifdef HAVE_LGAMMA
 #define LGAMMA lgamma
@@ -115,8 +116,6 @@ prior_fmt * copy_option_prior(prior_fmt *pmodel, option_fmt *options, MYREAL rat
 void copy_prior(prior_fmt *target, prior_fmt *source);
 prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * options);
 long find_prior(long from, long to, long priortype, option_fmt * options, prior_fmt *result);
-prior_fmt * set_default_prior(option_fmt *options, long from, long to, long priortype);
-long set_all_default_priors(option_fmt *options);
 prior_fmt * insert_prior(prior_fmt *p, prior_fmt **plist,long *z,option_fmt * options);
 prior_fmt * insert_prior_old(option_fmt *options, long index, prior_fmt *p, long type);
 void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world);
@@ -1537,71 +1536,44 @@ prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * opt
   return r;
 }
 
-long set_all_default_priors(option_fmt *options)
+/// the built-in default prior of a parameter type (no bayes-priors= line)
+void default_prior(long priortype, option_fmt * options, prior_fmt *result)
 {
-  if (options->bayes_priors_num == 0)
-    {
-      set_default_prior(options, -1, -1, THETAPRIOR);
-      if(options->numpop>1 || strlen(options->custm)>1)
-	{
-	  set_default_prior(options, -1, -1, MIGPRIOR);
-	  //check options->custm for off-diagonal dD0
-	  if((strchr(options->custm, 'd')!=NULL) || (strchr(options->custm, 'D')!=NULL))
-	    {
-	      set_default_prior(options, -1, -1, SPECIESTIMEPRIOR);
-	      set_default_prior(options, -1, -1, SPECIESSTDPRIOR);
-	    }
-	}
-      if(options->rate)
-	set_default_prior(options, -1, -1, RATEPRIOR);
-    }
-  return options->bayes_priors_num;
-}
-
-prior_fmt * set_default_prior(option_fmt *options, long from, long to, long priortype)
-{
-  options->bayes_priors_num +=1;
-  options->bayes_priors = (prior_fmt *) myrealloc(options->bayes_priors, options->bayes_priors_num * sizeof(prior_fmt));
-  prior_fmt * r = &options->bayes_priors[options->bayes_priors_num-1];
-  r->from = from;
-  r->to = to;
-  int datatype = (int) options->datatype;
-  r->kind = UNIFORMPRIOR;
+  const boolean seq = strchr(SEQUENCETYPES, (int) options->datatype) != NULL;
   switch(priortype)
     {
     case THETAPRIOR:
-      if(strchr(SEQUENCETYPES, datatype))
-	set_option_prior(&r, THETAPRIOR, SMALLEST_THETA, DNA_GUESS_THETA*10.0, DNA_GUESS_THETA, BAYESNUMBIN);
+      if (seq)
+        set_option_prior(&result, THETAPRIOR, SMALLEST_THETA, DNA_GUESS_THETA*10.0, DNA_GUESS_THETA, BAYESNUMBIN);
       else
-	set_option_prior(&r, THETAPRIOR, SMALLEST_THETA, ALLELE_GUESS_THETA*10.0, ALLELE_GUESS_THETA, BAYESNUMBIN);	   
+        set_option_prior(&result, THETAPRIOR, SMALLEST_THETA, ALLELE_GUESS_THETA*10.0, ALLELE_GUESS_THETA, BAYESNUMBIN);
       break;
     case MIGPRIOR:
-      if(strchr(SEQUENCETYPES, datatype))
-	set_option_prior(&r,MIGPRIOR, SMALLEST_MIGRATION, DNA_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
+      if (seq)
+        set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, DNA_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
       else
-	set_option_prior(&r,MIGPRIOR, SMALLEST_MIGRATION, ALLELE_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
+        set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, ALLELE_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
       break;
     case RATEPRIOR:
-      set_option_prior(&r,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
+      set_option_prior(&result,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
       break;
-    case SPECIESTIMEPRIOR:
-      if(strchr(SEQUENCETYPES, datatype))
-	set_option_prior(&r,SPECIESTIMEPRIOR, SMALLEST_SPLIT, DNA_GUESS_SPLIT * 50.0, DNA_GUESS_SPLIT , BAYESNUMBIN);
-      else
-	set_option_prior(&r,SPECIESTIMEPRIOR, SMALLEST_SPLIT, ALLELE_GUESS_SPLIT*50.0, ALLELE_GUESS_SPLIT , BAYESNUMBIN);
+    case SPECIESTIMEPRIOR:  /* replaced in check_bayes_priors() by the largest Theta prior */
+      set_option_prior(&result,SPECIESTIMEPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
       break;
-    case SPECIESSTDPRIOR:
-      if(strchr(SEQUENCETYPES, datatype))
-	set_option_prior(&r,SPECIESSTDPRIOR, SMALLEST_SPLITSTD, DNA_GUESS_SPLITSTD * 50.0, DNA_GUESS_SPLITSTD , BAYESNUMBIN);
-      else
-	set_option_prior(&r,SPECIESSTDPRIOR, SMALLEST_SPLITSTD, ALLELE_GUESS_SPLITSTD * 50.0, ALLELE_GUESS_SPLITSTD , BAYESNUMBIN);
+    case SPECIESSTDPRIOR:   /* replaced in check_bayes_priors(), see split_default_prior() */
+      set_option_prior(&result,SPECIESSTDPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
+      break;
+    case GROWTHPRIOR:
+      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, UPPERGROWTH, 0.0, BAYESNUMBIN);  
+      break;
+    case MLFPRIOR:
+      set_option_prior(&result, MLFPRIOR, SMALLEST_MLALPHA, BIGGEST_MLALPHA, 1.0, BAYESNUMBIN);
       break;
     default:
       error("no default prior found");
     }
-  return r;
+  result->kind = UNIFORMPRIOR;
 }
-
 
  // find_prior copies the prior for parameter (from, to) into result and
  // returns the index of the user's line it came from (-1: the default)
@@ -1613,37 +1585,9 @@ long find_prior(long from, long to, long priortype, option_fmt * options, prior_
       copy_prior(result, &options->bayes_priors[i]);
       return i;
     }
-  // default if no prior found add default:
-  //
+  default_prior (priortype, options, result);
   result->from = from;
   result->to = to;
-  //printf("find_prior: default %li %li\n", from, to);
-  switch(priortype)
-    {
-    case THETAPRIOR:
-      set_option_prior(&result, THETAPRIOR, SMALLEST_THETA, DNA_GUESS_THETA*10.0, DNA_GUESS_THETA, BAYESNUMBIN);	   
-      break;
-    case MIGPRIOR:
-      set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, DNA_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
-      break;
-    case RATEPRIOR:
-      set_option_prior(&result,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
-      break;
-    case SPECIESTIMEPRIOR:
-      set_option_prior(&result,SPECIESTIMEPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
-      break;
-    case SPECIESSTDPRIOR:
-      set_option_prior(&result,SPECIESSTDPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
-      break;
-    case GROWTHPRIOR:
-      set_option_prior(&result, GROWTHPRIOR, LOWERGROWTH, UPPERGROWTH, 0.0, BAYESNUMBIN);  
-      break;
-    case MLFPRIOR:
-		       set_option_prior(&result, MLFPRIOR, SMALLEST_MLALPHA, BIGGEST_MLALPHA, 1.0, BAYESNUMBIN);
-      break;
-    default:
-      error("no default prior found");
-    }
   return -1;
 }
 
@@ -1678,6 +1622,60 @@ prior_check_used (option_fmt *options, const long *used, const boolean *looked)
     }
 }
 
+/* default divergence priors (no user line, idx < 0 or a default line):
+   SPLIT gets the Theta prior with the largest maximum, SPLITSTD an
+   exponential with mean = that maximum and maximum = 10 x that maximum
+   (a too narrow spread prior distorted the marginal likelihoods) */
+static long
+split_default_prior (long idx, prior_fmt *p, const prior_fmt *theta, option_fmt *options)
+{
+  const long from = p->from;
+  const long to = p->to;
+  const int type = p->type;
+  if (idx >= 0 && options->bayes_priors[idx].number >= 0)
+    return idx;
+  if (type == SPECIESTIMEPRIOR)
+    {
+      copy_prior (p, (prior_fmt *) theta);
+      p->type = SPECIESTIMEPRIOR;
+      strcpy (p->ptypename, "SPLIT");
+      p->number = -1;
+    }
+  else
+    {
+      set_option_prior (&p, SPECIESSTDPRIOR, 0.0, 10.0 * theta->max, theta->max, BAYESNUMBIN);
+      p->kind = EXPPRIOR;
+      p->std = p->mean;
+    }
+  p->from = from;
+  p->to = to;
+  return idx;
+}
+
+/* forces whose parameters got the default prior: note it once for the
+   "Potential problems" section (Theta and M are not forces) */
+static void
+note_default_priors (const long *defcount, const long *kindcount, const prior_fmt *defprior)
+{
+  static boolean done = FALSE;
+  const int kinds[] = {RATEPRIOR, SPECIESTIMEPRIOR, SPECIESSTDPRIOR, GROWTHPRIOR, MLFPRIOR};
+  const char *names[] = {"Rate among loci", "Divergence time (D)", "Divergence time spread (S)",
+                         "Growth", "Mittag-Leffler alpha"};
+  size_t k;
+  if (done)
+    return;
+  done = TRUE;
+  for (k = 0; k < sizeof (kinds) / sizeof (kinds[0]); k++)
+    {
+      const prior_fmt *d = &defprior[kinds[k]];
+      if (defcount[kinds[k]] == 0)
+        continue;
+      option_note ("%s: no bayes-priors= line, %li of %li parameters use the default prior %s min=%g mean=%g max=%g",
+                   names[k], defcount[kinds[k]], kindcount[kinds[k]], getpriortype (d->kind),
+                   (double) d->min, (double) d->mean, (double) d->max);
+    }
+}
+
 /// checks the settings of the number of long an short chain for bayes options and resets useless settings
 void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 {
@@ -1703,10 +1701,21 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   prior_fmt  *plist = (prior_fmt *) mycalloc(plist_numalloc, sizeof(prior_fmt));
   /* per user prior line: did it match a parameter? */
   long *used = (long *) mycalloc(options->bayes_priors_num + 1, sizeof(long));
+  long thetamax = 0;  /* plist index of the Theta prior with the largest maximum */
   boolean looked[PRIOR_SIZE];   /* parameter kinds this model has */
   long u;
   memset (looked, 0, sizeof (looked));
-#define PRIOR_USE(idx) do { u = (idx); if (u >= 0) used[u] = 1; } while (0)
+  /* parameters of each kind that got a default prior (no user line) */
+  long defcount[PRIOR_SIZE];
+  long kindcount[PRIOR_SIZE];
+  prior_fmt defprior[PRIOR_SIZE];
+  memset (defcount, 0, sizeof (defcount));
+  memset (kindcount, 0, sizeof (kindcount));
+#define PRIOR_USE(idx) do { u = (idx); if (u >= 0) used[u] = 1;                  \
+    kindcount[plist[w].type]++;                                                    \
+    if (u < 0 || options->bayes_priors[u].number < 0)                              \
+      { if (defcount[plist[w].type]++ == 0) defprior[plist[w].type] = plist[w]; }  \
+  } while (0)
   for (i=0; i<numpop;i++)
     {
       looked[THETAPRIOR] = TRUE;
@@ -1732,15 +1741,20 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   z = numpop2 + has_mu;
   if (options->has_speciation)
     {
+      for (i=1; i<numpop; i++)
+	if (plist[i].max > plist[thetamax].max)
+	  thetamax = i;
       for (i=0; i < numpop2; i++)
 	{
 	  if (strchr("tdDT", options->custm2[i]))
 	    {
 	      m2mm(i,numpop,&from,&to);
 	      looked[SPECIESTIMEPRIOR] = looked[SPECIESSTDPRIOR] = TRUE;
-	      PRIOR_USE (find_prior(from, to, SPECIESTIMEPRIOR, options, &plist[w]));
+	      PRIOR_USE (split_default_prior (find_prior(from, to, SPECIESTIMEPRIOR, options, &plist[w]),
+					      &plist[w], &plist[thetamax], options));
 	      plist[w++].bins = options->bayes_posterior_bins[SPECIESTIMEPRIOR];
-	      PRIOR_USE (find_prior(from, to, SPECIESSTDPRIOR, options, &plist[w]));
+	      PRIOR_USE (split_default_prior (find_prior(from, to, SPECIESSTDPRIOR, options, &plist[w]),
+					      &plist[w], &plist[thetamax], options));
 	      plist[w++].bins = options->bayes_posterior_bins[SPECIESSTDPRIOR];
 	    }
 	}
@@ -1778,6 +1792,7 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
     }
 #undef PRIOR_USE
   prior_check_used (options, used, looked);
+  note_default_priors (defcount, kindcount, defprior);
   myfree (used);
   myfree(options->bayes_priors);
   options->bayes_priors = plist;

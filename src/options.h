@@ -70,6 +70,10 @@ extern void read_options_master (option_fmt * options);
 // \returns None
 extern void read_options_worker (char **buffer, option_fmt * options);
 extern void set_heating_ladder (option_fmt * options, long n, boolean power);
+extern void option_note (const char *fmt, ...);
+extern char * getpriortype(int kind);
+extern void check_force_moves (option_fmt * options);
+extern void record_option_notes (world_fmt * world, option_fmt * options);
 //
 // reads the custom migration matrix from the parmfile
 // \param file { pointer to the parmfile}  

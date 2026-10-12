@@ -3763,22 +3763,20 @@ void print_parm_prior(long *bufsize, char **buffer, long *allocbufsize, option_f
 {
   char mytext[LINESIZE]="";
   prior_fmt * p = options->bayes_priors;
+  prior_fmt d;
   long counter = 0;
   long pnum = options->bayes_priors_num;
-#ifdef DEBUG
-  printf("%i> print_parm_prior(): pnum=%li ",myID,pnum);
-#endif
-  if (pnum==0)
-    {      
-      pnum = set_all_default_priors(options);
-      p = options->bayes_priors;
-    }
-#ifdef DEBUG
-  printf(" pnum2=%li\n",pnum);
-#endif
+  long i;
+  boolean speciation = FALSE;
+  boolean growth = FALSE;
+  /* the user's lines are active; defaults (number < 0) are only comments,
+     so a rerun of the written parmfile still uses -- and reports -- the
+     defaults (find_prior(), check_bayes_priors()) */
   for (counter=0; counter < pnum; counter++)
     {
       prior_fmt *ptr = &p[counter];
+      if (ptr->number < 0)
+        continue;
       set_parm_prior_values(ptr, mytext);
       if (ptr->from == -1 && ptr->to == -1)
 	print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-priors= %s * * %s: %s",
@@ -3787,9 +3785,43 @@ void print_parm_prior(long *bufsize, char **buffer, long *allocbufsize, option_f
 	print_parm_mutable(bufsize, buffer, allocbufsize, "bayes-priors= %s %li %li %s: %s",
 			   ptr->ptypename, ptr->from+1, ptr->to+1, getpriortype(ptr->kind), mytext);
     }
-#ifdef DEBUG
-  printf("%i>print_parm_prior: %s\n",myID, *buffer);
-#endif
+  print_parm_comment(bufsize, buffer, allocbufsize, "default priors for parameters without a line above:");
+  memset (&d, 0, sizeof (d));
+  default_prior (THETAPRIOR, options, &d);
+  set_parm_prior_values(&d, mytext);
+  print_parm_mutable(bufsize, buffer, allocbufsize, "#default: bayes-priors= THETA * * %s: %s", getpriortype(d.kind), mytext);
+  default_prior (MIGPRIOR, options, &d);
+  set_parm_prior_values(&d, mytext);
+  print_parm_mutable(bufsize, buffer, allocbufsize, "#default: bayes-priors= MIG * * %s: %s", getpriortype(d.kind), mytext);
+  for (i = 0; options->custm != NULL && options->custm[i] != '\0'; i++)
+    if (strchr ("tdDT", options->custm[i]))
+      speciation = TRUE;
+  if (speciation)
+    {
+      print_parm_comment(bufsize, buffer, allocbufsize, "default SPLIT    : the Theta prior with the largest maximum");
+      print_parm_comment(bufsize, buffer, allocbufsize, "default SPLITSTD : EXPPRIOR minimum 0, mean = that maximum, maximum = 10 x that maximum");
+    }
+  if (options->bayesmurates)
+    {
+      default_prior (RATEPRIOR, options, &d);
+      set_parm_prior_values(&d, mytext);
+      print_parm_mutable(bufsize, buffer, allocbufsize, "#default: bayes-priors= RATE * * %s: %s", getpriortype(d.kind), mytext);
+    }
+  for (i = 0; i < options->growpops_numalloc; i++)
+    if (options->growpops[i] > 0)
+      growth = TRUE;
+  if (growth)
+    {
+      default_prior (GROWTHPRIOR, options, &d);
+      set_parm_prior_values(&d, mytext);
+      print_parm_mutable(bufsize, buffer, allocbufsize, "#default: bayes-priors= GROWTH * * %s: %s", getpriortype(d.kind), mytext);
+    }
+  if (options->tri_mlalpha == ESTIMATE)
+    {
+      default_prior (MLFPRIOR, options, &d);
+      set_parm_prior_values(&d, mytext);
+      print_parm_mutable(bufsize, buffer, allocbufsize, "#default: bayes-priors= MLF * * %s: %s", getpriortype(d.kind), mytext);
+    }
 }
 ///
 /// print hyperprior values to buffer for parmfile
@@ -4581,7 +4613,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "updatefreq= name:weight ...   (relative weights, normalised internally)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     genealogy moves : tree, assignment");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter, timeparam, seqerror, mlalpha");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter (also growth, divergence, rate and Mittag-Leffler alpha), timeparam, seqerror");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c (Mittag-Leffler: Theta*c^alpha,");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); 0.1 by default");
@@ -4595,32 +4627,41 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     names not listed keep their current value");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha [scaler]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha(ignored) [scaler]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  window move: log M changes by a uniform step on (-VALUE,VALUE)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-size=VALUE   branches jointly resampled per window move");
-    // an unset scaler weight is left out so the Mittag-Leffler default still applies
-    if (options->scaler_updatefreq < 0.0)
-      print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f window:%f",
-		       options->tree_updatefreq,
-		       options->parameter_updatefreq,
-		       options->haplotype_updatefreq,
-		       options->timeparam_updatefreq,
-		       options->unassigned_updatefreq,
-		       options->seqerror_updatefreq,
-		       options->mlalpha_updatefreq,
-		       options->window_updatefreq);
-    else
-      print_parm_mutable(&bufsize, buffer, allocbufsize, "updatefreq= tree:%f parameter:%f haplotype:%f timeparam:%f assignment:%f seqerror:%f mlalpha:%f scaler:%f window:%f",
-		       options->tree_updatefreq,
-		       options->parameter_updatefreq,
-		       options->haplotype_updatefreq,
-		       options->timeparam_updatefreq,
-		       options->unassigned_updatefreq,
-		       options->seqerror_updatefreq,
-		       options->mlalpha_updatefreq,
-		       options->scaler_updatefreq,
-		       options->window_updatefreq);
+    /* moves named in the parmfile are written as the active line, the
+       defaults as a comment, so a rerun still knows which were defaults;
+       Mittag-Leffler alpha is a parameter and has no move of its own */
+    {
+      const int kinds[] = {TREEUPDATE, PARAMETERUPDATE, HAPLOTYPEUPDATE, SKYLINETIMEUPDATE,
+                           ASSIGNMENTUPDATE, SEQUENCEERRORUPDATE, SCALERUPDATE, WINDOWUPDATE};
+      const char *names[] = {"tree", "parameter", "haplotype", "timeparam",
+                             "assignment", "seqerror", "scaler", "window"};
+      const MYREAL values[] = {options->tree_updatefreq, options->parameter_updatefreq,
+                               options->haplotype_updatefreq, options->timeparam_updatefreq,
+                               options->unassigned_updatefreq, options->seqerror_updatefreq,
+                               options->scaler_updatefreq, options->window_updatefreq};
+      char given[LINESIZE] = "updatefreq=";
+      char defaults[LINESIZE] = "#default: updatefreq=";
+      long gpos = (long) strlen (given);
+      long dpos = (long) strlen (defaults);
+      size_t k;
+      for (k = 0; k < sizeof (kinds) / sizeof (kinds[0]); k++)
+        {
+          if (options->updatefreq_given & (1L << kinds[k]))
+            gpos += mysnprintf (given + gpos, LINESIZE - gpos, " %s:%f", names[k], values[k]);
+          else if (values[k] < 0.0)
+            dpos += mysnprintf (defaults + dpos, LINESIZE - dpos, " %s:auto", names[k]);
+          else
+            dpos += mysnprintf (defaults + dpos, LINESIZE - dpos, " %s:%f", names[k], values[k]);
+        }
+      if (options->updatefreq_given & ~(1L << MITTAGLEFFLERUPDATE))
+        print_parm_mutable(&bufsize, buffer, allocbufsize, "%s", given);
+      if (dpos > (long) strlen ("#default: updatefreq="))
+        print_parm_mutable(&bufsize, buffer, allocbufsize, "%s", defaults);
+    }
     print_parm_mutable(&bufsize, buffer, allocbufsize, "scaler-delta=%f", options->scaler_delta);
     print_parm_mutable(&bufsize, buffer, allocbufsize, "window-delta=%f", options->window_delta);
     print_parm_mutable(&bufsize, buffer, allocbufsize, "window-size=%li", options->window_size);
@@ -5510,26 +5551,28 @@ booleancheck (option_fmt * options, char *var, char *value)
 /// warn instead of silently dropping a weight.
 boolean set_updatefreq_by_name(option_fmt *options, char *name, double value)
 {
+  int kind;
   if (!strcmp(name,"tree") || !strcmp(name,"genealogy"))
-    options->tree_updatefreq = value;
+    { options->tree_updatefreq = value; kind = TREEUPDATE; }
   else if (!strcmp(name,"parameter") || !strcmp(name,"param"))
-    options->parameter_updatefreq = value;
+    { options->parameter_updatefreq = value; kind = PARAMETERUPDATE; }
   else if (!strcmp(name,"haplotype"))
-    options->haplotype_updatefreq = value;
+    { options->haplotype_updatefreq = value; kind = HAPLOTYPEUPDATE; }
   else if (!strcmp(name,"timeparam") || !strcmp(name,"skyline"))
-    options->timeparam_updatefreq = value;
+    { options->timeparam_updatefreq = value; kind = SKYLINETIMEUPDATE; }
   else if (!strcmp(name,"assignment") || !strcmp(name,"assign"))
-    options->unassigned_updatefreq = value;
+    { options->unassigned_updatefreq = value; kind = ASSIGNMENTUPDATE; }
   else if (!strcmp(name,"seqerror"))
-    options->seqerror_updatefreq = value;
+    { options->seqerror_updatefreq = value; kind = SEQUENCEERRORUPDATE; }
   else if (!strcmp(name,"mlalpha") || !strcmp(name,"ml-alpha"))
-    options->mlalpha_updatefreq = value;
+    { options->mlalpha_updatefreq = value; kind = MITTAGLEFFLERUPDATE; }
   else if (!strcmp(name,"scaler"))
-    options->scaler_updatefreq = value;
+    { options->scaler_updatefreq = value; kind = SCALERUPDATE; }
   else if (!strcmp(name,"window"))
-    options->window_updatefreq = value;
+    { options->window_updatefreq = value; kind = WINDOWUPDATE; }
   else
     return FALSE;
+  options->updatefreq_given |= 1L << kind;
   return TRUE;
 }
 
@@ -5647,6 +5690,7 @@ numbercheck (option_fmt * options, char *var, char *value)
   
     MYREAL musum = 0., lastrate = 1.;
     long i = 0, z=0, cc = 0;
+    int elements;
     double scale;
     boolean decided=FALSE;
     char *tmp, *tmp2, *temp, *temp2,  *keeptmp;
@@ -6461,7 +6505,7 @@ numbercheck (option_fmt * options, char *var, char *value)
 		parse_named_updatefreq(options, temp);
 		break;
 	      }
-	    /*int elements =*/sscanf(temp,"%lf%lf%lf%lf%lf%lf%lf%lf", 
+	    elements = sscanf(temp,"%lf%lf%lf%lf%lf%lf%lf%lf", 
 				 &options->tree_updatefreq,
 				 &options->parameter_updatefreq,
 				 &options->haplotype_updatefreq,
@@ -6471,7 +6515,9 @@ numbercheck (option_fmt * options, char *var, char *value)
 				 &options->mlalpha_updatefreq,
 				 &options->scaler_updatefreq
 				 );
-
+	    /* the positional order is the move order TREEUPDATE..SCALERUPDATE */
+	    if (elements > 0)
+	      options->updatefreq_given |= (1L << elements) - 1;
 	  }
         break;
     case 68: /*scaler-delta: tuning of the joint rescaling move, b = 1 + delta*/
@@ -8144,6 +8190,110 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
 ///   suggested ladder, e.g. n=4 gives {1, 1.5, 3, 1e6}
 /// power (power == TRUE): beta_k = (k/(n-1))^(1/0.3), which puts more chains
 ///   near beta = 0 where E_beta[log L] bends (Xie et al. 2011)
+/* notes on defaults and switched-off forces, collected while the options
+   and priors are set up and replayed into the "Potential problems" section
+   by record_option_notes() once the cold chain's world exists */
+static char *option_notes = NULL;
+static size_t option_notes_len = 0;
+
+void
+option_note (const char *fmt, ...)
+{
+  char line[LINESIZE];
+  size_t n;
+  va_list args;
+  va_start (args, fmt);
+  vsnprintf (line, LINESIZE, fmt, args);
+  va_end (args);
+  n = strlen (line);
+  option_notes = (char *) myrealloc (option_notes, option_notes_len + n + 2);
+  memcpy (option_notes + option_notes_len, line, n);
+  option_notes_len += n;
+  option_notes[option_notes_len++] = '\n';
+  option_notes[option_notes_len] = '\0';
+}
+
+/* a force with its own MCMC move: default frequency if the move is not named
+   in updatefreq=, switched off if its frequency is set to 0 */
+static boolean
+check_force_move (option_fmt * options, boolean on, int kind, MYREAL freq,
+                  const char *force, const char *move)
+{
+  if (!on)
+    return FALSE;
+  if (!(options->updatefreq_given & (1L << kind)))
+    {
+      option_note ("%s uses the default move weight %g (updatefreq= %s:VALUE not given)",
+                   force, (double) freq, move);
+      return FALSE;
+    }
+  if (freq <= 0.0)
+    {
+      warning ("%s is turned off: its move frequency is 0 (updatefreq= %s:0)\n", force, move);
+      option_note ("%s is turned off: its move frequency is 0 (updatefreq= %s:0)", force, move);
+      return TRUE;
+    }
+  return FALSE;
+}
+
+/// forces that are switched on: note default move frequencies, turn off a
+/// force whose move frequency is set to 0. Call on the master after the
+/// options are final and before they are sent to the workers.
+void
+check_force_moves (option_fmt * options)
+{
+  long i;
+  if (check_force_move (options, options->has_unassigned, ASSIGNMENTUPDATE,
+                        options->unassigned_updatefreq, "Assignment (assign=YES)", "assignment"))
+    options->has_unassigned = FALSE;   /* ? individuals stay in their listed population */
+  if (check_force_move (options, options->skyline_param, SKYLINETIMEUPDATE,
+                        options->timeparam_updatefreq, "Parametric skyline (skyline=PARAM)", "timeparam"))
+    {
+      options->skyline_param = FALSE;
+      options->timeelements = 2;
+    }
+  if (check_force_move (options, options->has_estimateseqerror, SEQUENCEERRORUPDATE,
+                        options->seqerror_updatefreq, "Sequencing error estimation", "seqerror"))
+    {
+      options->has_estimateseqerror = FALSE;
+      for (i = 0; i < 4; i++)
+        options->seqerror[i] = 0.0;
+    }
+  if (check_force_move (options, options->haplotyping, HAPLOTYPEUPDATE,
+                        options->haplotype_updatefreq, "Haplotyping", "haplotype"))
+    {
+      options->haplotyping = FALSE;
+      options->haplotyping_report = FALSE;
+    }
+}
+
+/// copy the collected notes into the cold chain's warnings, plus the joint
+/// moves that were switched on by default
+void
+record_option_notes (world_fmt * world, option_fmt * options)
+{
+  char *line;
+  char *next;
+  double *c = world->options->choices;
+  if (c[SCALERUPDATE] - c[SCALERUPDATE - 1] > 0.0 && options->scaler_updatefreq < 0.0)
+    record_warnings (world, "Scaler move is on by default (effective frequency %.5f; updatefreq= scaler:VALUE not given)",
+                     c[SCALERUPDATE] - c[SCALERUPDATE - 1]);
+  if (c[WINDOWUPDATE] - c[WINDOWUPDATE - 1] > 0.0 && options->window_updatefreq < 0.0)
+    record_warnings (world, "Window move is on by default (effective frequency %.5f; updatefreq= window:VALUE not given)",
+                     c[WINDOWUPDATE] - c[WINDOWUPDATE - 1]);
+  if (option_notes == NULL)
+    return;
+  for (line = option_notes; *line != '\0'; line = next + 1)
+    {
+      next = strchr (line, '\n');
+      *next = '\0';
+      record_warnings (world, "%s", line);
+    }
+  myfree (option_notes);
+  option_notes = NULL;
+  option_notes_len = 0;
+}
+
 void
 set_heating_ladder (option_fmt * options, long n, boolean power)
 {
