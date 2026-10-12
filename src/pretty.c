@@ -41,6 +41,8 @@
 #include "speciate.h"
 #include "world.h"
 #include <hpdf.h>
+#include "pretty_ua.h"
+#include "pdf_fonts_embedded.h"
 #ifdef BEAGLE
 #include "beagle.h"
 #endif
@@ -229,7 +231,7 @@ double quantiler(double *values, double prob1, double prob2, long range1, long r
 
 void symbol_Theta(double lx, double ly, int size, long subscript)
 {
-    char *thetatitle = "Q";
+    char *thetatitle = "\xce\x98"; /* U+0398 THETA (symb is a Unicode font) */
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
@@ -266,7 +268,7 @@ void symbol_Growth(double lx, double ly, int size, long subscript)
 }
 void symbol_mlf(double lx, double ly, int size, long subscript)
 {
-    char *growthtitle = "a";
+    char *growthtitle = "\xce\xb1"; /* U+03B1 alpha (symb is a Unicode font) */
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
@@ -285,7 +287,7 @@ void symbol_mlf(double lx, double ly, int size, long subscript)
 
 void symbol_R(double lx, double ly, int size, long subscript)
 {
-    char *thetatitle = "m";
+    char *thetatitle = "\xce\xbc"; /* U+03BC mu (symb is a Unicode font) */
     char tempstring[STRSIZE];
     //int subsize =  (int) (0.75 * size);
     //double lxdelta = lx + (double) 0.8 * size;
@@ -343,7 +345,7 @@ void symbol_M(double lx, double ly, int size, long subscript1, long subscript2, 
 
 void symbol_D(double lx, double ly, int size, long subscript1, long subscript2)
 {
-    char *migtitle ="D";
+    char *migtitle ="\xce\x94"; /* U+0394 Delta (symb is a Unicode font) */
     int msub = size/2;
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
@@ -360,7 +362,7 @@ void symbol_D(double lx, double ly, int size, long subscript1, long subscript2)
 
 void symbol_S(double lx, double ly, int size, long subscript1, long subscript2)
 {
-    char *migtitle ="s";
+    char *migtitle ="\xcf\x83"; /* U+03C3 sigma (symb is a Unicode font) */
     int msub = size/2;
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
@@ -1148,6 +1150,11 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
 {
     ////////////////////////////////////
     pdf_init();
+    /* PDF/UA-1 tagging: starts the tagging context and sets the
+       document-level metadata (/Lang, /DisplayDocTitle, /Metadata,
+       /Title); the drawing below stays untagged until a function is
+       instrumented with pretty_ua_push()/begin_content() */
+    pretty_ua_start_document(doc, options->title);
     // add first page
     pdf_new_page(options->title);
     pdf_master_title(options->title);//, &left_margin);
@@ -1183,10 +1190,57 @@ int pdf_init(void)
   //  HPDF_Free (doc);
   //  return 1;
   //}
-  helv  = HPDF_GetFont (doc, "Helvetica", NULL);
-  helvob  = HPDF_GetFont (doc, "Helvetica-Oblique", NULL);
-  symb  = HPDF_GetFont (doc, "Symbol", NULL);
-  cour  = HPDF_GetFont (doc, "Courier", NULL);
+  /* helv/helvob/cour are embedded (real font programs, Liberation Sans/
+     Sans Italic/Mono -- metric-compatible with Helvetica/Helvetica-Oblique/
+     Courier by design, so this preserves the existing layout) so they
+     satisfy PDF/UA-1's font-embedding requirement (ISO 14289-1:2014
+     7.21.4.1); their ToUnicode mapping was already implicit and correct via
+     WinAnsiEncoding, so embedding is all that was needed here.
+
+     symb used to be the Standard-14 Symbol font, with the symbol_*()
+     functions drawing plain ASCII letters ('Q', 'a', 'm', 'D', 's', ...)
+     that only *looked* like Greek/math glyphs because Symbol's own
+     built-in encoding remaps them -- the PDF itself stored the literal
+     ASCII byte, with no Unicode meaning attached anywhere, and Symbol is
+     itself un-embeddable (another Standard-14 font). Both problems
+     (7.21.4.1 font-embedding and 7.21.7 glyph-to-Unicode) are fixed the
+     same way: symb is now a *second* HPDF_Font handle onto the same
+     already-embedded Liberation Sans font program (no new font/license
+     entry needed -- verified via fontTools that Liberation Sans already
+     covers every Greek/math glyph symbol_*() uses), obtained via
+     libharu's built-in UTF-8/CID support (HPDF_UseUTFEncodings() +
+     HPDF_GetFont(..., "UTF-8"), confirmed by reading hpdf_doc.c/
+     hpdf_font_cid.c: a TrueType fontdef with a double-byte encoder gets
+     built as a real Type0/CID font, with libharu generating a correct
+     ToUnicode CMap from the actual UTF-8 text drawn). symbol_*()'s own
+     content was updated in tandem to draw the real Unicode character
+     (e.g. U+0398 GREEK CAPITAL LETTER THETA) instead of the old
+     Symbol-remapped ASCII placeholder -- see each function's own
+     comment. */
+  {
+    const char *helv_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_helv_ttf, pdf_font_helv_ttf_len, HPDF_TRUE);
+    const char *helvob_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_helvob_ttf, pdf_font_helvob_ttf_len, HPDF_TRUE);
+    const char *cour_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_cour_ttf, pdf_font_cour_ttf_len, HPDF_TRUE);
+    if (!helv_name || !helvob_name || !cour_name)
+    {
+        printf ("error: failed to load an embedded font\n");
+        return 1;
+    }
+    helv   = HPDF_GetFont (doc, helv_name, "WinAnsiEncoding");
+    helvob = HPDF_GetFont (doc, helvob_name, "WinAnsiEncoding");
+    cour   = HPDF_GetFont (doc, cour_name, "WinAnsiEncoding");
+    if (HPDF_UseUTFEncodings (doc) != HPDF_OK)
+    {
+        printf ("error: HPDF_UseUTFEncodings failed\n");
+        return 1;
+    }
+    symb = HPDF_GetFont (doc, helv_name, "UTF-8");
+  }
+  if (!symb)
+  {
+      printf ("error: failed to create the Unicode symbol font\n");
+      return 1;
+  }
     /* Add Helvetica Font. */
   //   font1_def = pdf_create_type1_fontdef(PDF_FONT_HELVETICA);
   //pdf_doc_add_type1font(doc, font1_def, NULL, NULL);
@@ -1208,6 +1262,7 @@ int pdf_init(void)
 int pdf_new_page(char *title)
 {
     char stemp[LINESIZE];
+    HPDF_Page old_page = page;
     if(strlen(title)>1)
         strncpy(pdf_pagetitle,title,80);
     /* Add a page to the document. */
@@ -1216,12 +1271,18 @@ int pdf_new_page(char *title)
     page_counter += 1;
     /* Get the page object of the page. */
     //page = pdf_page_get_page(page);
-    
+    /* close whatever tagged span is open on the old page (a section that
+       overflows onto a new page); reopened below after this page's own
+       border/header/footer artifact */
+    pretty_ua_suspend_for_new_page(old_page);
+
     /*Set current font to "Helvetica" and set the size to 10. */
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     
     HPDF_Page_SetLineWidth(page, 1);
-    /* draw page rectangle 50pt from border*/
+    /* draw page rectangle 50pt from border: decoration, a PDF/UA artifact,
+       like the running header and the impressum below */
+    pretty_ua_begin_artifact(page);
     HPDF_Page_Rectangle(page, 50, 50,
                            HPDF_Page_GetWidth(page) - 100,
                            HPDF_Page_GetHeight(page) - 110);
@@ -1233,6 +1294,8 @@ int pdf_new_page(char *title)
     HPDF_Page_SetFontAndSize (page, helv, 6.0);
     pdf_print_contents_at(50, 42, stemp);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_end_artifact(page);
+    pretty_ua_resume_after_new_page(page);
     return 0;
 }
 
@@ -1369,10 +1432,24 @@ int pdf_print_header(char *title)
 
 void pdf_print_contents_at(double x, double y, char *title)
 {
+    /* Several callers (string literals and pdf_printf()-family format
+       strings alike) end their text in a trailing '\n' out of printf
+       habit. HPDF_Page_TextOut() doesn't treat '\n' as a line break --
+       it just draws the control character as a real glyph, which has no
+       mapping in any of our fonts (PDF/UA-1 flags this: ISO 14289-1:2014
+       7.21.7/2, 7.21.8). Strip it here, once, for every caller, working
+       on a local copy since title may be a string literal. */
+    char stripped[LINESIZE];
+    size_t len;
+    mysnprintf(stripped, LINESIZE, "%s", title);
+    len = strlen(stripped);
+    while (len > 0 && (stripped[len-1] == '\n' || stripped[len-1] == '\r'))
+    {
+        stripped[--len] = '\0';
+    }
     HPDF_Page_BeginText(page);
-    HPDF_Page_TextOut(page,  (float) x, (float) y, title);
+    HPDF_Page_TextOut(page,  (float) x, (float) y, stripped);
     HPDF_Page_EndText(page);
-    //fprintf(stderr,"(%f, %f) %s\n",x,y,title);
 }
 
 ///
@@ -1463,6 +1540,9 @@ int pdf_master_title(char *title)
 
 int pdf_write_file(option_fmt *options)
 {
+    /* closes the structure elements and frees the tagging context; must
+       run before the save */
+    pretty_ua_finish_document();
     /* pdf-outfile=NO: no PDF report (not a file named NO) */
     const char *pn = options->pdfoutfilename;
     if (!((pn[0] == 'N' || pn[0] == 'n') && (pn[1] == 'O' || pn[1] == 'o') && pn[2] == '\0'))
@@ -1510,7 +1590,7 @@ double pdf_print_line_element2(double lx, double ly, double offset, double value
 void pdf_print_line_theta(double lx, double ly, double offset, long j)
 {
     char tempstring[STRSIZE];
-    char * thetatitle="Q";
+    char * thetatitle="\xce\x98"; /* U+0398 THETA */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -1539,7 +1619,7 @@ void pdf_print_line_growth(double lx, double ly, double offset, long j)
 void pdf_print_line_mlf(double lx, double ly, double offset, long j)
 {
     char tempstring[STRSIZE];
-    char * growthtitle="a";
+    char * growthtitle="\xce\xb1"; /* U+03B1 alpha */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -1572,7 +1652,7 @@ void pdf_print_line_species(char *title, double lx, double ly, double offset, lo
 void pdf_print_line_rate(double lx, double ly, double offset, long j, long exponent)
 {
     char tempstring[STRSIZE];
-    char * rtitle="m";
+    char * rtitle="\xce\xbc"; /* U+03BC mu */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -7344,7 +7424,7 @@ void pdf_print_citation(char type[],world_fmt *world)
             //pdf_advance(&page_height);
             //pdf_printf(left_margin, page_height,'L',"Xie W., P. O. Lewis, Y. Fan, L. Kuo, and M.-H. Chen. 2011. Improving marginal likelihood");
 	    //pdf_advance(&page_height);
-            //pdf_printf(left_margin, page_height,'L',"    estimation for Bayesian phylogenetic model selection. Systematic Biology, 60(2):150–160, 2011.");
+            //pdf_printf(left_margin, page_height,'L',"    estimation for Bayesian phylogenetic model selection. Systematic Biology, 60(2):150-160, 2011.");
 	    pdf_advance(&page_height);
             break;
         case 'L': // maximum likelihood
@@ -7385,7 +7465,7 @@ void pdf_print_citation(char type[],world_fmt *world)
 
 	    pdf_printf(left_margin, page_height,'L',"Beerli, P., H. Ashki, S. Mashayekhi, and M. Palczewski, 2022. Population divergence time estimation");
 	    pdf_advance(&page_height);
-	    pdf_printf(left_margin, page_height,'L',"   using individual lineage label switching. G3 Genes—Genomes—Genetics, 12(4), 02 2022.");
+	    pdf_printf(left_margin, page_height,'L',"   using individual lineage label switching. G3 Genes-Genomes-Genetics, 12(4), 02 2022.");
             pdf_advance(&page_height);
 	    
             if (world->options->datatype=='m' || world->options->datatype=='s')
