@@ -69,6 +69,7 @@ extern void read_options_master (option_fmt * options);
 // \param options  {is the option structure that holds all general option data}
 // \returns None
 extern void read_options_worker (char **buffer, option_fmt * options);
+extern void set_heating_ladder (option_fmt * options, long n, boolean power);
 //
 // reads the custom migration matrix from the parmfile
 // \param file { pointer to the parmfile}  

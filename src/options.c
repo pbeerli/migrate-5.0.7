@@ -4711,7 +4711,13 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "       ADAPTIVE adaptive heating using start TEMPERATURES [fails sometimes!!]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       SKIP skip that many comparisons, this lengthens the run by SKIP");
     print_parm_comment(&bufsize, buffer, allocbufsize, "           TEMPERATURES    { 1.0, temp1, temp2, temp3 .. tempn}");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or LINEAR:N  N chains, inverse temperatures evenly");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     spaced, hottest 1000000.0");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or POWER:N   N chains, power ladder (more hot chains),");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     hottest 1000000.0");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:{1.0, 1.2, 3.0,1000000.0}");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:LINEAR:4   [same as {1.0,1.5,3.0,1000000.0}]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:POWER:8");
     print_parm_comment(&bufsize, buffer, allocbufsize, "Heating:  swapping chains");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    Syntax: heated-swap=< YES | NO >");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        YES  swapping of chains enabled [DEFAULT]");
@@ -6357,7 +6363,16 @@ numbercheck (option_fmt * options, char *var, char *value)
             {
                 options->heating_interval = atol (tmp);
                 tmp = strtok (NULL, "{, ");
-                if (tmp != NULL)
+                if (tmp != NULL
+                    && (uppercase (tmp[0]) == 'L' || uppercase (tmp[0]) == 'P'))
+                {
+                    /* heating=YES:SKIP:LINEAR:N or heating=YES:SKIP:POWER:N */
+                    char *count = strchr (tmp, ':');
+                    set_heating_ladder (options,
+                                        count != NULL ? atol (count + 1) : 0,
+                                        uppercase (tmp[0]) == 'P');
+                }
+                else if (tmp != NULL)
                 {
                     z = 0;
                     while (1)
@@ -8121,4 +8136,38 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     {
       usererror("The update probability for trees, parameters, haplotypes, ... is set incorrectly");
     }
+}
+
+/// fills options->heat[] with a generated ladder of n chains; the hottest
+/// chain is always 1e6 (beta ~ 0) for thermodynamic integration.
+/// linear (power == FALSE): beta evenly spaced 1 .. 1/(n-1), the menu's
+///   suggested ladder, e.g. n=4 gives {1, 1.5, 3, 1e6}
+/// power (power == TRUE): beta_k = (k/(n-1))^(1/0.3), which puts more chains
+///   near beta = 0 where E_beta[log L] bends (Xie et al. 2011)
+void
+set_heating_ladder (option_fmt * options, long n, boolean power)
+{
+  long i;
+  MYREAL x;
+  const long maxchains = (long) (sizeof (options->heat) / sizeof (options->heat[0]));
+  if (n < 4)   /* run_chains() and print_heating_progress() assume 4 chains */
+    {
+      warning ("heating=...:%s:N needs N >= 4 chains, using 4\n",
+               power ? "POWER" : "LINEAR");
+      n = 4;
+    }
+  if (n > maxchains)
+    {
+      warning ("Ignored heated chains beyond the %li concurrent heated chains migrate supports\n",
+               maxchains);
+      n = maxchains;
+    }
+  options->heat[0] = 1.0;
+  for (i = 1; i < n - 1; i++)
+    {
+      x = (MYREAL) (n - 1 - i) / (MYREAL) (n - 1);
+      options->heat[i] = 1. / (power ? pow (x, 1. / 0.3) : x);
+    }
+  options->heat[n - 1] = 1000000.;
+  options->heated_chains = n;
 }
