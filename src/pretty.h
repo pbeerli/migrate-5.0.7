@@ -120,6 +120,7 @@ extern void pdf_print_LRT_box(world_fmt* world,char **box,long size,
 extern void pdf_print_haplotype_title(void);
 extern void pdf_print_haplotypes(world_fmt *world);
 extern void pdf_print_stored_warnings(world_fmt *world);
+extern void pdf_print_gelman_rubin_table(world_fmt *world);
 extern void pdf_print_haplotypes2(char *buffer, long buflen);
 
 // assignment

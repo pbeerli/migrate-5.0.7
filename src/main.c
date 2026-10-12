@@ -677,6 +677,7 @@ main (int argc, char **argv)
 	if (options->gelman && options->replicate && options->replicatenum > 0)
 	  mpi_results_master (MIGMPI_GELMAN, EARTH, EARTH->maxreplicate, unpack_gelman_buffer);
 #endif
+	pdf_print_gelman_rubin_table(EARTH);
 	print_gelman_rubin_outfile(EARTH->outfile, EARTH);
 	/* the temperatures for the report; under MPI before mpi_send_stop()
 	   releases the workers, they must answer the request */

@@ -2596,6 +2596,68 @@ void pdf_burnin_stops(world_fmt *world, long maxreplicate)
     pdf_advance(&page_height);
 }
 
+///
+/// per-locus Gelman-Rubin table for the PDF (no-op if nothing computed)
+void pdf_print_gelman_rubin_table(world_fmt *world)
+{
+    double offset[]={55.,220.,380.};
+    double page_width;
+    char title[]="Gelman-Rubin replicate-convergence statistic";
+    char st[STRSIZE];
+    long locus;
+    long n = 0;
+    double summean = 0.0;
+    double maxmax = 0.0;
+    double lx;
+    if (world->convergence == NULL || world->convergence->locus_gelman_valid == NULL)
+      return;
+    for (locus = 0; locus < world->loci; locus++)
+      if (world->convergence->locus_gelman_valid[locus])
+        n++;
+    if (n == 0)
+      return;
+    left_margin = 55.0;
+    lx = left_margin;
+    pdf_print_section_title(&page_width, &page_height, title);
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pdf_print_contents_at(lx, page_height,
+        "Values close to 1.0, especially < 1.2, indicate convergence; unreliable on very short runs.");
+    pdf_advance(&page_height);
+    pdf_advance(&page_height);
+    pdf_print_line_element(lx, page_height, offset[0], "Locus");
+    pdf_print_line_element(lx, page_height, offset[1], "Mean sqrt(R)");
+    pdf_print_line_element(lx, page_height, offset[2], "Maximum sqrt(R)");
+    pdf_advance(&page_height);
+    pdf_draw_line(50, page_height, page_width-50, page_height);
+    pdf_advance(&page_height);
+    for (locus = 0; locus < world->loci; locus++)
+      {
+        mysnprintf(st,STRSIZE,"%5li",locus+1);
+        pdf_print_line_element(lx, page_height, offset[0], st);
+        if (world->convergence->locus_gelman_valid[locus])
+          {
+            summean += world->convergence->locus_gelmanmeanRall[locus];
+            if (world->convergence->locus_gelmanmaxRall[locus] > maxmax)
+              maxmax = world->convergence->locus_gelmanmaxRall[locus];
+            pdf_print_line_element2(lx, page_height, offset[1], (double) world->convergence->locus_gelmanmeanRall[locus],8,6);
+            pdf_print_line_element2(lx, page_height, offset[2], (double) world->convergence->locus_gelmanmaxRall[locus],8,6);
+          }
+        else
+          {
+            pdf_print_line_element(lx, page_height, offset[1], "-N-");
+            pdf_print_line_element(lx, page_height, offset[2], "-N-");
+          }
+        pdf_advance(&page_height);
+      }
+    if (world->loci > 1)
+      {
+        pdf_print_line_element(lx, page_height, offset[0], "  All");
+        pdf_print_line_element2(lx, page_height, offset[1], summean / (double) n,8,6);
+        pdf_print_line_element2(lx, page_height, offset[2], maxmax,8,6);
+        pdf_advance(&page_height);
+      }
+}
+
 void pdf_print_stored_warnings(world_fmt *world)
 {
     double w;
