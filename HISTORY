@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 12   Migrate 6.1.68 Fixed a crash at the end of runs without sequencing error estimation
+             (introduced in 6.1.67).
+
 October 12   Migrate 6.1.67 The PDF report is tagged for accessibility (PDF/UA-1: structure, tables
              with headers, figures with alternative text, embedded fonts, Unicode symbols);
              sequencing error table in the PDF; sequence data are listed only in the
