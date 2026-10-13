@@ -6813,6 +6813,78 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
 
 
 
+///
+/// estimated sequencing error rates in the PDF report (the outfile table of
+/// seqerror_report()): per locus and over all loci, mean, standard deviation
+/// and number of recorded samples for each nucleotide or the combined rate
+void pdf_seqerror_report(world_fmt *world)
+{
+    const boolean combined = world->seqerrorcombined;
+    const long nn = combined ? 1 : 4;
+    const char nuc[4] = {'A', 'C', 'G', 'T'};
+    char title[] = "Estimation of sequencing error";
+    char **header;
+    char ***elements;
+    double page_width;
+    long rows = (world->loci + 1) * nn;
+    long locus, k, i, r = 0;
+    MYREAL amean[4], astd[4];
+    long an[4];
+    for (k = 0; k < nn; k++)
+        onepass_mean_std_start(&amean[k], &astd[k], &an[k]);
+    charvec2d(&header, 5, STRSIZE);
+    mysnprintf(header[0], STRSIZE, "Locus");
+    mysnprintf(header[1], STRSIZE, "Nucleotide");
+    mysnprintf(header[2], STRSIZE, "Mean");
+    mysnprintf(header[3], STRSIZE, "Std. dev.");
+    mysnprintf(header[4], STRSIZE, "Samples");
+    elements = (char ***) mycalloc(rows, sizeof(char **));
+    for (i = 0; i < rows; i++)
+        charvec2d(&elements[i], 5, STRSIZE);
+    for (locus = 0; locus < world->loci; locus++)
+    {
+        for (k = 0; k < nn; k++)
+        {
+            MYREAL mean, std;
+            long n;
+            onepass_mean_std_start(&mean, &std, &n);
+            for (i = 0; i < world->seqerrorratesnum[locus]; i++)
+            {
+                MYREAL e = world->seqerrorrates[locus][i * nn + k];
+                onepass_mean_std_calc(&mean, &std, &n, e);
+                onepass_mean_std_calc(&amean[k], &astd[k], &an[k], e);
+            }
+            onepass_mean_std_end(&mean, &std, &n);
+            mysnprintf(elements[r][0], STRSIZE, "%li", locus + 1);
+            mysnprintf(elements[r][1], STRSIZE, "%c", combined ? 'N' : nuc[k]);
+            mysnprintf(elements[r][2], STRSIZE, "%.6f", (double) mean);
+            mysnprintf(elements[r][3], STRSIZE, "%.6f", (double) std);
+            mysnprintf(elements[r][4], STRSIZE, "%li", n);
+            r++;
+        }
+    }
+    for (k = 0; k < nn; k++)
+    {
+        onepass_mean_std_end(&amean[k], &astd[k], &an[k]);
+        mysnprintf(elements[r][0], STRSIZE, "All");
+        mysnprintf(elements[r][1], STRSIZE, "%c", combined ? 'N' : nuc[k]);
+        mysnprintf(elements[r][2], STRSIZE, "%.6f", (double) amean[k]);
+        mysnprintf(elements[r][3], STRSIZE, "%.6f", (double) astd[k]);
+        mysnprintf(elements[r][4], STRSIZE, "%li", an[k]);
+        r++;
+    }
+    left_margin = 55;
+    pdf_print_section_title(&page_width, &page_height, title);
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pdf_advance(&page_height);
+    pdf_table2(5, (int) rows, header, NULL, elements, NULL, 2, 30.0);
+    pdf_advance(&page_height);
+    for (i = 0; i < rows; i++)
+        free_charvec2d(elements[i]);
+    myfree(elements);
+    free_charvec2d(header);
+}
+
 /// note in place of the sequence data listing (the outfile has it)
 void pdf_print_seqdata_note (world_fmt * world, data_fmt * data)
 {
