@@ -3249,6 +3249,12 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
             error("Problems with the specification of the prior distribution");
             //break;
     }
+    /* a prior line without a delta leaves the proposal window at 0: no
+       move at all unless auto-tune widens it, and auto-tune is off without
+       data (NODATA=YES), where the chain then never left its start value;
+       default to a tenth of the prior range */
+    if (bayes->delta[i] <= 0.0)
+      bayes->delta[i] = (prior->max - prior->min) / 10.0;
 }
 
 // fill the Bayesian framework with values
