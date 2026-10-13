@@ -12,7 +12,7 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
-October 13   Migrate 6.1.67 The PDF report is tagged for accessibility (PDF/UA-1: structure, tables
+October 12   Migrate 6.1.67 The PDF report is tagged for accessibility (PDF/UA-1: structure, tables
              with headers, figures with alternative text, embedded fonts, Unicode symbols);
              sequencing error table in the PDF; sequence data are listed only in the
              outfile; layout fixes (allele listing, spacing, wrapped notes).
