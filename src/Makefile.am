@@ -16,7 +16,9 @@ COMMON_SOURCES = \
     sighandler.c skyline.c skyparam.c slice.c sort.c speciate.c tools.c \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
     mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c mlf_hastings.c \
-    joint_combine.c
+    joint_combine.c \
+    hpdf_ua_context.c hpdf_ua_docmeta.c hpdf_ua_metadata.c hpdf_ua_structure.c \
+    pretty_ua.c pdf_fonts_embedded.c
 
 # Not compiled directly, but every one of them is #included by the
 # sources above -- listing them here is what makes `make dist` actually
@@ -34,7 +36,7 @@ noinst_HEADERS = \
     romberg.h savitzky_golay.h seqerror.h sequence.h sighandler.h \
     skyline.h skyparam.h slice.h sort.h speciate.h tables.h tools.h \
     tree.h uep.h watterson.h windows_timveval.h windowupdate.h world.h \
-    znzlib.h
+    znzlib.h hpdf_ua.h hpdf_ua_private.h pretty_ua.h pdf_fonts_embedded.h
 
 # Shared flags (common defines + local includes)
 COMMON_CPPFLAGS = \

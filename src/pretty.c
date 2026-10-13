@@ -41,6 +41,8 @@
 #include "speciate.h"
 #include "world.h"
 #include <hpdf.h>
+#include "pretty_ua.h"
+#include "pdf_fonts_embedded.h"
 #ifdef BEAGLE
 #include "beagle.h"
 #endif
@@ -74,6 +76,10 @@ HPDF_Font cour;
 int page_counter;
 char pdf_pagetitle[LINESIZE+1];
 char pdf_time[LINESIZE+1];
+#define ALLELEDATA_FONTSIZE 8.0 /* allelic data listing */
+/* TRUE while a table header is repeated on a continuation page: the repeat
+   is pagination decoration (an artifact), not a second header row */
+static boolean ua_repeat_header = FALSE;
 double page_height;
 double left_margin;
 extern int numcpu;
@@ -88,6 +94,7 @@ void pdf_migrate_logo_lines(double x, double y, double stretch);
 void pdf_print_time(double startx, double *pageheight, char text[]);
 boolean  pdf_advance(double *page_height);
 void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, option_fmt * options);
+void pdf_print_seqdata_note (world_fmt * world, data_fmt * data);
 void pdf_printf_next(double x, double *y, char string[], ...);
 void pdf_printf_ralign(double rx, double y, char string[], ...);
 void pdf_printf(double x, double y, char align, char string[], ...);
@@ -229,7 +236,7 @@ double quantiler(double *values, double prob1, double prob2, long range1, long r
 
 void symbol_Theta(double lx, double ly, int size, long subscript)
 {
-    char *thetatitle = "Q";
+    char *thetatitle = "\xce\x98"; /* U+0398 THETA (symb is a Unicode font) */
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
@@ -266,7 +273,7 @@ void symbol_Growth(double lx, double ly, int size, long subscript)
 }
 void symbol_mlf(double lx, double ly, int size, long subscript)
 {
-    char *growthtitle = "a";
+    char *growthtitle = "\xce\xb1"; /* U+03B1 alpha (symb is a Unicode font) */
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
     double lxdelta = lx + (double) 0.8 * size;
@@ -285,7 +292,7 @@ void symbol_mlf(double lx, double ly, int size, long subscript)
 
 void symbol_R(double lx, double ly, int size, long subscript)
 {
-    char *thetatitle = "m";
+    char *thetatitle = "\xce\xbc"; /* U+03BC mu (symb is a Unicode font) */
     char tempstring[STRSIZE];
     //int subsize =  (int) (0.75 * size);
     //double lxdelta = lx + (double) 0.8 * size;
@@ -343,7 +350,7 @@ void symbol_M(double lx, double ly, int size, long subscript1, long subscript2, 
 
 void symbol_D(double lx, double ly, int size, long subscript1, long subscript2)
 {
-    char *migtitle ="D";
+    char *migtitle ="\xce\x94"; /* U+0394 Delta (symb is a Unicode font) */
     int msub = size/2;
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
@@ -360,7 +367,7 @@ void symbol_D(double lx, double ly, int size, long subscript1, long subscript2)
 
 void symbol_S(double lx, double ly, int size, long subscript1, long subscript2)
 {
-    char *migtitle ="s";
+    char *migtitle ="\xcf\x83"; /* U+03C3 sigma (symb is a Unicode font) */
     int msub = size/2;
     char tempstring[STRSIZE];
     int subsize =  (int) (0.75 * size);
@@ -1148,6 +1155,11 @@ void pdf_master_init(world_fmt *world, option_fmt *options, data_fmt *data)
 {
     ////////////////////////////////////
     pdf_init();
+    /* PDF/UA-1 tagging: starts the tagging context and sets the
+       document-level metadata (/Lang, /DisplayDocTitle, /Metadata,
+       /Title); the drawing below stays untagged until a function is
+       instrumented with pretty_ua_push()/begin_content() */
+    pretty_ua_start_document(doc, options->title);
     // add first page
     pdf_new_page(options->title);
     pdf_master_title(options->title);//, &left_margin);
@@ -1173,6 +1185,7 @@ int pdf_init(void)
   /* Create a new PDF document. */
   //  doc = pdf_doc_new();
   //pdf_doc_new_doc(doc);
+  get_time (pdf_time, "%H:%M:%S"); /* page footers, from the first page on */
   doc = HPDF_New (error_handler, NULL);
   if (!doc) {
     printf ("error: cannot create PdfDoc object\n");
@@ -1183,10 +1196,57 @@ int pdf_init(void)
   //  HPDF_Free (doc);
   //  return 1;
   //}
-  helv  = HPDF_GetFont (doc, "Helvetica", NULL);
-  helvob  = HPDF_GetFont (doc, "Helvetica-Oblique", NULL);
-  symb  = HPDF_GetFont (doc, "Symbol", NULL);
-  cour  = HPDF_GetFont (doc, "Courier", NULL);
+  /* helv/helvob/cour are embedded (real font programs, Liberation Sans/
+     Sans Italic/Mono -- metric-compatible with Helvetica/Helvetica-Oblique/
+     Courier by design, so this preserves the existing layout) so they
+     satisfy PDF/UA-1's font-embedding requirement (ISO 14289-1:2014
+     7.21.4.1); their ToUnicode mapping was already implicit and correct via
+     WinAnsiEncoding, so embedding is all that was needed here.
+
+     symb used to be the Standard-14 Symbol font, with the symbol_*()
+     functions drawing plain ASCII letters ('Q', 'a', 'm', 'D', 's', ...)
+     that only *looked* like Greek/math glyphs because Symbol's own
+     built-in encoding remaps them -- the PDF itself stored the literal
+     ASCII byte, with no Unicode meaning attached anywhere, and Symbol is
+     itself un-embeddable (another Standard-14 font). Both problems
+     (7.21.4.1 font-embedding and 7.21.7 glyph-to-Unicode) are fixed the
+     same way: symb is now a *second* HPDF_Font handle onto the same
+     already-embedded Liberation Sans font program (no new font/license
+     entry needed -- verified via fontTools that Liberation Sans already
+     covers every Greek/math glyph symbol_*() uses), obtained via
+     libharu's built-in UTF-8/CID support (HPDF_UseUTFEncodings() +
+     HPDF_GetFont(..., "UTF-8"), confirmed by reading hpdf_doc.c/
+     hpdf_font_cid.c: a TrueType fontdef with a double-byte encoder gets
+     built as a real Type0/CID font, with libharu generating a correct
+     ToUnicode CMap from the actual UTF-8 text drawn). symbol_*()'s own
+     content was updated in tandem to draw the real Unicode character
+     (e.g. U+0398 GREEK CAPITAL LETTER THETA) instead of the old
+     Symbol-remapped ASCII placeholder -- see each function's own
+     comment. */
+  {
+    const char *helv_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_helv_ttf, pdf_font_helv_ttf_len, HPDF_TRUE);
+    const char *helvob_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_helvob_ttf, pdf_font_helvob_ttf_len, HPDF_TRUE);
+    const char *cour_name = HPDF_LoadTTFontFromMemory (doc, pdf_font_cour_ttf, pdf_font_cour_ttf_len, HPDF_TRUE);
+    if (!helv_name || !helvob_name || !cour_name)
+    {
+        printf ("error: failed to load an embedded font\n");
+        return 1;
+    }
+    helv   = HPDF_GetFont (doc, helv_name, "WinAnsiEncoding");
+    helvob = HPDF_GetFont (doc, helvob_name, "WinAnsiEncoding");
+    cour   = HPDF_GetFont (doc, cour_name, "WinAnsiEncoding");
+    if (HPDF_UseUTFEncodings (doc) != HPDF_OK)
+    {
+        printf ("error: HPDF_UseUTFEncodings failed\n");
+        return 1;
+    }
+    symb = HPDF_GetFont (doc, helv_name, "UTF-8");
+  }
+  if (!symb)
+  {
+      printf ("error: failed to create the Unicode symbol font\n");
+      return 1;
+  }
     /* Add Helvetica Font. */
   //   font1_def = pdf_create_type1_fontdef(PDF_FONT_HELVETICA);
   //pdf_doc_add_type1font(doc, font1_def, NULL, NULL);
@@ -1208,6 +1268,7 @@ int pdf_init(void)
 int pdf_new_page(char *title)
 {
     char stemp[LINESIZE];
+    HPDF_Page old_page = page;
     if(strlen(title)>1)
         strncpy(pdf_pagetitle,title,80);
     /* Add a page to the document. */
@@ -1216,12 +1277,18 @@ int pdf_new_page(char *title)
     page_counter += 1;
     /* Get the page object of the page. */
     //page = pdf_page_get_page(page);
-    
+    /* close whatever tagged span is open on the old page (a section that
+       overflows onto a new page); reopened below after this page's own
+       border/header/footer artifact */
+    pretty_ua_suspend_for_new_page(old_page);
+
     /*Set current font to "Helvetica" and set the size to 10. */
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     
     HPDF_Page_SetLineWidth(page, 1);
-    /* draw page rectangle 50pt from border*/
+    /* draw page rectangle 50pt from border: decoration, a PDF/UA artifact,
+       like the running header and the impressum below */
+    pretty_ua_begin_artifact(page);
     HPDF_Page_Rectangle(page, 50, 50,
                            HPDF_Page_GetWidth(page) - 100,
                            HPDF_Page_GetHeight(page) - 110);
@@ -1233,6 +1300,8 @@ int pdf_new_page(char *title)
     HPDF_Page_SetFontAndSize (page, helv, 6.0);
     pdf_print_contents_at(50, 42, stemp);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_end_artifact(page);
+    pretty_ua_resume_after_new_page(page);
     return 0;
 }
 
@@ -1256,42 +1325,82 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
     double segregmean=0.0;
     double wamean=0.0;
     pdf_print_section_title(&page_width, &page_height, title);
+    /* PDF/UA: two header rows (one per printed line, column 0 has an
+       empty second-line cell), one TR per locus and the All row */
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
     ly  = page_height;
+    /* one header row: each column label is one TH, also when it is
+       printed on two lines */
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[0], "Locus");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Locus */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[1]-10.0, "Relative");
+    pdf_print_line_element(lx, ly - LINESTRETCH, offset[1], "mutation rate");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Relative mutation rate */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     if(wattersons!=NULL)
     {
         pdf_print_line_element(lx, ly, offset[2]-7.0, "Watterson's");
         symbol_Theta(lx+offset[2],ly ,11, -1);
+        pdf_print_line_element(lx, ly - LINESTRETCH, offset[2], "(per site)");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: Watterson's Theta (per site) */
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_print_line_element(lx, ly, offset[3]+10.0, "Segregating");
+        pdf_print_line_element(lx, ly - LINESTRETCH, offset[3], "sites");
     }
     else
     {
         pdf_print_line_element(lx, ly, offset[2], "Number of alleles");
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Segregating sites / Number of alleles */
+    pretty_ua_pop(); /* TR: header row */
     pdf_advance(&page_height);
-    ly = page_height;
-    pdf_print_line_element(lx, ly, offset[1], "mutation rate");
-    if(wattersons!=NULL)
-    {
-        pdf_print_line_element(lx, ly, offset[2], "(per site)");
-        pdf_print_line_element(lx, ly, offset[3], "sites");
-    }
     pdf_advance(&page_height);
     //ly = page_height;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     for (locus=0; locus < loci; locus++)
     {
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
         mysnprintf(st,STRSIZE,"%5li",locus+1);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element(lx, page_height, offset[0], st);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element2(lx, page_height, offset[1], (double) murates[locus],5,5);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
         mumean += (murates[locus] - mumean)/(locus+1);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         if(wattersons != NULL)
         {
 	  pdf_print_line_element2(lx, page_height, offset[2], (double) wattersons[locus],2,8);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
             mysnprintf(st,STRSIZE,"%6li",segregs[locus]);
+            pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
             pdf_print_line_element(lx, page_height, offset[3], st);
             wamean += (wattersons[locus] - wamean)/(locus+1);
             segregmean += (segregs[locus] - segregmean)/(locus+1);
@@ -1302,18 +1411,40 @@ void pdf_print_mutationrate_weights(MYREAL *murates, long *segregs, MYREAL *watt
             pdf_print_line_element(lx, page_height, offset[2], st);
             segregmean += (segregs[locus] - segregmean)/(locus+1);
         }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
         pdf_advance(&page_height);
     }
     mysnprintf(st,STRSIZE,"%6s","All");
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, page_height, offset[0], st);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_print_line_element2(lx, page_height, offset[1], mumean,5,5);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     if (wattersons!=NULL)
     {
         pdf_print_line_element2(lx, page_height, offset[2], wamean,2,8);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element2(lx, page_height, offset[3], segregmean,5,1);
     }
     else
         pdf_print_line_element2(lx, page_height, offset[2], segregmean,5,1);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_pop(); /* TR: All */
+    pretty_ua_pop(); /* TABLE */
 }
 
 ///
@@ -1328,10 +1459,16 @@ void pdf_print_section_title(double *page_width, double * mypage_height, char *t
     *mypage_height = (double) HPDF_Page_GetHeight(page) - 75.0;
     *page_width = (double) HPDF_Page_GetWidth(page);
     *mypage_height -= 20.0;
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((*page_width - w)/2.0, *mypage_height, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     *mypage_height -= 20.0;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, *mypage_height, *page_width-50.0, *mypage_height);
+    pretty_ua_end_artifact(page);
     *mypage_height -= 20.0;
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
 }
@@ -1369,10 +1506,59 @@ int pdf_print_header(char *title)
 
 void pdf_print_contents_at(double x, double y, char *title)
 {
-    HPDF_Page_BeginText(page);
-    HPDF_Page_TextOut(page,  (float) x, (float) y, title);
-    HPDF_Page_EndText(page);
-    //fprintf(stderr,"(%f, %f) %s\n",x,y,title);
+    /* Several callers (string literals and pdf_printf()-family format
+       strings alike) end their text in a trailing '\n' out of printf
+       habit. HPDF_Page_TextOut() doesn't treat '\n' as a line break --
+       it just draws the control character as a real glyph, which has no
+       mapping in any of our fonts (PDF/UA-1 flags this: ISO 14289-1:2014
+       7.21.7/2, 7.21.8). Strip it here, once, for every caller, working
+       on a local copy since title may be a string literal. */
+    char stripped[LINESIZE];
+    size_t len;
+    mysnprintf(stripped, LINESIZE, "%s", title);
+    len = strlen(stripped);
+    while (len > 0 && (stripped[len-1] == '\n' || stripped[len-1] == '\r'))
+    {
+        stripped[--len] = '\0';
+    }
+    /* Padding with runs of spaces (fixed-width names, right-aligned
+       numbers) is layout, not text (accessibility checkers flag it): draw
+       each piece between such runs at exactly the x it had in the padded
+       string, keeping one space at the end of a piece that is followed by
+       more text. Leading and trailing spaces are not drawn. */
+    {
+        char piece[LINESIZE];
+        char prefix[LINESIZE];
+        size_t i = 0;
+        size_t n = len;
+        HPDF_Page_BeginText(page);
+        while (i < n)
+        {
+            size_t s = i;
+            size_t e;
+            size_t k;
+            double off;
+            while (s < n && stripped[s] == ' ')
+                s++;
+            if (s >= n)
+                break;
+            e = s;
+            while (e < n && !(stripped[e] == ' ' && (e + 1 >= n || stripped[e+1] == ' ')))
+                e++;
+            memcpy(prefix, stripped, s);
+            prefix[s] = '\0';
+            off = s > 0 ? (double) HPDF_Page_TextWidth(page, prefix) : 0.0;
+            memcpy(piece, stripped + s, e - s);
+            k = e - s;
+            for (i = e; i < n && stripped[i] == ' '; i++)
+                ;
+            if (i < n)
+                piece[k++] = ' ';
+            piece[k] = '\0';
+            HPDF_Page_TextOut(page, (float) (x + off), (float) y, piece);
+        }
+        HPDF_Page_EndText(page);
+    }
 }
 
 ///
@@ -1402,12 +1588,20 @@ int pdf_master_title(char *title)
     ////HPDF_Page_BeginText(page);
     /* Print title centered */
     page_height -= 100;
+    pretty_ua_push(HPDF_UA_ROLE_H1);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height, newtitle);
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 26;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 12.0);
     page_height -= 24;
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(55, page_height, "POPULATION SIZE, MIGRATION, DIVERGENCE, ASSIGNMENT, HISTORY");
     pdf_advance(&page_height);
     pdf_print_contents_at(55, page_height, "Bayesian inference using the structured coalescent");
@@ -1443,10 +1637,13 @@ int pdf_master_title(char *title)
 #endif
     pdf_advance(&page_height);
     pdf_print_time(55, &page_height, "Program started at ");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
     firstpage = page;
     timestampy = page_height;
     // here the end time stamp will be printed at the very end the run
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
     // print migrate logo
     HPDF_Page_SetLineWidth(page, 1);
@@ -1457,12 +1654,16 @@ int pdf_master_title(char *title)
     pdf_migrate_logo(-1364, -1435  - LETTERADJUST, 100.0);
     HPDF_Page_SetLineWidth(page, 4);
     pdf_migrate_logo_lines(-1400, -1435 - LETTERADJUST, 100.0);
+    pretty_ua_end_artifact(page);
     page_height = page_height - 3*LINESTRETCH;
     return 0;
 }
 
 int pdf_write_file(option_fmt *options)
 {
+    /* closes the structure elements and frees the tagging context; must
+       run before the save */
+    pretty_ua_finish_document();
     /* pdf-outfile=NO: no PDF report (not a file named NO) */
     const char *pn = options->pdfoutfilename;
     if (!((pn[0] == 'N' || pn[0] == 'n') && (pn[1] == 'O' || pn[1] == 'o') && pn[2] == '\0'))
@@ -1510,7 +1711,7 @@ double pdf_print_line_element2(double lx, double ly, double offset, double value
 void pdf_print_line_theta(double lx, double ly, double offset, long j)
 {
     char tempstring[STRSIZE];
-    char * thetatitle="Q";
+    char * thetatitle="\xce\x98"; /* U+0398 THETA */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -1539,7 +1740,7 @@ void pdf_print_line_growth(double lx, double ly, double offset, long j)
 void pdf_print_line_mlf(double lx, double ly, double offset, long j)
 {
     char tempstring[STRSIZE];
-    char * growthtitle="a";
+    char * growthtitle="\xce\xb1"; /* U+03B1 alpha */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -1572,7 +1773,7 @@ void pdf_print_line_species(char *title, double lx, double ly, double offset, lo
 void pdf_print_line_rate(double lx, double ly, double offset, long j, long exponent)
 {
     char tempstring[STRSIZE];
-    char * rtitle="m";
+    char * rtitle="\xce\xbc"; /* U+03BC mu */
     if(j < 0)
         mysnprintf(tempstring,STRSIZE," ");
     else
@@ -1624,17 +1825,75 @@ void pdf_print_bayestableheader(double mypage_height, double myleft_margin, doub
   (void) right_margin;
   double lx = myleft_margin;
   double ly = mypage_height;
-    
+    if (ua_repeat_header)
+    {   /* repeat on a continuation page: decoration */
+        static const char *labels[9] = {"Locus", "Parameter", "HPD95lo", "HPD50lo", "Mode",
+                                        "HPD50hi", "HPD95hi", "Median", "Mean"};
+        int k;
+        pretty_ua_begin_artifact(page);
+        for (k = 0; k < 9; k++)
+            pdf_print_line_element(lx, ly, offset[k], (char *) labels[k]);
+        pretty_ua_end_artifact(page);
+        return;
+    }
+    /* one TR of column TH cells, attached to the caller's TABLE */
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[0], "Locus");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[1], "Parameter");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
     // HPD interval bounds, not percentiles (see calc_hpd_credibility in bayes.c)
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[2], "HPD95lo");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[3], "HPD50lo");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[4], "Mode");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[5], "HPD50hi");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[6], "HPD95hi");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[7], "Median");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, ly, offset[8], "Mean");
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
+    pretty_ua_pop(); /* TR */
 }
 
 // Parameter        2.5%%      25.0%%   median    75.0%%   97.5%%     mode     mean\n"
@@ -1659,16 +1918,17 @@ void pdf_print_bayestable(world_fmt *world)
     bayes_fmt * bayes = world->bayes;
     bayeshistogram_fmt * hist;
     species_fmt *s;
-    
+
     page_height = (double) HPDF_Page_GetHeight(page);
     double page_width = (double) HPDF_Page_GetWidth(page);
-    
+
     left_margin = 60;
     double right_margin = page_width - 60;
-    
+
     //    double w;
-    
+
     char st[STRSIZE];
+    char st2[STRSIZE]; // /ActualText for symb-drawn parameter cells
     char title[100] = "Bayesian Analysis: Posterior distribution table";
     long frompop;
     long topop;
@@ -1692,11 +1952,17 @@ void pdf_print_bayestable(world_fmt *world)
     //page_height -= 126;
     lx = left_margin;
     page_height -= 20;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(left_margin, page_height, right_margin, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
+    /* one TABLE for the whole table, continuation pages included */
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
     pdf_print_bayestableheader(page_height, left_margin, right_margin, offset);
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(left_margin, page_height, right_margin, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     for(locus=start; locus < end; locus++)
     {
@@ -1719,24 +1985,35 @@ void pdf_print_bayestable(world_fmt *world)
               }
             else
                 mysnprintf(st,STRSIZE,"%5li ",locus + 1);
-            
+
             for(j0=0; j0< size; j0++)
             {
 	      if(shortcut(j0,world,&j))
 		{
 		  continue;
 		}
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      /* "Joint*": large genealogy-sampling error */
 	      pdf_print_line_element(lx, page_height, offset[0],
 				     (locus == world->loci + 1 && jc_param_flagged(world, j)) ? "Joint*" : st);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: locus */
+	      /* parameter cell: each branch opens its own content span
+	         (symb-only cells with /ActualText), closed after the chain */
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
 	      if(j < world->numpop)
                 {
+		  mysnprintf(st2,STRSIZE,"\xce\x98%li",j0+1);
+		  pretty_ua_begin_content_with_actual_text(page, st2);
 		  pdf_print_line_theta(lx, page_height, offset[1], j0);
 		  fmt1 = 8;
 		  fmt2 = 5;
                 }
 	      else if (j< world->numpop2)
 		{
+		  pretty_ua_begin_content(page);
 		  m2mm(j0,world->numpop,&frompop, &topop);
 		  if(world->options->usem)
 		    {
@@ -1773,12 +2050,15 @@ void pdf_print_bayestable(world_fmt *world)
 		      lmu = (long) (floor( log10(hist->modes[j]*world->options->meanmu[locus])));
 		      mu = world->options->meanmu[locus] * pow(10. , -lmu);
 		    }
+		  mysnprintf(st2,STRSIZE,"\xce\xbc [10%ld]",lmu);
+		  pretty_ua_begin_content_with_actual_text(page, st2);
 		  pdf_print_line_rate(lx, page_height, offset[1], -1, lmu);
 		  fmt1 = 8;
 		  fmt2 = 5;
 		}
 	      else if (world->has_speciation && j < nps)
 		{
+		  pretty_ua_begin_content(page);
 		  // speciation
 		  s = get_which_species_model(j,world->species_model,world->species_model_size);
 		  if (j == s->paramindex_mu)
@@ -1795,13 +2075,14 @@ void pdf_print_bayestable(world_fmt *world)
 	      else if(world->has_growth && j < npg)
 		{
 		  long d=j0-nps;
+		  pretty_ua_begin_content(page);
 		  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 		    {
 		      d++;
 		    }
 		  pdf_print_line_growth(lx, page_height, offset[1], d);
 		  fmt1 = 8;
-		  fmt2 = 5;			      
+		  fmt2 = 5;
 		}
 	      else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j < npp)
 		{
@@ -1810,22 +2091,60 @@ void pdf_print_bayestable(world_fmt *world)
 		    {
 		      d++;
 		    }
+		  mysnprintf(st2,STRSIZE,"\xce\xb1%li",d+1);
+		  pretty_ua_begin_content_with_actual_text(page, st2);
 		  pdf_print_line_mlf(lx, page_height, offset[1], d);
 		  fmt1 = 8;
-		  fmt2 = 5;			      
+		  fmt2 = 5;
 		}
-	    
+	      else
+		{
+		  /* nothing drawn: still open a span for the end below */
+		  pretty_ua_begin_content(page);
+		}
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: parameter */
+
 	      // reset the to helvetica from symbol or small helvetica
 	      HPDF_Page_SetFontAndSize (page, helv, 10.0);
 	      //if (j<world->numpop2 && world->options->custm2[j]!='d')
 	      //  {
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[2], (double) (mu * hist->cred95l[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[3], (double) (mu * hist->cred50l[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[4], (double) (mu * hist->modes[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[5], (double) (mu * hist->cred50u[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[6], (double) (mu * hist->cred95u[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[7], (double) (mu * hist->medians[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_print_line_element2(lx, page_height, offset[8], (double) (mu * hist->means[j]),fmt1,fmt2);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop();
+	      pretty_ua_pop(); /* TR */
 	      page_height -= LINESTRETCH;
 	      //  }
 	      if(page_height < 55)
@@ -1836,23 +2155,34 @@ void pdf_print_bayestable(world_fmt *world)
 		  page_height -= 50;
 		  lx = left_margin;
 		  page_height -= 20;
+		  pretty_ua_begin_artifact(page);
 		  pdf_draw_line(left_margin, page_height, right_margin, page_height);
+		  pretty_ua_end_artifact(page);
 		  page_height -= 20;
+		  ua_repeat_header = TRUE;
 		  pdf_print_bayestableheader(page_height, left_margin, right_margin, offset);
+		  ua_repeat_header = FALSE;
 		  page_height -= 20;
+		  pretty_ua_begin_artifact(page);
 		  pdf_draw_line(left_margin, page_height, right_margin, page_height);
+		  pretty_ua_end_artifact(page);
 		  pdf_advance(&page_height);
 		}
 	    }
+	    pretty_ua_begin_artifact(page);
 	    pdf_draw_line(left_margin, page_height, right_margin, page_height);
+	    pretty_ua_end_artifact(page);
 	    pdf_advance(&page_height);
 	  } // only when loci contains info
     } // over all loci
+    pretty_ua_pop(); /* TABLE */
     myfree(offset);
     if (bayes->jointrow && world->loci > 1)
     {   /* what the two combined rows are */
         long jj0, jj, nf = 0;
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_P);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin, page_height, 'L', "%s",
                    "All: the product of the per-locus marginal posteriors (each parameter on its own);");
         pdf_advance(&page_height);
@@ -1873,6 +2203,8 @@ void pdf_print_bayestable(world_fmt *world)
             pdf_printf(left_margin, page_height, 'L', "%s",
                        "are needed to confirm it (see the Monte Carlo error table).");
         }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* P */
         pdf_advance(&page_height);
     }
     pdf_print_citation("Bayesian inference", world);
@@ -1901,12 +2233,20 @@ void pdf_joint_mcerr_table(world_fmt *world)
   w = (double) HPDF_Page_TextWidth(page, title);
   page_height = (double) HPDF_Page_GetHeight(page);
   page_width = (double) HPDF_Page_GetWidth(page);
+  pretty_ua_push(HPDF_UA_ROLE_H2);
+  pretty_ua_begin_content(page);
   pdf_print_contents_at((page_width - w) / 2, page_height - 100, title);
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* H2 */
   HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
   page_height -= 126;
+  pretty_ua_begin_artifact(page);
   pdf_draw_line(50, page_height, page_width - 50, page_height);
+  pretty_ua_end_artifact(page);
   HPDF_Page_SetFontAndSize(page, helv, 10.0);
   pdf_advance(&page_height);
+  pretty_ua_push(HPDF_UA_ROLE_P);
+  pretty_ua_begin_content(page);
   mysnprintf(line, LINESIZE, "MC error: the combination repeated on %li %s; a lower bound for the", nblock,
              byrep ? "groups of replicates" : "stretches of each locus' chain");
   pdf_print_contents_at(left_margin, page_height, line);
@@ -1917,12 +2257,26 @@ void pdf_joint_mcerr_table(world_fmt *world)
   mysnprintf(line, LINESIZE, "over each locus' genealogies; median reweighting ESS %.0f). Joint*: not to be trusted, plots and tables use All.",
              bootess);
   pdf_print_contents_at(left_margin, page_height, line);
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* P */
   pdf_advance(&page_height);
   pdf_advance(&page_height);
+  pretty_ua_push(HPDF_UA_ROLE_TABLE);
+  pretty_ua_push(HPDF_UA_ROLE_TR);
   for (c = 0; c < 8; c++)
-    pdf_print_contents_at(xs[c], page_height, (char *) heads[c]);
+    {
+      pretty_ua_push(HPDF_UA_ROLE_TH);
+      pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+      pretty_ua_begin_content(page);
+      pdf_print_contents_at(xs[c], page_height, (char *) heads[c]);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TH */
+    }
+  pretty_ua_pop(); /* TR: header */
   pdf_advance(&page_height);
+  pretty_ua_begin_artifact(page);
   pdf_draw_line(50, page_height, page_width - 50, page_height);
+  pretty_ua_end_artifact(page);
   pdf_advance(&page_height);
   for (i = 0; i < n; i++)
     {
@@ -1935,10 +2289,19 @@ void pdf_joint_mcerr_table(world_fmt *world)
       mysnprintf(cell[5], 64, "%.4g", r->sd);
       if (r->booterr < 0.0) mysnprintf(cell[6], 64, "-"); else mysnprintf(cell[6], 64, "%.4g", r->booterr);
       mysnprintf(cell[7], 64, "%s", r->flagged ? "Joint*" : (r->ratio > 0.25 ? "large MC" : "ok"));
+      pretty_ua_push(HPDF_UA_ROLE_TR);
       for (c = 0; c < 8; c++)
-        pdf_print_contents_at(xs[c], page_height, cell[c]);
+        {
+          pretty_ua_push(HPDF_UA_ROLE_TD);
+          pretty_ua_begin_content(page);
+          pdf_print_contents_at(xs[c], page_height, cell[c]);
+          pretty_ua_end_content(page);
+          pretty_ua_pop(); /* TD */
+        }
+      pretty_ua_pop(); /* TR */
       pdf_advance(&page_height);
     }
+  pretty_ua_pop(); /* Table */
   myfree(rows);
 }
 
@@ -1970,31 +2333,57 @@ pdf_bayes_print_accept(world_fmt *world)
     species_fmt *  s;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
     stemp = stempo;
-    
+
     mysnprintf(title,LINESIZE,"Acceptance ratios for all parameters and the genealogies");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
-    
+
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
-    
+
     pdf_advance(&page_height);
     pdf_advance(&page_height);
-    
+
     // This needs more attention but will need more stuff to safe
-    
+
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height, "Parameter");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(250, page_height, "Accepted changes");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(450, page_height, "Ratio");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
 
 
@@ -2011,39 +2400,112 @@ pdf_bayes_print_accept(world_fmt *world)
 	    assert(trials>0);
 	    if(j<numpop) //theta
 	      {
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		/* Theta is drawn only with the symb font */
+		mysnprintf(stemp,LINESIZE,"\xce\x98%li",j0+1);
+		pretty_ua_begin_content_with_actual_text(page, stemp);
 		symbol_Theta(left_margin, page_height, 12, j0+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
 	    else if (j < numpop2)
 	      {
 		m2mm (j0, world->numpop, &frompop, &topop);
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 		memset(stemp,0,sizeof(char)*(LINESIZE-1));
 	      }
 	    else if(bayes->mu && j == numpop2)
 	      {
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		symbol_R(left_margin, page_height, 12, -1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
 	    else  if(world->has_speciation && j < nps)
 	      {
 		s = get_which_species_model(j, world->species_model,world->species_model_size);
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
                 symbol_D(left_margin, page_height, 12, s->from+1,s->to+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
                 pdf_printf(250, page_height, 'L', "%8li/%-8li", accept, trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
                 pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
                 pdf_advance(&page_height);
 		if (world->numparamvec[SPLITSTDPRIOR]>0)
 		  {
+		    /* second row (S), its own TR */
+		    pretty_ua_push(HPDF_UA_ROLE_TR);
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    symbol_S(left_margin, page_height, 12, s->from+1,s->to+1);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: symbol */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(250, page_height, 'L', "%8li/%-8li",accept,trials);
-		    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);		 
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: accepted/trials */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
+		    pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: ratio */
+		    pretty_ua_pop(); /* TR */
 		    pdf_advance(&page_height);
 		  }
 	      }
@@ -2052,43 +2514,114 @@ pdf_bayes_print_accept(world_fmt *world)
 		long d=j;
 		while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 		  d++;
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		symbol_Growth(left_margin, page_height, 12, d+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
-		pdf_advance(&page_height);		    
-	      }	    
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
+		pdf_advance(&page_height);
+	      }
 	    else if(world->has_mlalpha && world->tri_mlalpha != FIXED && j<npa)
 	      {
 		long d=j;
 		while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
 		  d++;
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		symbol_mlf(left_margin, page_height, 12, d+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8li/%-8li", accept,trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: accepted/trials */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) accept/trials);
-		pdf_advance(&page_height);		    
-	      }	      
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ratio */
+		pretty_ua_pop(); /* TR */
+		pdf_advance(&page_height);
+	      }
 	  }
       }
     // accepted trees
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(left_margin, page_height,'L', "Genealogies");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: label */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(250, page_height, 'L', "%8li/%-8li", world->accept_archive[npa], world->trials_archive[npa]);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: accepted/trials */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->accept_archive[npa]/ world->trials_archive[npa]);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: ratio */
+    pretty_ua_pop(); /* TR: Genealogies */
     pdf_advance(&page_height);
     // joint moves, only when used (as in bayes_print_accept())
     if (world->scaler_trials > 0)
       {
+	pretty_ua_push(HPDF_UA_ROLE_TR);
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(left_margin, page_height,'L', "Scaler (Theta*c, M/c)");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: label */
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(250, page_height, 'L', "%8li/%-8li", world->scaler_accept, world->scaler_trials);
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: accepted/trials */
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->scaler_accept / world->scaler_trials);
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: ratio */
+	pretty_ua_pop(); /* TR */
 	pdf_advance(&page_height);
       }
     if (world->window_trials > 0)
       {
+	pretty_ua_push(HPDF_UA_ROLE_TR);
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(left_margin, page_height,'L', "Window (local M)");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: label */
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(250, page_height, 'L', "%8li/%-8li", world->window_accept, world->window_trials);
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: accepted/trials */
+	pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_printf(450, page_height, 'L', "%8.5f", (MYREAL) world->window_accept / world->window_trials);
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD: ratio */
+	pretty_ua_pop(); /* TR */
 	pdf_advance(&page_height);
       }
+    pretty_ua_pop(); /* TABLE */
     myfree(stempo);
 }
 ///
@@ -2111,6 +2644,9 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
     bayes_fmt *bayes = world->bayes;
     hyper_fmt *hyperp = bayes->hyperp;
     species_fmt *  s;
+    HPDF_UA_StructElem hyper_tabl_elem;
+    HPDF_UA_StructElem hyper_tr_elem;
+    HPDF_UA_StructElem hyper_td_elem;
     if (!bayes->hyperprior)
       return;
     stempo = (char *) mycalloc(LINESIZE,sizeof(char));
@@ -2123,23 +2659,56 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    hyper_tabl_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    (void) hyper_tabl_elem;
+    hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    (void) hyper_tr_elem;
+    hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     
     // This needs more attention but will need more stuff to safe
     
     pdf_print_contents_at(left_margin, page_height, "Parameter");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Parameter */
+    hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(250, page_height, "Priormean/std");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Priormean/std */
+    hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(400, page_height, "PriorAlpha/std");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: PriorAlpha/std */
+    hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(530, page_height, "N");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: N */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     // population sizes
     for(j0=0; j0 < world->numpop; j0++)
@@ -2147,10 +2716,33 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
       j = world->bayes->map[j0][1];
       if((trials=hyperp[j].meann)>1)
 	{
+	  hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  (void) hyper_tr_elem;
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  symbol_Theta(left_margin, page_height, 12, j+1);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: symbol */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(250, page_height, 'L', "%8.5f/%-8.5f",hyperp[j].mean,hyperp[j].meanstd);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: Priormean/std */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(400, page_height, 'L', "%8.5f/%-8.5f", hyperp[j].alpha,hyperp[j].alphastd);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: PriorAlpha/std */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(500, page_height, 'L', "%8li",trials);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: N */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
 	}
     }
@@ -2164,10 +2756,33 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
 	  if(trials>1)
 	    {
 	      m2mm (j0, world->numpop, &frompop, &topop);
+	      hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	      (void) hyper_tr_elem;
+	      hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	      (void) hyper_td_elem;
+	      pretty_ua_begin_content(page);
 	      symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: symbol */
+	      hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	      (void) hyper_td_elem;
+	      pretty_ua_begin_content(page);
 	      pdf_printf(250, page_height, 'L', "%8.5f/%-8.5f",hyperp[j].mean,hyperp[j].meanstd);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: Priormean/std */
+	      hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	      (void) hyper_td_elem;
+	      pretty_ua_begin_content(page);
 	      pdf_printf(400, page_height, 'L', "%8.5f/%-8.5f", hyperp[j].alpha,hyperp[j].alphastd);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: PriorAlpha/std */
+	      hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	      (void) hyper_td_elem;
+	      pretty_ua_begin_content(page);
 	      pdf_printf(500, page_height, 'L', "%8li",trials);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD: N */
+	      pretty_ua_pop(); /* TR */
 	      pdf_advance(&page_height);
 	      memset(stemp,0,sizeof(char)*(LINESIZE-1));
 	    }
@@ -2181,10 +2796,33 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
       if(trials>1)
         {
 	  j=world->numpop2;
+	  hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  (void) hyper_tr_elem;
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  symbol_R(left_margin, page_height, 12, -1);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: symbol */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(250, page_height, 'L', "%8.5f/%-8.5f",hyperp[j].mean,hyperp[j].meanstd);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: Priormean/std */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(400, page_height, 'L', "%8.5f/%-8.5f", hyperp[j].alpha,hyperp[j].alphastd);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: PriorAlpha/std */
+	  hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  (void) hyper_td_elem;
+	  pretty_ua_begin_content(page);
 	  pdf_printf(500, page_height, 'L', "%8li",trials);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: N */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
         }
     }
@@ -2198,24 +2836,71 @@ pdf_bayes_print_hyperpriors(world_fmt *world)
 	    trials=hyperp[j0].meann;
             if(trials>1)
 	      {
+		hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+		(void) hyper_tr_elem;
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
                 symbol_D(left_margin, page_height, 12, s->from+1,s->to+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8.5f/%-8.5f",hyperp[j0].mean,hyperp[j0].meanstd);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: Priormean/std */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(400, page_height, 'L', "%8.5f/%-8.5f", hyperp[j0].alpha,hyperp[j0].alphastd);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: PriorAlpha/std */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(500, page_height, 'L', "%8li",trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: N */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
 
 	    trials=hyperp[j0+1].meann;
             if(trials>1)
 	      {
+		hyper_tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+		(void) hyper_tr_elem;
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
                 symbol_S(left_margin, page_height, 12, s->from+1,s->to+1);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%8.5f/%-8.5f",hyperp[j0+1].mean,hyperp[j0+1].meanstd);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: Priormean/std */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(400, page_height, 'L', "%8.5f/%-8.5f", hyperp[j0+1].alpha,hyperp[j0+1].alphastd);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: PriorAlpha/std */
+		hyper_td_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+		(void) hyper_td_elem;
+		pretty_ua_begin_content(page);
 		pdf_printf(500, page_height, 'L', "%8li",trials);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: N */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
         }
     }
+    pretty_ua_pop(); /* TABLE */
     myfree(stempo);
 }
 
@@ -2244,24 +2929,50 @@ pdf_bayes_print_ess(world_fmt *world)
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
-    
+
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
-    
+
     pdf_advance(&page_height);
     pdf_advance(&page_height);
-    
+
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height, "Parameter");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(250, page_height, "Autocorrelation");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(450, page_height, "Effective Sampe Size");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     // population sizes
     for(j0=0; j0 < world->numpop; j0++)
@@ -2269,9 +2980,25 @@ pdf_bayes_print_ess(world_fmt *world)
 	if(!strchr("c", world->options->custm2[j0]))
 	  {
 	    j = world->bayes->map[j0][1];
+	    pretty_ua_push(HPDF_UA_ROLE_TR);
+	    pretty_ua_push(HPDF_UA_ROLE_TD);
+	    /* Theta is drawn only with the symb font */
+	    mysnprintf(stemp,LINESIZE,"\xce\x98%li",j0+1);
+	    pretty_ua_begin_content_with_actual_text(page, stemp);
 	    symbol_Theta(left_margin, page_height, 12, j0+1);
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TD: symbol */
+	    pretty_ua_push(HPDF_UA_ROLE_TD);
+	    pretty_ua_begin_content(page);
 	    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TD: autocorrelation */
+	    pretty_ua_push(HPDF_UA_ROLE_TD);
+	    pretty_ua_begin_content(page);
 	    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TD: ESS */
+	    pretty_ua_pop(); /* TR */
 	    pdf_advance(&page_height);
 	  }
       }
@@ -2284,9 +3011,23 @@ pdf_bayes_print_ess(world_fmt *world)
 	    if (j>=0)
 	      {
 		m2mm (j0, world->numpop, &frompop, &topop);
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: symbol */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: autocorrelation */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ESS */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
 	    memset(stemp,0,sizeof(char)*(LINESIZE-1));
@@ -2296,9 +3037,23 @@ pdf_bayes_print_ess(world_fmt *world)
     // accepted rate of mutation rate changes
     if(world->bayes->mu)
     {
+      pretty_ua_push(HPDF_UA_ROLE_TR);
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
       symbol_R(left_margin, page_height, 12, -1);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD: symbol */
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
       pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD: autocorrelation */
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
       pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD: ESS */
+      pretty_ua_pop(); /* TR */
       pdf_advance(&page_height);
     }
     if(world->species_model_size > 0)
@@ -2316,19 +3071,44 @@ pdf_bayes_print_ess(world_fmt *world)
 		species_fmt *s = get_which_species_model(j,world->species_model,world->species_model_size);
 		frompop = s->from;
 		topop = s->to;
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		if(j == s->paramindex_mu)
 		  {
 		    symbol_D(left_margin, page_height, 12, frompop+1, topop+1);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: symbol */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: autocorrelation */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: ESS */
+		    pretty_ua_pop(); /* TR */
 		    pdf_advance(&page_height);
 		  }
 		else
 		  {
 		    symbol_S(left_margin, page_height, 12, frompop+1, topop+1);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: symbol */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: autocorrelation */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
-		    pdf_advance(&page_height);		    
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: ESS */
+		    pretty_ua_pop(); /* TR */
+		    pdf_advance(&page_height);
 		  }
 	      }
 	  }
@@ -2341,9 +3121,23 @@ pdf_bayes_print_ess(world_fmt *world)
 	  long d=j1-tc;
 	  while (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 	    d++;
+	  pretty_ua_push(HPDF_UA_ROLE_TR);
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  symbol_Growth(left_margin, page_height, 12, d+1);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: symbol */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: autocorrelation */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: ESS */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
         }
     }
@@ -2355,18 +3149,47 @@ pdf_bayes_print_ess(world_fmt *world)
 	  long d=j1-tc;
 	  while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
 	    d++;
+	  pretty_ua_push(HPDF_UA_ROLE_TR);
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  symbol_mlf(left_margin, page_height, 12, d+1);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: symbol */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: autocorrelation */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: ESS */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
         }
     }
     // likelihood of trees
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height,"Genealogies");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: label */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: autocorrelation */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: ESS */
+    pretty_ua_pop(); /* TR: Genealogies */
     pdf_advance(&page_height);
-    
+    pretty_ua_pop(); /* TABLE */
+
     myfree(stempo);
 }
 
@@ -2389,14 +3212,23 @@ void pdf_bayes_factor_header(world_fmt *world, option_fmt *options)
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    /* one P for the intro prose */
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_printf(left_margin, page_height, 'L', "Use this value for Bayes factor calculations:");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L', "BF = Exp[ ln(Prob(D | thisModel) - ln( Prob( D | otherModel)");
@@ -2404,19 +3236,27 @@ void pdf_bayes_factor_header(world_fmt *world, option_fmt *options)
     pdf_printf(left_margin, page_height,'L', "or as LBF = 2 (ln(Prob(D | thisModel) - ln( Prob( D | otherModel))");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L', "shows the support for thisModel]");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
     pdf_advance(&page_height);
     if (options->heating && options->adaptiveheat != NOTADAPTIVE)
       {   /* see the note in tables.c */
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_P);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin, page_height,'L', "NOTE: ADAPTIVE heating: TI and BTI integrate over the samples binned by their");
         pdf_advance(&page_height);
         pdf_printf(left_margin, page_height,'L', "temperature, SS is not available. A bias of a few log units can remain; for close");
         pdf_advance(&page_height);
         pdf_printf(left_margin, page_height,'L', "comparisons use static heating, e.g. heating=YES:1:{1.0,1.5,3.0,1000000.0}");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* P */
         pdf_advance(&page_height);
       }
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
 }
 
@@ -2429,15 +3269,49 @@ void pdf_bayes_factor_rawscores_header(world_fmt *world, option_fmt *options)
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
+    /* TABLE stays open: pdf_bayes_factor_rawscores()/_minmax() add rows,
+       pdf_bayes_factor_comment() pops it */
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height, "Locus");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: Locus */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(170, page_height, "TI(1a)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: TI(1a) */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(270, page_height, "BTI(1b)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: BTI(1b) */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(380, page_height, "SS(2)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: SS(2) */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(495, page_height, "HS(3)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: HS(3) */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
 }
 
@@ -2447,41 +3321,103 @@ void pdf_bayes_factor_rawscores(long locus, MYREAL rawtermo, MYREAL beziertermo,
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
     if(locus == -2)   /* the joint multi-locus combination, under All */
+    {
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf_right(left_margin+20, page_height,"Joint");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: label */
+    }
     else if(locus<0)
     {
+        pretty_ua_begin_artifact(page);
         pdf_draw_line(50, page_height,  page_width-50, page_height);
+        pretty_ua_end_artifact(page);
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf_right(left_margin+20, page_height,"All  ");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: label */
     }
     else
+    {
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf_right(left_margin+20, page_height,"%5li", locus+1);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: label */
+    }
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: TI */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: BTI */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     if (isnan(ss))   /* adaptive heating: no stepping stones */
       pdf_printf_right(407, page_height,"   %12s", "n/a");
     else
       pdf_printf_right(407, page_height,"   %12.2f", ss);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: SS */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(520, page_height,"   %12.2f", harmo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: HS */
+    pretty_ua_pop(); /* TR */
     pdf_advance(&page_height);
 }
 void pdf_bayes_factor_rawscores_minmax(int minmax, MYREAL rawtermo, MYREAL beziertermo, MYREAL ss, double harmo)
 {
     double page_width;
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height,  page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     if (minmax<0)
       pdf_printf_right(left_margin+20, page_height,"Lowest");
     else
       pdf_printf_right(left_margin+20, page_height,"Highest");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: label */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(200, page_height,"   %12.2f", rawtermo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: TI */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(303, page_height,"   %12.2f", beziertermo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: BTI */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     if (isnan(ss))   /* adaptive heating: no stepping stones */
       pdf_printf_right(407, page_height,"   %12s", "n/a");
     else
       pdf_printf_right(407, page_height,"   %12.2f", ss);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: SS */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf_right(520, page_height,"   %12.2f", harmo);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: HS */
+    pretty_ua_pop(); /* TR */
     pdf_advance(&page_height);
 }
 
@@ -2511,7 +3447,15 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     left_margin = 55;
     //double page_width;
     //page_width = HPDF_Page_GetWidth(page);
+    /* without heating there is no marginal likelihood page (tables.c);
+       the legend would land on whatever page was drawn last */
+    if (!world->options->heating)
+        return;
+    /* close the TABLE opened in pdf_bayes_factor_rawscores_header() */
+    pretty_ua_pop(); /* TABLE */
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_printf(left_margin, page_height,'L',"(1a) TI: Thermodynamic integration: log(Prob(D|Model)): Good approximation with many temperatures\n");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L',"(1b) BTI: Bezier-approximated Thermodynamic integration: when using few temperatures USE THIS!\n");
@@ -2519,7 +3463,11 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
     pdf_printf(left_margin, page_height,'L',"(2)  SS: Steppingstone Sampling (Xie et al. 2011)\n");
     pdf_advance(&page_height);
     pdf_printf(left_margin, page_height,'L',"(3)  HS: Harmonic mean approximation: Overestimates the marginal likelihood, poor variance\n\n");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     switch(world->options->adaptiveheat)
     {
         case STANDARD:
@@ -2547,6 +3495,8 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
         else
             pdf_printf(left_margin, page_height,'L',"[Scaling factor = %f]", scaling_factor);
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
     pdf_advance(&page_height);
     pdf_print_citation( "Marginal likelihood", world);
 }
@@ -2562,36 +3512,87 @@ void pdf_burnin_stops(world_fmt *world, long maxreplicate)
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
-    
+
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
-    
+
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height, "Locus");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(120, page_height, "Replicate");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(210, page_height, "Steps");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(310, page_height, "Variance ratio (new/old variance)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     for(z=0; z < world->loci * maxreplicate; z++)
     {
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin, page_height,'L',"%5li", world->burnin_stops[z].locus);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: locus */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf(120, page_height,'L',"%10li",world->burnin_stops[z].replicate);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: replicate */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf(200, page_height,'L',"%10li", world->burnin_stops[z].stopstep);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: steps */
+        /* ratio and (new/old) both belong to the one variance-ratio column */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_printf(310, page_height,'L',"%f", world->burnin_stops[z].variance/world->burnin_stops[z].oldvariance);
         pdf_printf(390, page_height,'L',"(%f/%f)",world->burnin_stops[z].variance,
                    world->burnin_stops[z].oldvariance);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: variance ratio */
+        pretty_ua_pop(); /* TR */
         pdf_advance(&page_height);
     }
+    pretty_ua_pop(); /* TABLE */
     pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
@@ -2620,42 +3621,102 @@ void pdf_print_gelman_rubin_table(world_fmt *world)
     lx = left_margin;
     pdf_print_section_title(&page_width, &page_height, title);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(lx, page_height,
         "Values close to 1.0, especially < 1.2, indicate convergence; unreliable on very short runs.");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P: interpretation note */
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, page_height, offset[0], "Locus");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, page_height, offset[1], "Mean sqrt(R)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_line_element(lx, page_height, offset[2], "Maximum sqrt(R)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_pop(); /* TR: header */
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     for (locus = 0; locus < world->loci; locus++)
       {
         mysnprintf(st,STRSIZE,"%5li",locus+1);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element(lx, page_height, offset[0], st);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: locus */
+        /* the valid/invalid branches are split per column cell */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         if (world->convergence->locus_gelman_valid[locus])
           {
             summean += world->convergence->locus_gelmanmeanRall[locus];
             if (world->convergence->locus_gelmanmaxRall[locus] > maxmax)
               maxmax = world->convergence->locus_gelmanmaxRall[locus];
             pdf_print_line_element2(lx, page_height, offset[1], (double) world->convergence->locus_gelmanmeanRall[locus],8,6);
-            pdf_print_line_element2(lx, page_height, offset[2], (double) world->convergence->locus_gelmanmaxRall[locus],8,6);
           }
         else
           {
             pdf_print_line_element(lx, page_height, offset[1], "-N-");
+          }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: mean sqrt(R) */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
+        if (world->convergence->locus_gelman_valid[locus])
+          {
+            pdf_print_line_element2(lx, page_height, offset[2], (double) world->convergence->locus_gelmanmaxRall[locus],8,6);
+          }
+        else
+          {
             pdf_print_line_element(lx, page_height, offset[2], "-N-");
           }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: maximum sqrt(R) */
+        pretty_ua_pop(); /* TR */
         pdf_advance(&page_height);
       }
     if (world->loci > 1)
       {
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element(lx, page_height, offset[0], "  All");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: locus */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element2(lx, page_height, offset[1], summean / (double) n,8,6);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: mean sqrt(R) */
+        pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
         pdf_print_line_element2(lx, page_height, offset[2], maxmax,8,6);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD: maximum sqrt(R) */
+        pretty_ua_pop(); /* TR */
         pdf_advance(&page_height);
       }
+    pretty_ua_pop(); /* TABLE */
 }
 
 void pdf_print_stored_warnings(world_fmt *world)
@@ -2695,14 +3756,22 @@ reducing the number of parameters may help.";
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     
     pdf_advance(&page_height);
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_SECT);
+    pretty_ua_begin_content(page);
     //w = 0;
     while(paragraph[i]!='\0')
     {
@@ -2736,8 +3805,40 @@ reducing the number of parameters may help.";
         tmp = strsep(&buffer,"\n");
         while(tmp!=NULL)
         {
-            pdf_printf(left_margin, page_height,'L',"%s",tmp);
-            pdf_advance(&page_height);
+            /* break long notes at a space, continuation lines indented */
+            double indent = 0.0;
+            char *rest = tmp;
+            while (*rest != '\0')
+            {
+                size_t n = strlen(rest);
+                char keep;
+                for (;;)
+                {
+                    size_t m = n;
+                    keep = rest[n];
+                    rest[n] = '\0';
+                    w = (double) HPDF_Page_TextWidth(page, rest);
+                    rest[n] = keep;
+                    if (w <= page_width - 110 - indent)
+                        break;
+                    while (m > 0 && rest[m-1] != ' ')
+                        m--;
+                    if (m <= 1)       /* one long word: print it whole */
+                        break;
+                    n = m - 1;        /* up to the space */
+                }
+                keep = rest[n];
+                rest[n] = '\0';
+                pdf_printf(left_margin + indent, page_height,'L',"%s",rest);
+                pdf_advance(&page_height);
+                rest[n] = keep;
+                rest += n;
+                while (*rest == ' ')
+                    rest++;
+                indent = 15.0;
+            }
+            if (*tmp == '\0')
+                pdf_advance(&page_height);
             tmp = strsep(&buffer,"\n");
         }
         myfree(b);
@@ -2746,6 +3847,8 @@ reducing the number of parameters may help.";
     {
         pdf_printf(left_margin, page_height,'L',"No warning was recorded during the run");
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
     myfree(section);
 }
 
@@ -2815,7 +3918,7 @@ void pdf_migrate_logo_lines(double x, double y, double stretch)
 void pdf_print_time(double startx, double *pageheight, char text[])
 {
     char nowstr[LINESIZE];
-    get_time(nowstr, "  %c");
+    get_time(nowstr, "%c");
     if (nowstr[0] != '\0')
         pdf_printf(startx, *pageheight, 'L',"%s %s", text, nowstr);
     pdf_advance(pageheight);
@@ -2833,7 +3936,7 @@ void pdf_print_end_time(double *mypage_height)
     char runtime[LINESIZE];
     title = (char *) mycalloc(LINESIZE,sizeof(char));
     
-    get_time(nowstr, "  %c");
+    get_time(nowstr, "%c");
     endseconds = time(0);
     get_runtime(runtime,startseconds,endseconds);
     mysnprintf(title,LINESIZE,"Program finished at %s [%s]", nowstr, runtime);
@@ -2841,9 +3944,13 @@ void pdf_print_end_time(double *mypage_height)
     if (nowstr[0] != '\0')
     {
         HPDF_Page_SetFontAndSize (thispage, helv, 12.0);
+        pretty_ua_push(HPDF_UA_ROLE_P);
+        pretty_ua_begin_content(thispage);
         HPDF_Page_BeginText(thispage);
 	HPDF_Page_TextOut(thispage, 55., (float) timestampy, title);
         HPDF_Page_EndText(thispage);
+        pretty_ua_end_content(thispage);
+        pretty_ua_pop(); /* P */
     }
     myfree(title);
 }
@@ -2857,9 +3964,15 @@ void pdf_title(char *title, double page_width)
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
     w = (double) HPDF_Page_TextWidth(page, title);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, ph - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop();
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, ph - 126, page_width-50, ph - 126);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     page_height -= 126.0;
 }
@@ -3115,6 +4228,12 @@ double pdf_locus_histogram(world_fmt *world, long locus)
       rpa=pa;
       numbins = numbinsall;
       numbinsall += bins[rpa];
+      /* one Figure per parameter histogram, as in codex */
+      pretty_ua_push(HPDF_UA_ROLE_FIGURE);
+      pretty_ua_set_alt_text("Posterior density histogram for one model "
+              "parameter (see the adjacent symbol for which one), with "
+              "the 50% and 95% credible-set bins shaded darker.");
+      pretty_ua_begin_content(page);
       if(rpa<numpop)
 	    {
 	      pdf_print_contents_at(lx-30,ly+125, "Freq");
@@ -3183,6 +4302,8 @@ double pdf_locus_histogram(world_fmt *world, long locus)
 	pdf_pretty_histogram(pa, rpa, numbins, results, 0, set50,
 			     set95, bins, delta, mini, maxi,
 			     lx, ly, world, themin, themax);
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* FIGURE */
 	pdf_advance_hist(world->numpop, &z, &lx, &ly);
     }
     return page_height;
@@ -3354,10 +4475,25 @@ void    pdf_print_connection_table (world_fmt * world, option_fmt *options, data
     pdf_printf_next (left_margin2, &page_height, "d = row population split off column population, D = split and then migration");
 
     pdf_advance(&page_height);
+    /* PDF/UA: heading and legend stay in pdf_print_options()' Sect span;
+       the matrix gets its own Table, so suspend that span meanwhile */
+    pretty_ua_suspend_content_same_page(page);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+    pretty_ua_begin_content(page);
     pdf_printf (left_margin, page_height, 'L', "Population");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: corner cell */
     for (i = 0; i < data->numpop; i++)
     {
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf (lx, page_height, 'L', "%3li", options->newpops[i]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: column header */
         lx += offset;
         if(lx > right_margin)
         {
@@ -3365,29 +4501,42 @@ void    pdf_print_connection_table (world_fmt * world, option_fmt *options, data
             pdf_advance(&page_height);
         }
     }
+    pretty_ua_pop(); /* TR: header row */
     //xcode lx = left_margin + 110;
     for (i = 0; i < data->numpop; i++)
     {
         lx = left_margin + 110;
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_printf (left_margin, page_height, 'L', "%3li %-15.15s",options->newpops[i],  data->popnames[i]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: row header */
         for (j = 0; j < data->numpop; j++)
         {
 	  //z = mm2m(options->newpops[j]-1,options->newpops[i]-1,world->numpop);
-	  z = world->numpop * (options->newpops[i]-1) + (options->newpops[j]-1);	  
+	  z = world->numpop * (options->newpops[i]-1) + (options->newpops[j]-1);
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(lx, page_height, 'L', " %c", world->options->custm[z]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD */
 	  lx += offset;
 	  if(lx > right_margin)
             {
 	      lx = left_margin + 90;
 	      pdf_advance(&page_height);
             }
-        }        
+        }
+        pretty_ua_pop(); /* TR: data row */
     }
-    pdf_advance(&page_height);
-    pdf_advance(&page_height);
+    pretty_ua_pop(); /* TABLE */
+    pretty_ua_resume_content_same_page(page);
     if (world->has_growth) //!(world->options->growpops[0] == 0 && world->options->growpops_numalloc==1))
       {
+	pdf_advance(&page_height);
 	for (i = 0; i < data->numpop; i++)
 	  {
 	    lx = left_margin + 110;
@@ -3396,7 +4545,6 @@ void    pdf_print_connection_table (world_fmt * world, option_fmt *options, data
 	    pdf_printf(lx, page_height, 'L', "%s", (world->options->growpops[options->newpops[i]-1]>0) ?  "growing/shrinking" : "constant size");
 	  }
       }
-    pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
 
@@ -3419,8 +4567,12 @@ void pdf_print_param_order(world_fmt *world)
     long nps = world->numparamcumvec[SPLITSTDPRIOR];
     long npg = world->numparamcumvec[GROWTHPRIOR];
     long numparam = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2;
+    boolean li_closed;
     pdf_advance(&page_height);
     pdf_printf_next(left_margin, &page_height,"Order of parameters:");
+    /* PDF/UA: numbered list; suspend pdf_print_options()' Sect span */
+    pretty_ua_suspend_content_same_page(page);
+    pretty_ua_push(HPDF_UA_ROLE_L);
     //  fprintf(bayesfile,"# Parameter-number Parameter\n");
     for(pa0=0;pa0<numparam;pa0++)
     {
@@ -3428,6 +4580,9 @@ void pdf_print_param_order(world_fmt *world)
 	{
 	  continue;
 	}
+      pretty_ua_push(HPDF_UA_ROLE_LI);
+      pretty_ua_begin_content(page);
+      li_closed = FALSE;
       if(pa0 < numpop)
 	{
 	  if((pa0 == pa) && (custm2[pa0] == '*'))
@@ -3528,7 +4683,10 @@ void pdf_print_param_order(world_fmt *world)
 			  symbol_S(left_margin+80, page_height,12,frompop+1,topop+1);
 			  pdf_printf(left_margin+230, page_height,'L',"<displayed>");
 			}
-		      pdf_advance(&page_height);
+		      /* this branch advances itself: close the LI first */
+		      pretty_ua_end_content(page);
+		      pretty_ua_pop(); /* LI */
+		      li_closed = TRUE;
 		    }
 		  else
 		    {
@@ -3556,8 +4714,15 @@ void pdf_print_param_order(world_fmt *world)
 		}
 	    }
 	}
+      if (!li_closed)
+	{
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* LI */
+	}
       pdf_advance(&page_height);
     }
+    pretty_ua_pop(); /* L */
+    pretty_ua_resume_content_same_page(page);
     pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
@@ -3573,17 +4738,36 @@ void    pdf_print_distance_table (world_fmt * world, option_fmt * options, data_
     double right_margin = (double) HPDF_Page_GetWidth(page) - 2.0*55.0 - offset;
     left_margin = 55;
     double lx=left_margin + 80;
-    
+
     if(!options->geo)
         return;
-    
+
     pdf_advance(&page_height);
-    pdf_printf_next(left_margin, &page_height, "Distance among populations:");
+    /* PDF/UA: suspend pdf_print_options()' Sect span for this Table */
+    pretty_ua_suspend_content_same_page(page);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_CAPTION);
+    pretty_ua_begin_content(page);
+    { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "Distance among populations:"); pdf_print_contents_at(left_margin, page_height, capt_); }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* CAPTION */
+    pdf_advance(&page_height); /* after the caption/header cell is closed */
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+    pretty_ua_begin_content(page);
     pdf_printf (left_margin, page_height, 'L', "Population");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: corner cell */
     for (i = 0; i < data->numpop; i++)
     {
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf (lx, page_height, 'L', "%3li", options->newpops[i]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: column header */
         lx += offset;
         if(lx > right_margin)
         {
@@ -3591,14 +4775,25 @@ void    pdf_print_distance_table (world_fmt * world, option_fmt * options, data_
             pdf_advance(&page_height);
         }
     }
+    pretty_ua_pop(); /* TR: header row */
     for (i = 0; i < data->numpop; i++)
     {
         lx = left_margin + 80;
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_printf (left_margin, page_height, 'L', "%3li %-15.15s",options->newpops[i],  data->popnames[i]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: row header */
         for (j = 0; j < data->numpop; j++)
         {
+            pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
             pdf_printf(lx, page_height, 'L', " %10.4f ", data->ogeo[j][i]);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
             lx += offset;
             if(lx > right_margin)
             {
@@ -3606,7 +4801,10 @@ void    pdf_print_distance_table (world_fmt * world, option_fmt * options, data_
                 pdf_advance(&page_height);
             }
         }
+        pretty_ua_pop(); /* TR: data row */
     }
+    pretty_ua_pop(); /* TABLE */
+    pretty_ua_resume_content_same_page(page);
     pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
@@ -3648,6 +4846,11 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
   char *paramtgen, *parammgen;
   paramtgen = (char *) mycalloc(2*LINESIZE,sizeof(char));
   parammgen = paramtgen + LINESIZE;
+  HPDF_UA_StructElem options_title_elem;
+  HPDF_UA_StructElem options_sect_elem;
+  HPDF_UA_StructElem table_elem;
+  HPDF_UA_StructElem tr_elem;
+  HPDF_UA_StructElem cell_elem;
 
         switch ((short) options->autoseed)
         {
@@ -3676,12 +4879,25 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     HPDF_Page_SetRGBFill(page, 0.f, 0.f, 0.f);
     HPDF_Page_SetLineWidth(page, 1);
+    /* title drawn inline (not via pdf_print_section_title()), so it gets
+       its own H2 here, matching that helper's convention */
+    options_title_elem = pretty_ua_push(HPDF_UA_ROLE_H2);
+    (void) options_title_elem;
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2 */
     page_height -= 20;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     page_height -= 20;
     HPDF_Page_SetFontAndSize (page, helv, 10.);
-    
+    /* the label/value settings below are one Sect, closed at the very end;
+       pdf_new_page() closes and reopens the open span across page breaks */
+    options_sect_elem = pretty_ua_push(HPDF_UA_ROLE_SECT);
+    (void) options_sect_elem;
+    pretty_ua_begin_content(page);
     switch (options->datatype)
     {
         case 'a':
@@ -3775,9 +4991,8 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
         pdf_print_contents_at(left_margin, page_height,"Random number seed:");
         pdf_printf_right_next(left_margin, &page_height,"(%s)%s%20li", seedgen, " ",
                               options->saveseed);
-        pdf_printf_next(left_margin, &page_height,"Start parameters:");
-        pdf_advance(&page_height);
-        pdf_print_contents_at(left_margin, page_height,"Theta values were generated");
+        pdf_printf_next(left_margin, &page_height,"Start values:");
+        pdf_print_contents_at(left_margin + 10, page_height,"Theta values were generated");
         pdf_printf_right_next(left_margin, &page_height," %s", paramtgen);
         if (options->startguess[THETAPRIOR][0] == OWN)
         {
@@ -3789,15 +5004,14 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             {
 	      pdf_printf_cell(&left_margin, &page_height, page_width-55.0, "%.5f", (double) options->startparam.theta[i]);
             }
+            //left_margin = *orig_left_margin;
+            pdf_advance(&page_height);
         }
         
-        //left_margin = *orig_left_margin;
-        pdf_advance(&page_height);
-        
         if(options->usem)
-            pdf_print_contents_at(left_margin, page_height,"M values were generated");
+            pdf_print_contents_at(left_margin + 10, page_height,"M values were generated");
         else
-            pdf_print_contents_at(left_margin, page_height,"xNm values were generated");
+            pdf_print_contents_at(left_margin + 10, page_height,"xNm values were generated");
         
         pdf_printf_right_next(left_margin, &page_height," %s", parammgen);
         
@@ -3979,42 +5193,100 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     pdf_advance(&page_height);
     pdf_print_contents_at(left_margin, page_height,"Proposal distributions for parameter");
     pdf_advance(&page_height);
+    /* each row is one pdf_print_tableline() call, so one TH/TD per row;
+       the ambient Sect content span is suspended for the table */
+    pretty_ua_suspend_content_same_page(page);
+    table_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    (void) table_elem;
+    tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    (void) tr_elem;
+    cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    (void) cell_elem;
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_tableline(width2, "%s %s", "Parameter", "Proposal");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: header row */
+    pretty_ua_pop(); /* TR: header row */
     pdf_advance(&page_height);
+    tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_print_tableline(width2, "%s %s", "Theta",
 			is_proposaltype2(options->slice_sampling[THETAPRIOR], options->multiplier_proposal[THETAPRIOR]));
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_pop(); /* TR */
     pdf_advance(&page_height);
     if (world->has_migration)
       {
 	pdf_advance(&page_height);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width2, "%s %s", options->usem ? "M" : "xNm",
 			    is_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR */
       }
     if (world->has_speciation)
       {
 	pdf_advance(&page_height);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width2, "%s %s", "Divergence",
 			    is_proposaltype2(options->slice_sampling[SPLITPRIOR], options->multiplier_proposal[SPLITPRIOR]));
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR */
 	pdf_advance(&page_height);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width2, "%s %s", "Divergence Spread",
 			    is_proposaltype2(options->slice_sampling[SPLITSTDPRIOR], options->multiplier_proposal[SPLITSTDPRIOR]));
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR */
       }
     if (world->has_growth)
       {
 	pdf_advance(&page_height);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width2, "%s %s", "Growth",
 			    is_proposaltype2(options->slice_sampling[GROWTHPRIOR], options->multiplier_proposal[GROWTHPRIOR]));
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR */
       }
     if(options->bayesmurates)
       {
 	pdf_advance(&page_height);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width2, "%s %s", "Rate",
 			    is_proposaltype2(options->slice_sampling[RATEPRIOR], options->multiplier_proposal[RATEPRIOR]));
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR */
       }
     pdf_advance(&page_height);
+    tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_print_tableline(width2, "%s %s", "Genealogy",
 			"Metropolis-Hastings");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_pop(); /* TR */
     pdf_advance(&page_height);
+    pretty_ua_pop(); /* TABLE: Proposal distributions for parameter */
+    pretty_ua_resume_content_same_page(page);
     pdf_advance(&page_height);
     // effective per-move update frequencies: choices[] is cumulative, so each
     // move's probability is the difference to the previous entry. A move given
@@ -4039,31 +5311,81 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	pch[ci] = cch[ci] - cch[ci-1];
       pdf_print_contents_at(left_margin, page_height,"Update frequencies (effective probability per step)");
       pdf_advance(&page_height);
+      /* no drawn header row: each row's move name is its row header (TH) */
+      pretty_ua_suspend_content_same_page(page);
+      table_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
       for (ci = 0; ci < NUMBER_OF_UPDATES; ci++)
 	{
+	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", chnames[ci]);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f", pch[ci]);
-	  pdf_print_tableline(width2, "%s %s", chnames[ci], mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
 	}
       if (pch[SCALERUPDATE] > 0.0)
 	{
+	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", "  scaler multiplier bound b = 1 + delta");
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f", 1.0 + world->options->scaler_delta);
-	  pdf_print_tableline(width2, "%s %s", "  scaler multiplier bound b = 1 + delta", mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
 	}
       if (pch[WINDOWUPDATE] > 0.0)
 	{
 	  // parity with the ASCII version in options.c (print_update_frequencies),
 	  // which already shows this detail; the PDF table was missing it.
+	  tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	  pretty_ua_begin_content(page);
+	  pdf_print_tableline(width2, "%s", "  window log-M step / branches per move");
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TH */
+	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  mysnprintf(mytextf, LINESIZE, "%.5f / %li", world->options->window_delta, world->options->window_size);
-	  pdf_print_tableline(width2, "%s %s", "  window log-M step / branches per move", mytextf);
+	  pdf_print_tableline(width2 + 1, "%s", mytextf);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD */
+	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
 	}
+      pretty_ua_pop(); /* TABLE: Update frequencies */
+      pretty_ua_resume_content_same_page(page);
       pdf_advance(&page_height);
     }
     pdf_print_contents_at(left_margin, page_height,"Prior distribution for parameter");
     pdf_advance(&page_height);
+    pretty_ua_suspend_content_same_page(page);
+    table_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_tableline(width, "%s %s %s %s %s %s %s %s %s %s %s", "Parameter", " ", " ", " ", "Prior", "Minimum",  "Mean*",  "Maximum", "Delta", "Bins","UpdateFreq");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: header row */
+    pretty_ua_pop(); /* TR: header row */
     pdf_advance(&page_height);
 
     prior_fmt *p = options->bayes_priors;
@@ -4108,6 +5430,9 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	else
 	  mysnprintf(tstr,4,"%li",to+1);
 	is_priorkind(ptr, priorkind);
+	tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+	cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+	pretty_ua_begin_content(page);
 	pdf_print_tableline(width, "%3li %s %s %s %s %s %5.5s %5.5s %9.9s %6.6s %s", z++ /*pa*/, ptypename, fstr, tstr,
 			    //text[is_priortype(options->bayes_priors,options->bayes_priors_num, options->bayes_priors[pa].type)],
                            priorkind,
@@ -4118,8 +5443,13 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
                            show_priorbins(mytext, ptr),
 			    mytext5
 			    );
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TD */
+	pretty_ua_pop(); /* TR: data row */
 	pdf_advance(&page_height);
       }
+    pretty_ua_pop(); /* TABLE: Prior distribution for parameter */
+    pretty_ua_resume_content_same_page(page);
     pdf_print_contents_at(left_margin, page_height,"[* * means priors were set globally]");   
     pdf_advance(&page_height);
     pdf_advance(&page_height);
@@ -4155,40 +5485,146 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
     
         pdf_print_contents_at(left_margin, page_height,"Markov chain settings:");
         pdf_printf_right_next(left_margin, &page_height, "Long chain");
+        /* chain settings as a table: label = TH (scope Row), value = TD.
+           pdf_printf_right_next() advances while the TD is still open;
+           pdf_new_page() carries the open span over a page break. */
+        pretty_ua_suspend_content_same_page(page);
+        table_elem = pretty_ua_push(HPDF_UA_ROLE_TABLE);
+
+        tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_print_contents_at(left_margin, page_height,"Number of chains");
-        pdf_printf_right_next(left_margin+10, &page_height,"%20li", options->lchains);
-        
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
+        pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"%20li", options->lchains);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
+        pdf_advance(&page_height); /* after the row is closed */
+
+        tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_print_contents_at(left_margin + 10, page_height,"Recorded steps [a]");
-        pdf_printf_right_next(left_margin + 10, &page_height,"%20li", options->lsteps);
-        
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
+        pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%20li", options->lsteps);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
+        pdf_advance(&page_height); /* after the row is closed */
+
+        tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_print_contents_at(left_margin + 10, page_height,"Increment (record every x step [b]");
-        pdf_printf_right_next(left_margin+10, &page_height,"%20li", options->lincrement);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
+        pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"%20li", options->lincrement);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
+        pdf_advance(&page_height); /* after the row is closed */
+
+        tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
 	pdf_print_contents_at(left_margin + 10, page_height,"Number of concurrent chains (replicates) [c]");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
 	pdf_printf_ralign(left_margin + 340, page_height," ");
-	pdf_printf_right_next(left_margin + 10, &page_height,"%20li", options->replicate ?
+	pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%20li", options->replicate ?
 			      options->replicatenum : 1);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
+        pdf_advance(&page_height); /* after the row is closed */
+
+        tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
 	pdf_print_contents_at(left_margin + 10, page_height,"Visited (sampled) parameter values [a*b*c]");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+        pretty_ua_begin_content(page);
 	// pdf_printf_ralign(left_margin + 340, page_height,"%20li",
 	//                  options->ssteps * options->sincrement*(options->replicate ? options->replicatenum : 1));
-	pdf_printf_right_next(left_margin + 10, &page_height,"%20li", options->lsteps * options->lincrement*(options->replicate ? options->replicatenum : 1));
+	pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%20li", options->lsteps * options->lincrement*(options->replicate ? options->replicatenum : 1));
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TD */
+        pretty_ua_pop(); /* TR */
+        pdf_advance(&page_height); /* after the row is closed */
         if (options->burn_in > 0)
         {
+            tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+            pretty_ua_begin_content(page);
             pdf_print_contents_at(left_margin + 10, page_height,"Number of discard trees per replicate (burn-in * b)");
-	    pdf_printf_right_next(left_margin + 10, &page_height,"%c%li", options->burnin_autostop, (long) options->burn_in * options->lincrement);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH */
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
+	    pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%c%li", options->burnin_autostop, (long) options->burn_in * options->lincrement);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
+            pretty_ua_pop(); /* TR */
+            pdf_advance(&page_height); /* after the row is closed */
         }
         if (options->movingsteps)
         {
+            tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+            pretty_ua_begin_content(page);
             pdf_print_contents_at(left_margin + 10, page_height,"Forcing percentage of new genealogies");
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH */
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
             //    pdf_printf(left_margin + 360, page_height,"%5.2f",   (MYREAL) options->acceptfreq);
-            pdf_printf_right_next(left_margin + 10, &page_height,"%5.2f",   (MYREAL) options->acceptfreq);
+            pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%5.2f",   (MYREAL) options->acceptfreq);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
+            pretty_ua_pop(); /* TR */
+            pdf_advance(&page_height); /* after the row is closed */
         }
         if (options->lcepsilon < LONGCHAINEPSILON)
         {
+            tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+            pretty_ua_begin_content(page);
             pdf_print_contents_at(left_margin + 10, page_height,"Forcing parameter-likelihood improvement");
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH */
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
             //    pdf_printf(left_margin + 360, page_height,"%20.5f",   (MYREAL) options->lcepsilon);
-            pdf_printf_right_next(left_margin + 10, &page_height,"%20.5f",   (MYREAL) options->lcepsilon);
+            pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin + 10), page_height,"%20.5f",   (MYREAL) options->lcepsilon);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
+            pretty_ua_pop(); /* TR */
+            pdf_advance(&page_height); /* after the row is closed */
         }
-        
+        pretty_ua_pop(); /* TABLE: Markov chain settings */
+        pretty_ua_resume_content_same_page(page);
+
         pdf_advance(&page_height);
         
 	if(options->heating > 0)
@@ -4256,6 +5692,9 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
             pdf_printf_right_next(left_margin, &page_height,"%s", options->mighistfilename);
         }
 
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
+
     //*orig_page_height = page_height;
     //*orig_left_margin = left_margin;
     myfree(priorkind);
@@ -4275,17 +5714,38 @@ void pdf_print_ratetbl (world_fmt * world, option_fmt * options, long locus, cha
     long sublocus;
     const long sublocistart = world->sublocistarts[locus];
     const long sublociend   = world->sublocistarts[locus+1];
-    if(header=='A' || header == 'C') 
+    /* PDF/UA: one TR with one cell per printed line; the TABLE is pushed
+       and popped by the caller, pdf_print_data_summary() */
+    if(header=='A' || header == 'C')
       {
+	pretty_ua_push(HPDF_UA_ROLE_CAPTION);
+	pretty_ua_begin_content(page);
 	pdf_print_contents_at(left_margin, page_height,"Site rate variation and probabilities:");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* CAPTION */
         pdf_advance(&page_height);
+	pretty_ua_push(HPDF_UA_ROLE_TR);
+	pretty_ua_push(HPDF_UA_ROLE_TH);
+	pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+	pretty_ua_begin_content(page);
 	pdf_printf(left_margin, page_height,'L', "Locus Sublocus Region type     Rate of change    Probability  Patch size");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TH */
+	pretty_ua_pop(); /* TR: header row */
         pdf_advance(&page_height);
+	pretty_ua_begin_artifact(page);
 	pdf_draw_line(50, page_height, page_width-50, page_height);
+	pretty_ua_end_artifact(page);
 	if(header=='C')
 	  {
 	    pdf_advance(&page_height);
+	    pretty_ua_push(HPDF_UA_ROLE_TR);
+	    pretty_ua_push(HPDF_UA_ROLE_TD);
+	    pretty_ua_begin_content(page);
 	    pdf_printf(left_margin, page_height,'L', "[compressed - only loci that are different than the one before are shown]");
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TD */
+	    pretty_ua_pop(); /* TR */
 	  }
       }
     for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
@@ -4297,15 +5757,21 @@ void pdf_print_ratetbl (world_fmt * world, option_fmt * options, long locus, cha
 	    sp = &world->mutationmodels[sublocus-1];
 	    for (i = 0; i < s->numsiterates; i++)
 	      if (fabs(s->siterates[i] - sp->siterates[i]) < DBL_EPSILON)
-		doprint=TRUE;	  
+		doprint=TRUE;
 	  }
 	if(doprint)
 	  {
 	    for (i = 0; i < s->numsiterates; i++)
 	      {
 		pdf_advance(&page_height);
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(left_margin, page_height,'L', "%4ld     %8ld       %9ld          %16.3f    %17.3f  %13.3f", locus + 1, sublocus + 1-sublocistart, i + 1, s->siterates[i],
 			   s->siteprobs[i], 1.0 / s->lambda);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD */
+		pretty_ua_pop(); /* TR */
 	      }
 	    if (s->numsiterates > 1)
 	      pdf_advance(&page_height);
@@ -4336,6 +5802,10 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
     return;
   memset (&all, 0, sizeof (variable_sites_fmt));
   pdf_print_section_title(&page_width, &page_height, "Variable sites per locus");
+  /* PDF/UA: Sect around the body, the per-locus listing as a Table
+     (one row-level cell per printed line) */
+  pretty_ua_push(HPDF_UA_ROLE_SECT);
+  pretty_ua_begin_content(page);
   pdf_advance(&page_height);
   pdf_printf(left_margin, page_height,'L',
 	     "A site counts as variable when two or more of A,C,G,T are observed; '?', '-', '0',");
@@ -4348,6 +5818,12 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
 	     100.0 * VARSITE_MISSING_HIGH, 100.0 * VARSITE_MISSING_VERYHIGH);
   pdf_advance(&page_height);
   pdf_advance(&page_height);
+  pretty_ua_suspend_content_same_page(page);
+  pretty_ua_push(HPDF_UA_ROLE_TABLE);
+  pretty_ua_push(HPDF_UA_ROLE_TR);
+  pretty_ua_push(HPDF_UA_ROLE_TH);
+  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+  pretty_ua_begin_content(page);
   pdf_print_contents_at(left_margin, page_height,"Locus");
   pdf_printf_ralign(c1, page_height,"Sites");
   pdf_printf_ralign(c2, page_height,"Missing[%%]");
@@ -4355,6 +5831,9 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
   pdf_printf_ralign(c4, page_height,"Variable");
   pdf_printf_ralign(c5, page_height,">%.0f%% ?", 100.0 * VARSITE_MISSING_HIGH);
   pdf_printf_ralign(c6, page_height,">%.0f%% ?", 100.0 * VARSITE_MISSING_VERYHIGH);
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* TH */
+  pretty_ua_pop(); /* TR: header row */
   pdf_advance(&page_height);
   if (options->tersepdf && printloci > TEN)
     printloci = TEN;
@@ -4377,6 +5856,9 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
 	continue;
       missperc = (r.sites * r.genecopies > 0) ?
 	100.0 * (double) r.missing / ((double) r.sites * (double) r.genecopies) : 0.0;
+      pretty_ua_push(HPDF_UA_ROLE_TR);
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
       pdf_printf(left_margin, page_height,'L',"%li", locus+1);
       pdf_printf_ralign(c1, page_height,"%li", r.sites);
       pdf_printf_ralign(c2, page_height,"%.2f", missperc);
@@ -4384,16 +5866,28 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
       pdf_printf_ralign(c4, page_height,"%li", r.variable);
       pdf_printf_ralign(c5, page_height,"%li", r.variable_highmissing);
       pdf_printf_ralign(c6, page_height,"%li", r.variable_veryhighmissing);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD */
+      pretty_ua_pop(); /* TR */
       pdf_advance(&page_height);
     }
   if (data->loci > printloci)
     {
+      pretty_ua_push(HPDF_UA_ROLE_TR);
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
       pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD */
+      pretty_ua_pop(); /* TR */
       pdf_advance(&page_height);
     }
   {
     double missperc = (all.sites * all.genecopies > 0) ?
       100.0 * (double) all.missing / ((double) all.sites * (double) all.genecopies) : 0.0;
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
     pdf_printf(left_margin, page_height,'L',"All");
     pdf_printf_ralign(c1, page_height,"%li", all.sites);
     pdf_printf_ralign(c2, page_height,"%.2f", missperc);
@@ -4401,8 +5895,13 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
     pdf_printf_ralign(c4, page_height,"%li", all.variable);
     pdf_printf_ralign(c5, page_height,"%li", all.variable_highmissing);
     pdf_printf_ralign(c6, page_height,"%li", all.variable_veryhighmissing);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD */
+    pretty_ua_pop(); /* TR */
     pdf_advance(&page_height);
   }
+  pretty_ua_pop(); /* TABLE */
+  pretty_ua_resume_content_same_page(page);
   if (all.variable > 0)
     {
       pdf_printf(left_margin, page_height,'L',
@@ -4412,6 +5911,8 @@ void pdf_print_variable_sites_summary(world_fmt * world, option_fmt *options, da
       pdf_advance(&page_height);
     }
   pdf_advance(&page_height);
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* SECT */
 }
 
 
@@ -4444,6 +5945,11 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     totalmiss = (long *) mycalloc(data->loci,sizeof(long));
     // setup new page and title
     pdf_print_section_title(&page_width, &page_height, title);
+    /* PDF/UA: one Sect around the body; the mutation model listing, the
+       site rate table and the gene copies listing are nested Tables
+       (Sect span suspended meanwhile), one row-level cell per line */
+    pretty_ua_push(HPDF_UA_ROLE_SECT);
+    pretty_ua_begin_content(page);
     set_datatype_string(options->datatype, dstring);
     if(options->prioralone)
       {
@@ -4495,10 +6001,19 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     pdf_advance(&page_height);
     pdf_print_contents_at(left_margin, page_height,"Mutationmodel:");
     pdf_advance(&page_height);
+    pretty_ua_suspend_content_same_page(page);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
+    pretty_ua_push(HPDF_UA_ROLE_TR);
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at(left_margin, page_height,"Locus");
     pdf_print_contents_at(left_margin+30, page_height,"Sublocus");
     pdf_print_contents_at(left_margin+90, page_height,"Mutationmodel");
     pdf_print_contents_at(left_margin+200, page_height,"Mutationmodel parameters");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_pop(); /* TR: header row */
     pdf_advance(&page_height);
     boolean terse = options->tersepdf;
     {
@@ -4540,10 +6055,22 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	    {
 	      get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
 	      pdf_advance(&page_height);
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height,'L', "%6s     %8li           %-15.15s          %s\n","all",sublocus-sublocistart0+1,modelname,modelparam);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD */
+	      pretty_ua_pop(); /* TR */
 	    }
 	  pdf_advance(&page_height);
+	  pretty_ua_push(HPDF_UA_ROLE_TR);
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
 	  pdf_printf(left_margin, page_height,'L', "[same mutation model for all %li loci]\n", data->loci);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD */
+	  pretty_ua_pop(); /* TR */
 	}
       else
 	{
@@ -4552,7 +6079,13 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	    {
 	      printloci = TEN;
 	      pdf_advance(&page_height);
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height,'L', "Only the first 10 loci are shown\n");
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD */
+	      pretty_ua_pop(); /* TR */
 	    }
 	  for (locus=0; locus < printloci; locus++)
 	    {
@@ -4562,20 +6095,37 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 		{
 		  get_mutationmodel_nameparam(modelname,modelparam, &world->mutationmodels[sublocus]);
 		  pdf_advance(&page_height);
+		  pretty_ua_push(HPDF_UA_ROLE_TR);
+		  pretty_ua_push(HPDF_UA_ROLE_TD);
+		  pretty_ua_begin_content(page);
 		  pdf_printf(left_margin, page_height,'L', "%6li     %8li           %-15.15s          %s\n",locus+1,sublocus-sublocistart+1,modelname,modelparam);
+		  pretty_ua_end_content(page);
+		  pretty_ua_pop(); /* TD */
+		  pretty_ua_pop(); /* TR */
 		}
 	    }
 	  if (data->loci > printloci)
 	    {
 	      pdf_advance(&page_height);
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height,'L', "[only the first %li loci are shown]\n", printloci);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD */
+	      pretty_ua_pop(); /* TR */
 	    }
 	}
+      pretty_ua_pop(); /* TABLE: Mutationmodel */
+      pretty_ua_resume_content_same_page(page);
       if (print_siterates)
 	{
 	  compressed = (data->loci > TEN);
 	  pdf_advance(&page_height);
 	  pdf_advance(&page_height);
+	  /* pdf_print_ratetbl() draws Caption/TR rows into this Table */
+	  pretty_ua_suspend_content_same_page(page);
+	  pretty_ua_push(HPDF_UA_ROLE_TABLE);
 	  if(compressed)
 	    pdf_print_ratetbl (world, options, 0, 'C');
 	  else
@@ -4587,6 +6137,8 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	      else
 		pdf_print_ratetbl (world, options, locus, 'F');
 	    }
+	  pretty_ua_pop(); /* TABLE: site rate variation */
+	  pretty_ua_resume_content_same_page(page);
 	  pdf_advance(&page_height);
 	}
     }
@@ -4611,14 +6163,34 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
     //print gene copies per population and locus
     if (!(!strchr (SEQUENCETYPES, options->datatype) && options->datatype!='@'))
       {
+	/* PDF/UA: rows that end in pdf_printf_right_next() draw the same
+	   text with pdf_printf_right() and advance after the row is
+	   closed, so a page break never splits a cell */
+	pretty_ua_suspend_content_same_page(page);
+	pretty_ua_push(HPDF_UA_ROLE_TABLE);
+	pretty_ua_push(HPDF_UA_ROLE_TR);
+	pretty_ua_push(HPDF_UA_ROLE_TH);
+	pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+	pretty_ua_begin_content(page);
 	pdf_print_contents_at(left_margin, page_height,"Population");
 	pdf_print_contents_at(col1, page_height,"Locus");
 	pdf_print_contents_at(col3, page_height, "Gene copies");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* TH */
+	pretty_ua_pop(); /* TR: header row 1 */
 	pdf_advance(&page_height);
 	if (!strchr (SEQUENCETYPES, options->datatype))
 	  {
+	    pretty_ua_push(HPDF_UA_ROLE_TR);
+	    pretty_ua_push(HPDF_UA_ROLE_TH);
+	    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+	    pretty_ua_begin_content(page);
 	    pdf_print_contents_at(col3, page_height,"data");
-	    pdf_printf_right_next(left_margin, &page_height,"(missing)");
+	    pdf_printf_right((double) HPDF_Page_GetWidth(page) - left_margin, page_height,"(missing)");
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TH */
+	    pretty_ua_pop(); /* TR: header row 2 */
+	    pdf_advance(&page_height);
 	  }
 
 	for (pop = 0; pop < data->numpop; pop++)
@@ -4652,14 +6224,25 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	      }
 	    if (pop_homogeneous)
 	      {
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
 		pdf_printf_ralign(col2, page_height,"all");
 		pdf_printf_ralign(col3, page_height,"%li", pop_numind);
 		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
-		  pdf_printf_right_next(left_margin+10, &page_height,"(%li)", pop_nummiss);
-		else
-		  pdf_advance(&page_height);
+		  pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", pop_nummiss);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD */
+		pretty_ua_pop(); /* TR */
+		pdf_advance(&page_height);
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(left_margin, page_height, 'L', "    [same for all %li loci]", data->loci);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD */
+		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
 	    else
@@ -4667,6 +6250,9 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 		long printloci = data->loci;
 		if (terse && data->loci > TEN)
 		  printloci = TEN;
+		pretty_ua_push(HPDF_UA_ROLE_TR);
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
 		pdf_printf(left_margin, page_height,'L', "%li %s", options->newpops[pop], data->popnames[pop]);
 		pdf_printf_ralign(col2, page_height,"1");
 		if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
@@ -4674,35 +6260,50 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 		    nummiss = find_missing(data,pop,0);
 		    numind = data->numalleles[pop][0] - nummiss;
 		    pdf_printf_ralign(col3, page_height,"%li",numind);
-		    pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
+		    pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", nummiss);
 		  }
 		else
 		  {
 		    numind = data->numind[pop][0];
 		    pdf_printf_ralign(col3, page_height,"%li", numind);
-		    pdf_advance(&page_height);
 		  }
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD */
+		pretty_ua_pop(); /* TR */
+		pdf_advance(&page_height);
 		for(locus=1; locus< printloci; locus++)
 		  {
+		    pretty_ua_push(HPDF_UA_ROLE_TR);
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    if (!strchr (SEQUENCETYPES, options->datatype) && options->datatype !='@')
 		      {
 			nummiss = find_missing(data,pop,locus);
 			numind = data->numalleles[pop][locus] - nummiss;
 			pdf_printf_ralign(col2, page_height,"%li",locus+1);
 			pdf_printf_ralign(col3, page_height,"%li",numind);
-			pdf_printf_right_next(left_margin+10, &page_height,"(%li)", nummiss);
+			pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", nummiss);
 		      }
 		    else
 		      {
 			numind = data->numind[pop][locus];
 			pdf_printf_ralign(col2, page_height,"%li",locus+1);
 			pdf_printf_ralign(col3, page_height,"%li",numind);
-			pdf_advance(&page_height);
 		      }
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD */
+		    pretty_ua_pop(); /* TR */
+		    pdf_advance(&page_height);
 		  }
 		if (data->loci > printloci)
 		  {
+		    pretty_ua_push(HPDF_UA_ROLE_TR);
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
 		    pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD */
+		    pretty_ua_pop(); /* TR */
 		    pdf_advance(&page_height);
 		  }
 	      }
@@ -4717,52 +6318,96 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	    }
 	  if (total_homogeneous)
 	    {
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height, 'L', "Total of all populations");
 	      pdf_printf_ralign(col2, page_height,"all");
 	      pdf_printf_ralign(col3, page_height,"%li",total[0]);
 	      if (!strchr (SEQUENCETYPES, options->datatype))
-		pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[0]);
-	      else
-		pdf_advance(&page_height);
+		pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", totalmiss[0]);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD */
+	      pretty_ua_pop(); /* TR */
+	      pdf_advance(&page_height);
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height, 'L', "    [same for all %li loci]", data->loci);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TD */
+	      pretty_ua_pop(); /* TR */
 	      pdf_advance(&page_height);
 	    }
 	  else
 	    {
 	      if (terse && data->loci > TEN)
 		printloci = TEN;
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(left_margin, page_height, 'L', "Total of all populations");
 	      pdf_printf_ralign(col2, page_height,"1");
 	      pdf_printf_ralign(col3, page_height,"%li",total[0]);
 	      if (!strchr (SEQUENCETYPES, options->datatype))
 		{
-		  pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[0]);
+		  pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", totalmiss[0]);
+		  pretty_ua_end_content(page);
+		  pretty_ua_pop(); /* TD */
+		  pretty_ua_pop(); /* TR */
+		  pdf_advance(&page_height);
 		  for(locus=1; locus< printloci; locus++)
 		    {
+		      pretty_ua_push(HPDF_UA_ROLE_TR);
+		      pretty_ua_push(HPDF_UA_ROLE_TD);
+		      pretty_ua_begin_content(page);
 		      pdf_printf_ralign(col2, page_height,"%li",locus+1);
 		      pdf_printf_ralign(col3, page_height,"%li",total[locus]);
-		      pdf_printf_right_next(left_margin+10, &page_height,"(%li)", totalmiss[locus]);
+		      pdf_printf_right((double) HPDF_Page_GetWidth(page) - (left_margin+10), page_height,"(%li)", totalmiss[locus]);
+		      pretty_ua_end_content(page);
+		      pretty_ua_pop(); /* TD */
+		      pretty_ua_pop(); /* TR */
+		      pdf_advance(&page_height);
 		    }
 		}
 	      else
 		{
+		  pretty_ua_end_content(page);
+		  pretty_ua_pop(); /* TD */
+		  pretty_ua_pop(); /* TR */
 		  pdf_advance(&page_height);
 		  for(locus=1; locus< printloci; locus++)
 		    {
+		      pretty_ua_push(HPDF_UA_ROLE_TR);
+		      pretty_ua_push(HPDF_UA_ROLE_TD);
+		      pretty_ua_begin_content(page);
 		      pdf_printf_ralign(col2, page_height,"%li",locus+1);
 		      pdf_printf_ralign(col3, page_height,"%li",total[locus]);
+		      pretty_ua_end_content(page);
+		      pretty_ua_pop(); /* TD */
+		      pretty_ua_pop(); /* TR */
 		      pdf_advance(&page_height);
 		    }
 		}
 	      if (data->loci > printloci)
 		{
+		  pretty_ua_push(HPDF_UA_ROLE_TR);
+		  pretty_ua_push(HPDF_UA_ROLE_TD);
+		  pretty_ua_begin_content(page);
 		  pdf_printf(left_margin, page_height,'L',"[only the first %li loci are shown]", printloci);
+		  pretty_ua_end_content(page);
+		  pretty_ua_pop(); /* TD */
+		  pretty_ua_pop(); /* TR */
 		  pdf_advance(&page_height);
 		}
 	    }
 	}
+	pretty_ua_pop(); /* TABLE: gene copies */
+	pretty_ua_resume_content_same_page(page);
       }
     pdf_advance(&page_height);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
     pdf_print_variable_sites_summary(world, options, data);
     myfree(total);
     myfree(totalmiss);
@@ -4908,17 +6553,45 @@ void pdf_print_allelelegend(double *column_width, long loci)
 {
     long locus;
     char stemp[LINESIZE];
+    HPDF_UA_StructElem tr_elem;
+    HPDF_UA_StructElem cell_elem;
     mysnprintf(stemp,LINESIZE, "%-s", (loci == 1 ? "locus" : "loci "));
+    if (ua_repeat_header)
+    {
+        pretty_ua_begin_artifact(page);
+        pdf_printf(column_width[0], page_height, 'L', "Indiv.");
+        for(locus=1; locus < loci+1; locus++)
+        {
+            pdf_printf(column_width[locus], page_height, 'L', "%li",locus);
+            if(column_width[locus+1]<column_width[locus])
+                pdf_advance(&page_height);
+        }
+        pretty_ua_end_artifact(page);
+        return;
+    }
+    tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+    (void) tr_elem;
+    cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
     
     pdf_printf(column_width[0], page_height, 'L', "Indiv.");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH: corner cell */
     for(locus=1; locus < loci+1; locus++)
     {
+        cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf(column_width[locus], page_height, 'L', "%li",locus);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: locus column header */
         if(column_width[locus+1]<column_width[locus])
         {
             pdf_advance(&page_height);
         }
     }
+    pretty_ua_pop(); /* TR: legend header row */
 }
 
 #define NOTFIRSTDATAPAGE (boolean) 0
@@ -4928,11 +6601,20 @@ void pdf_print_allelelegend(double *column_width, long loci)
 void pdf_print_dataheader (boolean first, char *title, double *column_width, long pop, world_fmt * world,
                       option_fmt * options, data_fmt * data)
 {
-    
+
     double w;
     double page_width;
     //double left_margin = 55;
-    
+    /* PDF/UA: one TABLE per population (a Table may have only one
+       Caption); callers pop the last TABLE. The population a call belongs
+       to is remembered here, so a continuation page of the same
+       population repeats the name as a row instead of a new Caption. */
+    static long ua_table_pop = -1;
+    boolean new_population;
+    long i;
+
+    new_population = (boolean) (first || pop != ua_table_pop);
+    ua_table_pop = pop;
     // setup new page and title
     if(first)
     {
@@ -4942,10 +6624,16 @@ void pdf_print_dataheader (boolean first, char *title, double *column_width, lon
         page_height = (double) HPDF_Page_GetHeight(page) - 75.0;
         page_width = (double) HPDF_Page_GetWidth(page);
         page_height -= 20.;
+        pretty_ua_push(HPDF_UA_ROLE_H2);
+        pretty_ua_begin_content(page);
         pdf_print_contents_at((page_width - w)/2, page_height, title);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* H2 */
         HPDF_Page_SetRGBStroke(page, 0, 0, 0);
         page_height -= 20.;
+        pretty_ua_begin_artifact(page);
         pdf_draw_line(50, page_height, page_width-50, page_height);
+        pretty_ua_end_artifact(page);
         page_height -= 20.;
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
     }
@@ -4953,19 +6641,49 @@ void pdf_print_dataheader (boolean first, char *title, double *column_width, lon
     {
         pdf_advance(&page_height);
         page_width = (double) HPDF_Page_GetWidth(page);
+        pretty_ua_begin_artifact(page);
         pdf_draw_line(50, page_height, page_width-50, page_height);
+        pretty_ua_end_artifact(page);
         pdf_advance(&page_height);
     }
-    pdf_printf_next(left_margin, &page_height, "\n%-s", data->popnames[pop]);
+    if (new_population)
+    {
+        if (!first)
+            pretty_ua_pop(); /* TABLE: previous population */
+        pretty_ua_push(HPDF_UA_ROLE_TABLE);
+        pretty_ua_push(HPDF_UA_ROLE_CAPTION);
+        pretty_ua_begin_content(page);
+        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* CAPTION: population name */
+        pdf_advance(&page_height); /* after the caption/header cell is closed */
+    }
+    else
+    {
+        /* continuation page: the repeated population name and column
+           header are pagination artifacts */
+        pretty_ua_begin_artifact(page);
+        { char capt_[LINESIZE]; mysnprintf(capt_, LINESIZE, "%-s", data->popnames[pop]); pdf_print_contents_at(left_margin, page_height, capt_); }
+        pretty_ua_end_artifact(page);
+        pdf_advance(&page_height);
+    }
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
     if (!strchr (SEQUENCETYPES, options->datatype))
+    {
+        ua_repeat_header = !new_population;
         pdf_print_allelelegend(column_width, world->loci);
+        ua_repeat_header = FALSE;
+    }
     //    else
     //    pdf_print_seqlegend(left_margin, page_height, world->loci);
-    
+
     pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     pdf_advance(&page_height);
 }
 
@@ -5019,61 +6737,178 @@ void pdf_print_alleledata (double margin, world_fmt * world, data_fmt * data, op
         }
     }
     // calculate columnwidth for in page units for individual name and locus column
+    // the listing uses a smaller font so that more loci fit on a line
+    HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
     column_width[1] = 5.0 + (double) (mysnprintf(stemp,LINESIZE, "%-*.*s", (int) options->nmlength,
 					    (int) options->nmlength, data->indnames[0][0][0]));
     w = (double) HPDF_Page_TextWidth(page, stemp);
     pixel = w / options->nmlength;
     column_width[0] = margin;
-    column_width[1] = margin + w;
-    total = margin + w;
+    column_width[1] = margin + w + 2.0 * pixel;
+    total = margin + w + 2.0 * pixel;
+    /* column_width[locus+1] is where locus starts; a locus that would cross
+       the right border starts the next line */
     for (locus = 0; locus < data->loci; locus++)
     {
-        column_width[locus+2] *= pixel;
-        total += column_width[locus+2];
-        if(total > (page_width - 55))
-        {
+        double lw = column_width[locus+2] * pixel;
+        if(locus > 0 && total + lw > (page_width - 55))
             total = margin;
-            column_width[locus+2] = total;
-        }
-        else
-        {
-            column_width[locus+2] = total;
-        }
+        column_width[locus+1] = total;
+        total += lw;
+        column_width[locus+2] = total;
     }
     
     for (pop = 0; pop < data->numpop; pop++)
     {
+        HPDF_Page_SetFontAndSize (page, helv, 10.0); /* header labels as on the first page */
         if(pop==0)
             pdf_print_dataheader (FIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
         else
             pdf_print_dataheader (NOTFIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
+        HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
         
         for (ind = 0; ind < data->numind[pop][0]; ind++)
         {
+            HPDF_UA_StructElem tr_elem = pretty_ua_push(HPDF_UA_ROLE_TR);
+            HPDF_UA_StructElem cell_elem;
+            (void) tr_elem;
+            cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+            pretty_ua_begin_content(page);
             pdf_printf(column_width[0], page_height, 'L', "%-*.*s", (int) options->nmlength,
                        (int) options->nmlength, data->indnames[pop][ind][0]);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH: individual name */
             for (locus = 0; locus < data->loci; locus++)
             {
+                cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(column_width[locus+1], page_height, 'L', " %s.%-s",
                            data->yy[pop][ind][locus][0][0],
                            data->yy[pop][ind][locus][1][0]);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: locus value */
                 if(column_width[locus+2]<column_width[locus+1])
                 {
                     pdf_advance(&page_height);
                 }
             }
+            pretty_ua_pop(); /* TR: individual row */
             oldpage_height = page_height;
             pdf_advance(&page_height);
             if(oldpage_height < page_height)
+            {
+                HPDF_Page_SetFontAndSize (page, helv, 10.0);
                 pdf_print_dataheader (NOTFIRSTDATAPAGE, "Allelic data", column_width, pop, world, options, data);
+                HPDF_Page_SetFontAndSize (page, helv, ALLELEDATA_FONTSIZE);
+            }
             
         }
     }
+    pretty_ua_pop(); /* TABLE */
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
     myfree(column_width);
 }
 
 
 
+
+///
+/// estimated sequencing error rates in the PDF report (the outfile table of
+/// seqerror_report()): per locus and over all loci, mean, standard deviation
+/// and number of recorded samples for each nucleotide or the combined rate
+void pdf_seqerror_report(world_fmt *world)
+{
+    const boolean combined = world->seqerrorcombined;
+    const long nn = combined ? 1 : 4;
+    const char nuc[4] = {'A', 'C', 'G', 'T'};
+    char title[] = "Estimation of sequencing error";
+    char **header;
+    char ***elements;
+    double page_width;
+    long rows = (world->loci + 1) * nn;
+    long locus, k, i, r = 0;
+    MYREAL amean[4], astd[4];
+    long an[4];
+    for (k = 0; k < nn; k++)
+        onepass_mean_std_start(&amean[k], &astd[k], &an[k]);
+    charvec2d(&header, 5, STRSIZE);
+    mysnprintf(header[0], STRSIZE, "Locus");
+    mysnprintf(header[1], STRSIZE, "Nucleotide");
+    mysnprintf(header[2], STRSIZE, "Mean");
+    mysnprintf(header[3], STRSIZE, "Std. dev.");
+    mysnprintf(header[4], STRSIZE, "Samples");
+    elements = (char ***) mycalloc(rows, sizeof(char **));
+    for (i = 0; i < rows; i++)
+        charvec2d(&elements[i], 5, STRSIZE);
+    for (locus = 0; locus < world->loci; locus++)
+    {
+        for (k = 0; k < nn; k++)
+        {
+            MYREAL mean, std;
+            long n;
+            onepass_mean_std_start(&mean, &std, &n);
+            for (i = 0; i < world->seqerrorratesnum[locus]; i++)
+            {
+                MYREAL e = world->seqerrorrates[locus][i * nn + k];
+                onepass_mean_std_calc(&mean, &std, &n, e);
+                onepass_mean_std_calc(&amean[k], &astd[k], &an[k], e);
+            }
+            onepass_mean_std_end(&mean, &std, &n);
+            mysnprintf(elements[r][0], STRSIZE, "%li", locus + 1);
+            mysnprintf(elements[r][1], STRSIZE, "%c", combined ? 'N' : nuc[k]);
+            mysnprintf(elements[r][2], STRSIZE, "%.6f", (double) mean);
+            mysnprintf(elements[r][3], STRSIZE, "%.6f", (double) std);
+            mysnprintf(elements[r][4], STRSIZE, "%li", n);
+            r++;
+        }
+    }
+    for (k = 0; k < nn; k++)
+    {
+        onepass_mean_std_end(&amean[k], &astd[k], &an[k]);
+        mysnprintf(elements[r][0], STRSIZE, "All");
+        mysnprintf(elements[r][1], STRSIZE, "%c", combined ? 'N' : nuc[k]);
+        mysnprintf(elements[r][2], STRSIZE, "%.6f", (double) amean[k]);
+        mysnprintf(elements[r][3], STRSIZE, "%.6f", (double) astd[k]);
+        mysnprintf(elements[r][4], STRSIZE, "%li", an[k]);
+        r++;
+    }
+    left_margin = 55;
+    pdf_print_section_title(&page_width, &page_height, title);
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pdf_advance(&page_height);
+    pdf_table2(5, (int) rows, header, NULL, elements, NULL, 2, 30.0);
+    pdf_advance(&page_height);
+    for (i = 0; i < rows; i++)
+        free_charvec2d(elements[i]);
+    myfree(elements);
+    free_charvec2d(header);
+}
+
+/// note in place of the sequence data listing (the outfile has it)
+void pdf_print_seqdata_note (world_fmt * world, data_fmt * data)
+{
+    double page_width;
+    long pop, locus;
+    long sites = 0;
+    long ind = 0;
+    (void) world;
+    for (locus = 0; locus < data->loci; locus++)
+        sites += data->totalsites != NULL ? data->totalsites[locus] : 0;
+    for (pop = 0; pop < data->numpop; pop++)
+        ind += data->numind[pop][0];
+    left_margin = 55;
+    pdf_print_section_title(&page_width, &page_height, "Sequence data");
+    HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
+    pdf_printf(left_margin, page_height, 'L', "%li individuals, %li loci, %li sites.", ind, data->loci, sites);
+    pdf_advance(&page_height);
+    pdf_printf(left_margin, page_height, 'L', "The sequences are not listed in the PDF report; the outfile lists them (print-data=YES).");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
+    pdf_advance(&page_height);
+}
 
 void
 pdf_print_data (world_fmt * world, option_fmt * options, data_fmt * data)
@@ -5092,7 +6927,9 @@ pdf_print_data (world_fmt * world, option_fmt * options, data_fmt * data)
             case 'h':
             case 'u':
             case 'f':
-                pdf_print_seqdata (left_margin, world, data, options);
+                /* sequence listings run to hundreds of pages: only the
+                   outfile lists them */
+                pdf_print_seqdata_note (world, data);
                 break;
             case '@':
                 warning("PDF-printing of mixed data is not implemented ,yet\n");
@@ -5111,6 +6948,8 @@ void pdf_print_sequence(double right_margin, data_fmt *data, long locus, long po
     char stemp[LINESIZE];
     //    w = 60.;
     w = 6.;
+    /* PDF/UA: called by pdf_print_seqdata() with TR > TD (sequence) open
+       and its content span begun. */
     for(site=0; site < data->seq[0]->sites[locus]; site+=1)
     {
         //        mysnprintf(stemp,LINESIZE,"%-10.10s", data->yy[pop][ind][locus][0][site]);
@@ -5121,7 +6960,28 @@ void pdf_print_sequence(double right_margin, data_fmt *data, long locus, long po
         if((left_margin + wtot + w) > right_margin)
         {
             wtot = 0;
-            pdf_advance(&page_height);
+            if (page_height - LINESTRETCH < 55.)
+            {
+                /* pdf_advance() will start a new page: close this row
+                   first and continue in a fresh row (empty name and locus
+                   cells), so no row gets a second sequence cell */
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: sequence (part on this page) */
+                pretty_ua_pop(); /* TR */
+                pdf_advance(&page_height);
+                pretty_ua_push(HPDF_UA_ROLE_TR);
+                pretty_ua_push(HPDF_UA_ROLE_TH);
+                pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+                pretty_ua_pop(); /* TH: empty placeholder (name) */
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_pop(); /* TD: empty placeholder (locus) */
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
+            }
+            else
+            {
+                pdf_advance(&page_height);
+            }
         }
     }
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
@@ -5163,9 +7023,13 @@ void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, optio
             pdf_print_dataheader (FIRSTDATAPAGE, "Sequence data", column_width, pop, world, options, data);
         else
             pdf_print_dataheader (NOTFIRSTDATAPAGE,  "Sequence data", column_width, pop, world, options, data);
-        
+
         for (ii = 0; ii < maxtop; ii++)
         {
+	  /* PDF/UA: one TR (name TH, locus TD, sequence TD) per locus line;
+	     the name is drawn only in the individual's first row, later rows
+	     get an empty name cell */
+	  boolean row_open = FALSE;
 	  if(ii>=top[pop * data->loci])
 	    {
 	      continue;
@@ -5173,8 +7037,15 @@ void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, optio
 	  else
 	    {
 	      ind = data->shuffled[pop][0][ii];
+	      pretty_ua_push(HPDF_UA_ROLE_TR);
+	      row_open = TRUE;
+	      pretty_ua_push(HPDF_UA_ROLE_TH);
+	      pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+	      pretty_ua_begin_content(page);
 	      pdf_printf(column_width[0], page_height, 'L', "%-*.*s", (int) options->nmlength,
 			 (int) options->nmlength, data->indnames[pop][ind][0]);
+	      pretty_ua_end_content(page);
+	      pretty_ua_pop(); /* TH: individual name */
 	    }
 	  for (locus = 0; locus < data->loci; locus++)
             {
@@ -5185,11 +7056,37 @@ void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, optio
                 else
                 {
                     ind = data->shuffled[pop][locus][ii];
+                    if (!row_open)
+                    {
+                        pretty_ua_push(HPDF_UA_ROLE_TR);
+                        pretty_ua_push(HPDF_UA_ROLE_TH);
+                        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+                        pretty_ua_pop(); /* TH: empty placeholder (name) */
+                    }
+                    row_open = FALSE;
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_printf(column_width[1], page_height, 'L', "%li",locus+1);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: locus number */
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_print_sequence( page_width - 55, data, locus, pop, ind);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: sequence */
+                    pretty_ua_pop(); /* TR */
                     pdf_advance(&page_height);
                 }
             }
+	  if (row_open)
+	    {
+	      /* not reached: locus 0 is always drawn when the name is */
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_pop();
+	      pretty_ua_push(HPDF_UA_ROLE_TD);
+	      pretty_ua_pop();
+	      pretty_ua_pop(); /* TR */
+	    }
             oldpage_height = page_height;
             pdf_advance(&page_height);
             pdf_advance(&page_height);
@@ -5197,6 +7094,7 @@ void pdf_print_seqdata (double margin, world_fmt * world, data_fmt * data, optio
                 pdf_print_dataheader (NOTFIRSTDATAPAGE,  "Sequence data", column_width, pop, world, options, data);
         }
     }
+    pretty_ua_pop(); /* TABLE: last population */
     myfree(column_width);
     myfree(top);
 }
@@ -5592,7 +7490,12 @@ void    pdf_print_correlation_table (world_fmt * world, option_fmt * options, da
     long frompop, topop;
     long locus;
     long loci = world->loci > 1 ? world->loci+1 : world->loci;
+    /* PDF/UA (currently not called): heading and parameter labels as one
+       P, the population grid as a Table like pdf_print_distance_table() */
+    pretty_ua_suspend_content_same_page(page);
     pdf_advance(&page_height);
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_printf_next(left_margin, &page_height, "Correlation tables:");
     pdf_advance(&page_height);
     for (locus=0; locus < loci; locus++)
@@ -5610,7 +7513,7 @@ void    pdf_print_correlation_table (world_fmt * world, option_fmt * options, da
                     m2mm(i,world->numpop,&frompop,&topop);
                     symbol_M(left_margin, page_height, 12, frompop+1, topop+1, world->options->usem);
                 }
-            
+
             lx += offset;
             if(lx > right_margin)
             {
@@ -5619,14 +7522,27 @@ void    pdf_print_correlation_table (world_fmt * world, option_fmt * options, da
             }
         }
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P */
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
     for (i = 0; i < data->numpop; i++)
     {
         lx = left_margin + 80;
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
+        pretty_ua_begin_content(page);
         pdf_printf (left_margin, page_height, 'L', "%3li %-15.15s",options->newpops[i],  data->popnames[i]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: row header */
         for (j = 0; j < data->numpop; j++)
         {
+            pretty_ua_push(HPDF_UA_ROLE_TD);
+            pretty_ua_begin_content(page);
             pdf_printf(lx, page_height, 'L', " %10.4f ", data->ogeo[j][i]);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
             lx += offset;
             if(lx > right_margin)
             {
@@ -5634,7 +7550,10 @@ void    pdf_print_correlation_table (world_fmt * world, option_fmt * options, da
                 pdf_advance(&page_height);
             }
         }
+        pretty_ua_pop(); /* TR: data row */
     }
+    pretty_ua_pop(); /* TABLE */
+    pretty_ua_resume_content_same_page(page);
     pdf_advance(&page_height);
     pdf_advance(&page_height);
 }
@@ -5921,11 +7840,52 @@ void  define_col_start(double cols, double * col_widths, int col_overflow, char 
 
 ///
 /// prints the table header at column positions
+///
+/// if symbolstring is drawn entirely in the symb font by pdf_print_symbol()
+/// ("Theta_%i"/"Q_%i"), fill out with its Unicode text and return TRUE so
+/// the caller can open the cell's content with an /ActualText
+static boolean pdf_print_symbol_actual_text(char *symbolstring, char *out, size_t outsize)
+{
+    int topop;
+    if (symbolstring == NULL)
+        return FALSE;
+    if (symbolstring[0] == 'T' && symbolstring[1] == 'h' &&
+        sscanf(symbolstring, "Theta_%i", &topop) == 1)
+    {
+        mysnprintf(out, outsize, "\xce\x98%i", topop);
+        return TRUE;
+    }
+    if (symbolstring[0] == 'Q' && symbolstring[1] == '_' &&
+        sscanf(symbolstring, "Q_%i", &topop) == 1)
+    {
+        mysnprintf(out, outsize, "\xce\x98%i", topop);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 void  pdf_print_table_header(char * position, int cols, double *col_starts,char **header)
 {
     int col;
     char pos;
     long oldcolstarts = -1;
+    char actual[STRSIZE];
+    if (ua_repeat_header)
+    {
+        pretty_ua_begin_artifact(page);
+        for(col=0; col < cols; col++)
+        {
+            pos = position==NULL ? 'L' : position[col];
+            if(col_starts[col] < oldcolstarts)
+                pdf_advance(&page_height);
+            pdf_print_symbol(col_starts[col], 10, pos, header[col]);
+            oldcolstarts = (long) col_starts[col];
+        }
+        pretty_ua_end_artifact(page);
+        return;
+    }
+    /* one TR for the header row */
+    pretty_ua_push(HPDF_UA_ROLE_TR);
     for(col=0; col < cols; col++)
     {
         if(position==NULL)
@@ -5936,9 +7896,18 @@ void  pdf_print_table_header(char * position, int cols, double *col_starts,char 
         {
             pdf_advance(&page_height);
         }
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        if (pdf_print_symbol_actual_text(header[col], actual, sizeof(actual)))
+            pretty_ua_begin_content_with_actual_text(page, actual);
+        else
+            pretty_ua_begin_content(page);
         pdf_print_symbol(col_starts[col], 10, pos, header[col]);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH */
         oldcolstarts = (long) col_starts[col];
     }
+    pretty_ua_pop(); /* TR: header row */
 }
 
 void pdf_print_symbol_no(char value, char* symbolstring, double lx, char pos)
@@ -6034,6 +8003,7 @@ long pdf_table2(int cols, int rows, char **header, char **header2, char ***eleme
     long location=0;
     
     char pos;
+    char actual[STRSIZE];
     
     double *col_widths;
     double page_width = (double) HPDF_Page_GetWidth(page);
@@ -6047,6 +8017,11 @@ long pdf_table2(int cols, int rows, char **header, char **header2, char ***eleme
     find_col_width(cols, rows, elements, header, col_widths);
     define_col_start(cols, col_widths, col_overflow, position, right_margin, separator, col_starts);
     
+    /* keep the header with at least the first row: start a new page when
+       less than three lines are left */
+    if (page_height - 3 * LINESTRETCH < 55.)
+        pdf_page_advance_or_not(&page_height, page_height + 1.0);
+    pretty_ua_push(HPDF_UA_ROLE_TABLE);
     pdf_print_table_header(position, cols, col_starts,header);
     if (header2!=NULL)
     {
@@ -6054,50 +8029,96 @@ long pdf_table2(int cols, int rows, char **header, char **header2, char ***eleme
         pdf_print_table_header(position, cols, col_starts,header2);
     }
     new_page = pdf_advance(&page_height);
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(55,page_height+5.0,right_margin, page_height+5.0);
+    pretty_ua_end_artifact(page);
     
     for(row=0; row< rows; row++)
     {
         if(new_page)
         {
+	  ua_repeat_header = TRUE;
 	  pdf_print_table_header(position, cols,col_starts,header);
             if (header2!=NULL)
             {
                 pdf_advance(&page_height);
                 pdf_print_table_header(position, cols, col_starts,header2);
             }
+	  ua_repeat_header = FALSE;
             pdf_advance(&page_height);
+            pretty_ua_begin_artifact(page);
             pdf_draw_line(55.,page_height,right_margin, page_height);
+            pretty_ua_end_artifact(page);
             new_page = pdf_advance(&page_height);
         }
+        /* the column-0 line/page check of the column loop, run before
+           this row's TR exists so a header repeat never leaves an empty TR */
+        if(col_starts[0] < oldcol)
+        {
+            new_page = pdf_advance(&page_height);
+            if(new_page)
+            {
+                ua_repeat_header = TRUE;
+                pdf_print_table_header(position, cols,col_starts,header);
+                if (header2!=NULL)
+                {
+                    pdf_advance(&page_height);
+                    pdf_print_table_header(position, cols, col_starts,header2);
+                }
+                ua_repeat_header = FALSE;
+                pdf_advance(&page_height);
+                pretty_ua_begin_artifact(page);
+                pdf_draw_line(55.,page_height,right_margin, page_height);
+                pretty_ua_end_artifact(page);
+                new_page = pdf_advance(&page_height);
+            }
+        }
+        pretty_ua_push(HPDF_UA_ROLE_TR);
         for(col=0;col < cols; col++)
         {
-            if(col_starts[col] < oldcol)
+            if(col > 0 && col_starts[col] < oldcol)
             {
                 new_page = pdf_advance(&page_height);
                 if(new_page)
                 {
+                    /* page break mid-row: continue the row as a new TR
+                       after the repeated header */
+                    pretty_ua_pop(); /* TR: first part of this row */
+                    ua_repeat_header = TRUE;
                     pdf_print_table_header(position, cols,col_starts,header);
                     if (header2!=NULL)
                     {
                         pdf_advance(&page_height);
                         pdf_print_table_header(position, cols, col_starts,header2);
                     }
+                    ua_repeat_header = FALSE;
                     pdf_advance(&page_height);
+                    pretty_ua_begin_artifact(page);
                     pdf_draw_line(55.,page_height,right_margin, page_height);
+                    pretty_ua_end_artifact(page);
                     new_page = pdf_advance(&page_height);
+                    pretty_ua_push(HPDF_UA_ROLE_TR);
                 }
             }
             if(position==NULL)
                 pos='L';
             else
                 pos=position[col];
+            pretty_ua_push(HPDF_UA_ROLE_TD);
+            if (pdf_print_symbol_actual_text(elements[row][col], actual, sizeof(actual)))
+                pretty_ua_begin_content_with_actual_text(page, actual);
+            else
+                pretty_ua_begin_content(page);
             pdf_print_symbol(col_starts[col],10,pos,elements[row][col]);
             //            pdf_printf(col_starts[col],*page_height, pos, "%s",elements[row][col]);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TD */
             oldcol = col_starts[col];
         }
+        pretty_ua_pop(); /* TR */
     }
     pdf_advance(&page_height);
+    pretty_ua_pop(); /* TABLE */
     myfree(col_widths);
     myfree(col_starts);
     return location;
@@ -6174,6 +8195,7 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
     double ** eventbins_all;
     
     duo ** eventbins;
+    HPDF_UA_StructElem figure_elem;
     
     
     if (loci > 1)
@@ -6189,10 +8211,16 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0, 0, 0);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     // first histogram position
     page_height -= 150;
@@ -6268,6 +8296,12 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
 	    else
 	      d2mm(i, world, &frompop, &topop);
 	  }
+        figure_elem = pretty_ua_push(HPDF_UA_ROLE_FIGURE);
+        pretty_ua_set_alt_text("Histogram of the timing of coalescent/migration "
+                "events for one model parameter (see the adjacent symbol for "
+                "which one), summed over the sampled genealogies.");
+        pretty_ua_begin_content(page);
+        (void) figure_elem;
         if(frompop==topop)
         {
             pdf_print_contents_at(lx-30,ly+125,"Freq. for ");
@@ -6290,6 +8324,8 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
         pdf_histogram(eventbins_all[i], set50, set95, bins, delta,
                       0., -999, lx, ly, page_width - 55 - lx, 116,TRUE,NULL);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* FIGURE */
         page_height -= 160;
         if(i < (numparams-1))
 	  {
@@ -6371,10 +8407,16 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0, 0, 0);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     // first histogram position
     page_height -= 150;
@@ -6475,6 +8517,12 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
 	  continue;
 	}
 
+	/* one Figure per parameter, closed before every later continue */
+	pretty_ua_push(HPDF_UA_ROLE_FIGURE);
+	pretty_ua_set_alt_text("Plot of one model parameter's estimated value "
+		"through time (see the adjacent symbol for which parameter), "
+		"with a shaded confidence band.");
+	pretty_ua_begin_content(page);
 	if(i<world->numpop2)    
 	  {
 	    m2mm(i, world->numpop, &frompop, &topop);
@@ -6490,7 +8538,11 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
 	else
 	  {
 	    if (i0==world->numpop2 && mu)
-	      continue;
+	      {
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* FIGURE */
+		continue;
+	      }
 	    else
 	      {
 		s = get_which_species_model(i,world->species_model,world->species_model_size);
@@ -6531,7 +8583,11 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
             // why could bin be smaller than adjustbins?
             bins = bins < adjustbins ? bins : adjustbins;
             if(bins==0)
+              {
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* FIGURE */
                 continue;
+              }
             lasttimebin = delta * bins;
             // evaluates how much of the y-axis should be shown
             upperlimit = quantiler(eventbins_all[i], 1.0, 0.95, (long) bins/2,bins);
@@ -6539,6 +8595,8 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
                                0., lasttimebin,
                                lx, ly, page_width - 55 - lx, 116, upperlimit ,TRUE, world, confidence[i], topop);
         }
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* FIGURE */
         page_height -= 160;
         if(i < (numparams-1))
         {
@@ -6580,8 +8638,12 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
       page_width = (double) HPDF_Page_GetWidth(page);
         pdf_print_section_title(&page_width, &page_height, "Subsampled dataset");
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_P);
+        pretty_ua_begin_content(page);
         pdf_printf(55.,page_height, 'L', "Data set was subsampled randomly per population: %li samples taken",
                    options->randomsubset);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* P */
         pdf_advance(&page_height);
         charvec2d(&header, 3,LINESIZE);
         mysnprintf(header[0],LINESIZE,"Locus");
@@ -6603,10 +8665,7 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                 elements[linenumber][0] = (char *) mycalloc(7, sizeof(char));
                 elements[linenumber][1] = (char *) mycalloc(12, sizeof(char));
                 elements[linenumber][2] = (char *) mycalloc(LINELENGTH, sizeof(char));
-                if(pop==0)
-                    mysnprintf(elements[linenumber][0],LINESIZE,"%5li ",locus+1);
-                else
-                    mysnprintf(elements[linenumber][0],LINESIZE," ");
+                mysnprintf(elements[linenumber][0],LINESIZE,"%5li ",locus+1); /* every row, no empty cells */
                 mysnprintf(elements[linenumber][1],LINESIZE, "%-10.10s ", data->popnames[pop]);
                 maxnum = options->randomsubset < data->numind[pop][locus] ? options->randomsubset : data->numind[pop][locus];
                 count = 0;//18 characters are already consumed on line, see below
@@ -6637,8 +8696,8 @@ void pdf_print_random_subset(data_fmt * data, option_fmt *options)
                         elements[linenumber][0] = (char *) mycalloc(7, sizeof(char));
                         elements[linenumber][1] = (char *) mycalloc(12, sizeof(char));
                         elements[linenumber][2] = (char *) mycalloc(LINELENGTH, sizeof(char));
-                        mysnprintf(elements[linenumber][0],LINESIZE," ");
-                        mysnprintf(elements[linenumber][1],LINESIZE," ");
+                        mysnprintf(elements[linenumber][0],LINESIZE,"%5li ",locus+1); /* continuation line */
+                        mysnprintf(elements[linenumber][1],LINESIZE, "%-10.10s ", data->popnames[pop]);
                         count += mysnprintf(elements[linenumber][2] + count,LINESIZE,"%s ",name);
                     }
                 }
@@ -6720,7 +8779,14 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
     for(locus=0; locus < data->loci; locus++)
     {
       memset(maxallelepop,0,sizeof(long)*(size_t) data->numpop);
+        /* keep the locus line with its table header and first row */
+        if (page_height - 4 * LINESTRETCH < 55.)
+            pdf_page_advance_or_not(&page_height, page_height + 1.0);
+        pretty_ua_push(HPDF_UA_ROLE_P);
+        pretty_ua_begin_content(page);
         pdf_printf(55.,page_height, 'L', "Locus %i",locus+1);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* P: Locus %i */
         pdf_advance(&page_height);
         sublocistart = world->sublocistarts[locus];
         sublociend = world->sublocistarts[locus+1];
@@ -6788,7 +8854,11 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
             pdf_advance(&page_height);
         }
     }
+    pretty_ua_push(HPDF_UA_ROLE_P);
+    pretty_ua_begin_content(page);
     pdf_printf(55.,page_height, 'L', "Average expected heterozygosity");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* P: Average expected heterozygosity */
     pdf_advance(&page_height);
     for (pop1 = 0; pop1 < data->numpop; pop1++)
     {
@@ -6797,7 +8867,7 @@ void pdf_print_spectra(world_fmt *world, data_fmt *data, option_fmt *options, MY
         //avghetall += avghet[pop1] / data->loci;
     }
     mysnprintf(elements[0][pop1+1],LINESIZE,"%5.3f",avghet1/data->loci);
-    strcpy(header[0]," ");
+    strcpy(header[0],"Statistic"); /* a named header cell */
     strcpy(elements[0][0],"_H_exp");
     pdf_table2((int)(data->numpop+2),1, header, NULL, elements, NULL, 2, 10.0);
     free_charvec2d(header);
@@ -6869,9 +8939,13 @@ void pdf_print_averageheat(world_fmt **universe, option_fmt *options)
     if (options->adaptiveheat != NOTADAPTIVE)
       {
 	pdf_advance(&page_height);
+	pretty_ua_push(HPDF_UA_ROLE_P);
+	pretty_ua_begin_content(page);
 	pdf_printf_next(55., &page_height,"Adaptive heating often fails, if the average temperatures are very close together\n");
 	pdf_printf_next(55., &page_height,"try to rerun using static heating! If you want to compare models using marginal\n");
 	pdf_printf_next(55., &page_height,"likelihoods then you MUST use static heating\n");
+	pretty_ua_end_content(page);
+	pretty_ua_pop(); /* P: adaptive heating note */
 	pdf_advance(&page_height);
       }
     free_charvec2d(header);
@@ -6907,10 +8981,16 @@ void pdf_print_eventtime_table(world_fmt *world)
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0,0,0);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
 
     /* for large datasets this allows to not get overwhelmed with the PDF*/
@@ -6933,6 +9013,10 @@ void pdf_print_eventtime_table(world_fmt *world)
             if(!shortcut(j0,world,&j))
             {
                 pdf_advance(&page_height);
+                /* own Table per (locus, parameter); label + symbol line is its Caption */
+                pretty_ua_push(HPDF_UA_ROLE_TABLE);
+                pretty_ua_push(HPDF_UA_ROLE_CAPTION);
+                pretty_ua_begin_content(page);
                 if(locus == world->loci)
                     pdf_printf(left_margin, page_height, 'L' , "All loci");
                 else
@@ -6949,31 +9033,79 @@ void pdf_print_eventtime_table(world_fmt *world)
 		  else
 		    {
 		      if(world->bayes->mu && j==world->numpop2)
-			continue; //rate		      
+			{
+			  pretty_ua_end_content(page);
+			  pretty_ua_pop(); /* CAPTION */
+			  pretty_ua_pop(); /* TABLE */
+			  continue; //rate
+			}
 		      species_fmt * s = get_which_species_model(j,world->species_model,world->species_model_size);
 		      if ( j == s->paramindex_mu)
 			symbol_D(left_margin+80, page_height, 12, s->from+1, s->to+1);
 		      else
-			continue;
+			{
+			  pretty_ua_end_content(page);
+			  pretty_ua_pop(); /* CAPTION */
+			  pretty_ua_pop(); /* TABLE */
+			  continue;
+			}
 		    }
 		}
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* CAPTION */
 		pdf_advance(&page_height);
-		pdf_printf(left_margin, page_height, 'L', "Time");
+                pretty_ua_push(HPDF_UA_ROLE_TR);
+                pretty_ua_push(HPDF_UA_ROLE_TH);
+                pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+                pretty_ua_begin_content(page);
+                pdf_printf(left_margin, page_height, 'L', "Time");
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TH: Time */
+                pretty_ua_push(HPDF_UA_ROLE_TH);
+                pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 200, page_height, 'L', "Frequency of visit");
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TH: Frequency of visit */
+                pretty_ua_push(HPDF_UA_ROLE_TH);
+                pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 400, page_height, 'L', "MRCA frequency");
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TH: MRCA frequency */
+                pretty_ua_pop(); /* TR: header */
                 pdf_advance_half(&page_height);
+                pretty_ua_begin_artifact(page);
                 pdf_draw_line(50, page_height, page_width-50, page_height);
+                pretty_ua_end_artifact(page);
                 pdf_advance(&page_height);
                 age = (double) (-world->mighistloci[locus].eventbinsize/2.);
                 for(i = 0; i < eventbinnum[j]; i++)
                 {
                     age += world->mighistloci[locus].eventbinsize;
+                    pretty_ua_push(HPDF_UA_ROLE_TR);
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_printf(left_margin, page_height, 'L', "%10.10f", age);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: Time */
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_printf(left_margin+200, page_height, 'L', "%8.5f", (MYREAL) eventbins[j][i][0]);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: Frequency of visit */
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_printf(left_margin+400, page_height, 'L', "%8.5f", (MYREAL) eventbins[j][i][1]);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: MRCA frequency */
+                    pretty_ua_pop(); /* TR */
                     pdf_advance(&page_height);
                 }
+                pretty_ua_begin_artifact(page);
                 pdf_draw_line(50, page_height, page_width-50, page_height);
+                pretty_ua_end_artifact(page);
+                pretty_ua_pop(); /* TABLE */
                 pdf_advance(&page_height);
             }
         }
@@ -6998,6 +9130,7 @@ void pdf_print_time_table(world_fmt *world,
     //double   left_margin = 55;
     long     end = world->loci > 1 ? world->loci + 1: 1;
     long     start = 0;
+    boolean  has_rows;
 
     if(mrca)
         mysnprintf(title,LINESIZE,"Time and probability of location of most recent common ancestor");
@@ -7010,10 +9143,16 @@ void pdf_print_time_table(world_fmt *world,
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0,0,0 );
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
     if (world->options->tersepdf)
       {
@@ -7027,29 +9166,114 @@ void pdf_print_time_table(world_fmt *world,
         //xcode eventbins = world->mighistloci[locus].migeventbins;
         //xcode eventbinnum = world->mighistloci[locus].migeventbinnum;
         
+        /* any rows for this locus? (same tests as the row loop below) */
+        has_rows = FALSE;
+        for (pop0 = (world->options->mighist_all ? 0 : world->numpop);
+             pop0 <  (mrca ? world->numpop : npall) && !has_rows; pop0++)
+          {
+            if(shortcut(pop0, world,&pop))
+              continue;
+            if(pop >= world->numpop2)
+              {
+                species_fmt * s;
+                if (pop==world->numpop2 && world->bayes->mu)
+                  continue;
+                s = get_which_species_model(pop,world->species_model, world->species_model_size);
+                if (pop != s->paramindex_mu)
+                  continue;
+              }
+            if (freq[locus * world->numpop2 + pop] > 0.0)
+              has_rows = TRUE;
+          }
         pdf_advance(&page_height);
+        if (!has_rows)
+          {
+            pretty_ua_push(HPDF_UA_ROLE_P);
+            pretty_ua_begin_content(page);
+            if(locus == world->loci)
+                pdf_printf(left_margin, page_height, 'L' , "All loci: no events recorded");
+            else
+                pdf_printf(left_margin, page_height, 'L' , "Locus %li: no events recorded",locus+1);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* P */
+            pdf_advance(&page_height);
+            continue;
+          }
+        /* own Table per locus; the locus line is its Caption, the column
+           group labels above the rule are decoration, the header row names
+           every column */
+        pretty_ua_push(HPDF_UA_ROLE_TABLE);
+        pretty_ua_push(HPDF_UA_ROLE_CAPTION);
+        pretty_ua_begin_content(page);
         if(locus == world->loci)
             pdf_printf(left_margin, page_height, 'L' , "All loci");
         else
             pdf_printf(left_margin, page_height, 'L' , "Locus %li",locus+1);
-        
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* CAPTION */
         pdf_advance(&page_height);
-        pdf_printf(left_margin, page_height, 'L', "Population");
+        pretty_ua_begin_artifact(page);
+        if(!mrca)
+            pdf_printf(left_margin, page_height, 'L', "Population");
         pdf_printf(left_margin + 100, page_height, 'L', "Time");
-        pdf_printf(left_margin + 400, page_height, 'L', "Frequency");
         pdf_advance_half(&page_height);
         pdf_draw_line(left_margin + 100, page_height, left_margin+390, page_height);
+        pretty_ua_end_artifact(page);
         pdf_advance(&page_height);
+        pretty_ua_push(HPDF_UA_ROLE_TR);
         if(!mrca)
         {
+            pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+            pretty_ua_begin_content(page);
             pdf_printf(left_margin, page_height, 'L', "From");
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH: From */
+            pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+            pretty_ua_begin_content(page);
             pdf_printf(left_margin + 50, page_height, 'L', "To");
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH: To */
         }
+        else
+        {
+            pretty_ua_push(HPDF_UA_ROLE_TH);
+            pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+            pretty_ua_begin_content(page);
+            pdf_printf(left_margin, page_height, 'L', "Population");
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* TH: Population */
+        }
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin + 100, page_height, 'L', "Average");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: Average */
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin + 200, page_height, 'L', "Median");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: Median */
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
         pdf_printf(left_margin + 300, page_height, 'L', "Std");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: Std */
+        pretty_ua_push(HPDF_UA_ROLE_TH);
+        pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+        pretty_ua_begin_content(page);
+        pdf_printf(left_margin + 400, page_height, 'L', "Frequency");
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* TH: Frequency */
+        pretty_ua_pop(); /* TR: header */
         pdf_advance_half(&page_height);
+        pretty_ua_begin_artifact(page);
         pdf_draw_line(50, page_height, page_width-50, page_height);
+        pretty_ua_end_artifact(page);
         pdf_advance(&page_height);
         for (pop0 = (world->options->mighist_all ? 0 : world->numpop);
              pop0 <  (mrca ? world->numpop : npall); pop0++)
@@ -7083,16 +9307,45 @@ void pdf_print_time_table(world_fmt *world,
             lp = locus * world->numpop2 + pop;
             if(freq[lp]>0.0)
             {
+                pretty_ua_push(HPDF_UA_ROLE_TR);
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin,       page_height, 'L', "%li",frompop+1);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: From */
                 if(!mrca)
+                {
+                    pretty_ua_push(HPDF_UA_ROLE_TD);
+                    pretty_ua_begin_content(page);
                     pdf_printf(left_margin + 50,  page_height, 'L', "%li", topop+1);
+                    pretty_ua_end_content(page);
+                    pretty_ua_pop(); /* TD: To */
+                }
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 100, page_height, 'L', "%f", meantime[lp]);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: Average */
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 200, page_height, 'L', "%f", mediantime[lp]);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: Median */
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 300, page_height, 'L', "%f", stdtime[lp]);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: Std */
+                pretty_ua_push(HPDF_UA_ROLE_TD);
+                pretty_ua_begin_content(page);
                 pdf_printf(left_margin + 400, page_height, 'L', "%f", freq[lp]);
+                pretty_ua_end_content(page);
+                pretty_ua_pop(); /* TD: Frequency */
+                pretty_ua_pop(); /* TR */
                 pdf_advance(&page_height);
             }
         }
+        pretty_ua_pop(); /* TABLE */
         pdf_advance(&page_height);
     }
 }
@@ -7117,11 +9370,19 @@ pdf_histogram_legend(void)
     /* Start to print text. */
     page_height = (double) HPDF_Page_GetHeight(page);
     page_width = (double) HPDF_Page_GetWidth(page);
+    pretty_ua_push(HPDF_UA_ROLE_H2);
+    pretty_ua_begin_content(page);
     pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* H2: title */
     HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
     page_height -= 126;
+    pretty_ua_begin_artifact(page);
     pdf_draw_line(50, page_height, page_width-50, page_height);
+    pretty_ua_end_artifact(page);
     HPDF_Page_SetFontAndSize (page, helv, 10.0);
+    pretty_ua_push(HPDF_UA_ROLE_SECT);
+    pretty_ua_begin_content(page);
     // first histogram position
     pdf_advance(&page_height);
     lx = 60;
@@ -7153,6 +9414,8 @@ pdf_histogram_legend(void)
     pdf_printf_next(lx, &page_height, "populations with constant size and constant immigration rates show histograms that are similar");
     pdf_printf_next(lx, &page_height, "to exponential distribution, if the populations come from a divergence model without migration");
     pdf_printf_next(lx, &page_height, "then the frequency of migration events can show a peak in the past.");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
 }
 
 void pdf_print_haplotype_title(void)
@@ -7176,6 +9439,8 @@ void pdf_print_haplotypes2(char *buffer, long buflen)
     long b=0;
     double x=left_margin;
     double namewidth = (double) HPDF_Page_TextWidth(page, "0123456789  ");
+    pretty_ua_push(HPDF_UA_ROLE_SECT);
+    pretty_ua_begin_content(page);
     for(b=0;b<buflen;b++)
     {
         char bufchar = buffer[b];
@@ -7196,6 +9461,8 @@ void pdf_print_haplotypes2(char *buffer, long buflen)
                 break;
         }
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
 }
 
 /*
@@ -7270,6 +9537,10 @@ void pdf_linedotplot(long n, double *x, double *y, double dotcolor[], double lin
     double yrange;
     page_height = ly;
     pdf_advance(&page_height);
+    /* no callers; tagged as one Figure for completeness */
+    pretty_ua_push(HPDF_UA_ROLE_FIGURE);
+    pretty_ua_set_alt_text("Line and dot plot.");
+    pretty_ua_begin_content(page);
     findminmax(x, n, &minx, &maxx);
     findminmax(y, n, &miny, &maxy);
     pdf_create_axes(VERTICAL, miny, maxy, 5, lx, ly, height);
@@ -7295,6 +9566,8 @@ void pdf_linedotplot(long n, double *x, double *y, double dotcolor[], double lin
             pdf_print_dot(lx+(x[i]-minx)*width, ly+(y[i]-miny)*height, 3, SQUARE, dotcolor);
         }
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* FIGURE */
 }
 
 
@@ -7327,6 +9600,9 @@ void pdf_linedotplot(long n, double *x, double *y, double dotcolor[], double lin
 void pdf_print_citation(char type[],world_fmt *world)
 {
     char mytype = type[0];
+    /* one Sect for the heading line plus the entries below */
+    pretty_ua_push(HPDF_UA_ROLE_SECT);
+    pretty_ua_begin_content(page);
     pdf_printf(left_margin, page_height,'L',"%s","Citation suggestions:"); 
     pdf_advance(&page_height);
     switch(mytype)
@@ -7344,11 +9620,10 @@ void pdf_print_citation(char type[],world_fmt *world)
             //pdf_advance(&page_height);
             //pdf_printf(left_margin, page_height,'L',"Xie W., P. O. Lewis, Y. Fan, L. Kuo, and M.-H. Chen. 2011. Improving marginal likelihood");
 	    //pdf_advance(&page_height);
-            //pdf_printf(left_margin, page_height,'L',"    estimation for Bayesian phylogenetic model selection. Systematic Biology, 60(2):150–160, 2011.");
+            //pdf_printf(left_margin, page_height,'L',"    estimation for Bayesian phylogenetic model selection. Systematic Biology, 60(2):150-160, 2011.");
 	    pdf_advance(&page_height);
             break;
         case 'L': // maximum likelihood
-            pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli P., 1998. Estimation of migration rates and population sizes in geographically structured populations.");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    In Advances in Molecular Ecology, G. R. Carvalho, ed., vol. 306 of NATO sciences series, Series A: Life sciences,");
@@ -7377,7 +9652,6 @@ void pdf_print_citation(char type[],world_fmt *world)
                 pdf_advance(&page_height);
             }
         case 'B': // Bayesian inference
-            pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli P., 2006. Comparison of Bayesian and maximum-likelihood inference of population genetic parameters.");
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    Bioinformatics 22:341-345");
@@ -7385,7 +9659,7 @@ void pdf_print_citation(char type[],world_fmt *world)
 
 	    pdf_printf(left_margin, page_height,'L',"Beerli, P., H. Ashki, S. Mashayekhi, and M. Palczewski, 2022. Population divergence time estimation");
 	    pdf_advance(&page_height);
-	    pdf_printf(left_margin, page_height,'L',"   using individual lineage label switching. G3 Genes—Genomes—Genetics, 12(4), 02 2022.");
+	    pdf_printf(left_margin, page_height,'L',"   using individual lineage label switching. G3 Genes-Genomes-Genetics, 12(4), 02 2022.");
             pdf_advance(&page_height);
 	    
             if (world->options->datatype=='m' || world->options->datatype=='s')
@@ -7401,13 +9675,13 @@ void pdf_print_citation(char type[],world_fmt *world)
             pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    and C. Vernesi, eds., vol. 17 of Conservation Biology, Cambridge University Press, Cambridge UK, pp. 42-79.");
             pdf_advance(&page_height);
-
-	    pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"Beerli, P., S. Mashayekhi, M. Sadeghi, M. Khodaei, and K. Shaw, 2019. Population genetic inference with migrate.");
 	    pdf_advance(&page_height);
             pdf_printf(left_margin, page_height,'L',"    Current Protocols in Bioinformatics, 68(1):e87.");
 	    pdf_advance(&page_height);
     }
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* SECT */
 }
 
 void pdf_report_unassigned(world_fmt *world)
@@ -7446,15 +9720,15 @@ void pdf_report_unassigned(world_fmt *world)
         elements_sum = (char ***) mycalloc(siz_sum, sizeof(char**));
         for(a=0; a<siz_sum;a++)
             charvec2d(&elements_sum[a],  2 + world->numpop, STRSIZE );
+        /* one header row: the summary table leaves out the locus column
+           (header2 holds its header, its rows start at element 1) */
         mysnprintf(header[0],LINESIZE,"Individual");
-        mysnprintf(header[2],LINESIZE,"Population");
-        /*      for (pop=0;pop<world->numpop;pop++)
-         {
-         mysnprintf(header[pop+2],LINESIZE,"     ");
-         }*/
+        mysnprintf(header[1],LINESIZE,"Locus");
+        mysnprintf(header2[0],LINESIZE,"Individual");
         for (pop=0;pop<world->numpop;pop++)
         {
-            mysnprintf(header2[2+pop],LINESIZE,"%5li",pop+1);
+            mysnprintf(header[2+pop],LINESIZE,"Pop. %li",pop+1);
+            mysnprintf(header2[1+pop],LINESIZE,"Pop. %li",pop+1);
         }
         ii=0;
         z=0;
@@ -7487,11 +9761,10 @@ void pdf_report_unassigned(world_fmt *world)
             mysnprintf(elements[ii*(world->loci+1)+locus][0],LINESIZE, "%-10.10s",key);
             mysnprintf(elements[ii*(world->loci+1)+locus][1],LINESIZE, "     All  ");
             mysnprintf(elements_sum[z][0],LINESIZE, "%-10.10s",key);
-            mysnprintf(elements_sum[z][1],LINESIZE, "          ");
             for (pop=0;pop<world->numpop;pop++)
             {
                 mysnprintf(elements[ii*(world->loci+1)+locus][pop+2],LINESIZE, "%5.3f", exp(total[pop]-lsum));
-                mysnprintf(elements_sum[z][pop+2],LINESIZE, "%5.3f", exp(total[pop]-lsum));
+                mysnprintf(elements_sum[z][pop+1],LINESIZE, "%5.3f", exp(total[pop]-lsum));
             }
             z++;
             ii++;
@@ -7505,14 +9778,20 @@ void pdf_report_unassigned(world_fmt *world)
         /* Start to print text. */ 
         page_height = (double) HPDF_Page_GetHeight(page);
         page_width = (double) HPDF_Page_GetWidth(page);
+        pretty_ua_push(HPDF_UA_ROLE_H2);
+        pretty_ua_begin_content(page);
         pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+        pretty_ua_end_content(page);
+        pretty_ua_pop(); /* H2: title */
         HPDF_Page_SetRGBStroke(page, 0,0,0);
         page_height -= 126;
+        pretty_ua_begin_artifact(page);
         pdf_draw_line(50, page_height, page_width-50, page_height);
+        pretty_ua_end_artifact(page);
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
         pdf_advance(&page_height);
         pdf_advance(&page_height);
-        pdf_table2((int)(world->numpop+2), (int) siz_sum, header, header2, elements_sum, NULL, 2, 10.0);      
+        pdf_table2((int)(world->numpop+1), (int) z, header2, NULL, elements_sum, NULL, 2, 10.0);      
         //long table
         if (world->loci>1)
         {
@@ -7522,15 +9801,20 @@ void pdf_report_unassigned(world_fmt *world)
             w = (double) HPDF_Page_TextWidth(page, title);      
             page_height = (double) HPDF_Page_GetHeight(page);
             page_width = (double) HPDF_Page_GetWidth(page);
+            pretty_ua_push(HPDF_UA_ROLE_H2);
+            pretty_ua_begin_content(page);
             pdf_print_contents_at((page_width - w)/2, page_height - 100, title);
+            pretty_ua_end_content(page);
+            pretty_ua_pop(); /* H2: title */
             HPDF_Page_SetRGBStroke(page, 0,0,0);
             page_height -= 126;
+            pretty_ua_begin_artifact(page);
             pdf_draw_line(50, page_height, page_width-50, page_height);
+            pretty_ua_end_artifact(page);
             HPDF_Page_SetFontAndSize (page, helv, 10.0);
             pdf_advance(&page_height);
             pdf_advance(&page_height);
-            mysnprintf(header[1],LINESIZE,"Locus     ");
-            pdf_table2((int) ( world->numpop+2), (int) siz, header, header2, elements, NULL, 2, 10.0);      
+            pdf_table2((int) ( world->numpop+2), (int) (ii*(world->loci+1)), header, NULL, elements, NULL, 2, 10.0);      
         }
         myfree(total);
         free_charvec2d(header);

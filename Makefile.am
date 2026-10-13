@@ -20,6 +20,7 @@ EXTRA_DIST = \
   lib/haru/include/*.h \
   lib/haru/include/hpdf_config.h.in \
   LICENSE \
+  src/fonts/LiberationFonts-LICENSE.txt \
   HISTORY \
   GUIDANCE \
   README.md \

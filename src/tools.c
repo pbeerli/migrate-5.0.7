@@ -4043,6 +4043,46 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
 
 
 
+/// print text line by line, breaking lines longer than width at a space;
+/// continuation lines are indented
+static void print_wrapped_lines(FILE *file, const char *text, long width)
+{
+  const char *line = text;
+  while (*line != '\0')
+    {
+      const char *end = strchr(line, '\n');
+      long len = end != NULL ? (long) (end - line) : (long) strlen(line);
+      long indent = 0;
+      while (len > 0)
+        {
+          long room = width - indent;
+          long n = len;
+          if (n > room)
+            {
+              n = room;
+              while (n > 0 && line[n] != ' ')
+                n--;
+              if (n == 0)
+                n = room;
+            }
+          fprintf(file, "%*s%.*s\n", (int) indent, "", (int) n, line);
+          line += n;
+          len -= n;
+          while (len > 0 && *line == ' ')
+            {
+              line++;
+              len--;
+            }
+          indent = 4;
+        }
+      if (end == NULL)
+        break;
+      if (indent == 0)
+        fprintf(file, "\n");
+      line = end + 1;
+    }
+}
+
 void print_warning2(FILE *file, world_fmt *world)
 {
   char paragraph[] = "This section reports potential problems with your run, but such reporting is often not very accurate. Whith many parameters in a multilocus analysi\
@@ -4083,7 +4123,7 @@ reducing number of parameters may help in such situations.\0";
   if (world->warning!=NULL && world->warning[0]=='\0')
     fprintf(file,"No warning was recorded during the run\n\n");
   else
-    fprintf(file,"%s", world->warning);
+    print_wrapped_lines(file, world->warning, 90);
   print_line(file,'-',90,10);
   myfree(section);
 }
