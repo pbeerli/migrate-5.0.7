@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 12   Migrate 6.1.66 Window move no longer crashes when a migration route is fixed at 0;
+             sequencing error estimation fixed (the estimates never moved), fixed
+             seqerror-rate values are applied; NODATA runs sample the priors (a prior
+             without delta left the proposal window at 0).
+
 October 12   Migrate 6.1.65 Potential problems lists default move weights and default priors of
              active forces; a move weight of 0 turns its force off; saved parmfiles write
              defaults as comments; default SPLIT prior is the largest Theta prior, SPLITSTD
