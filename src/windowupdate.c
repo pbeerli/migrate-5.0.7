@@ -797,6 +797,22 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
   nmax = unif_nmax (lam);
   V = bridge_columns (&R, b, nmax);
 
+  /* a -> b unreachable under Q (e.g. a migration route fixed at 0): no
+     path exists, the proposal fails; the 1e-300 floor below would
+     otherwise turn it into an arbitrary path, an empty one included */
+  {
+    MYREAL maxrab = 0.0;
+    for (n = 0; n <= nmax; n++)
+      if (V[n * d + a] > maxrab)
+        maxrab = V[n * d + a];
+    if (maxrab <= 0.0)
+      {
+        myfree (V);
+        sparseR_free (&R);
+        *out_n = -1;
+        return NULL;
+      }
+  }
   logw = (MYREAL *) mycalloc (nmax + 1, sizeof (MYREAL));
   for (n = 0; n <= nmax; n++)
     {
@@ -841,7 +857,7 @@ ctmc_bridge (const MYREAL * Q, long d, MYREAL T, long a, long b, MYREAL t0,
     {
       myfree (V);
       sparseR_free (&R);
-      *out_n = 0;
+      *out_n = (a == b) ? 0 : -1;   /* no event cannot join two populations */
       return NULL;
     }
 

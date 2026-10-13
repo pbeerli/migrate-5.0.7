@@ -2956,18 +2956,22 @@ void make_sequences(long sublocus, mutationmodel_fmt *s, node *theNode, site_fmt
   long j;
   long l;
   long numpatterns = s->numpatterns;
-  //MYREAL * scoring_error = s->scoring_error;
-  MYREAL scoring_error[4];
-  scoring_error[0]=0.0;
-  scoring_error[1]=0.0;
-  scoring_error[2]=0.0;  
-  scoring_error[3]=0.0;
+  MYREAL * scoring_error = s->scoring_error; /* fixed rates or the estimate's start */
+  /* the tip keeps its nucleotides for the sequencing-error move
+     (change_freq_tip()): one section per sublocus of the locus, in sublocus
+     order (a single buffer per tip used to be overwritten by every
+     sublocus, so all but the last sublocus were rebuilt from the wrong
+     sequence) */
+  long offset = 0;
   if (s->estimateseqerror)
     {
+      long i;
+      for (i = 0; i < sublocus; i++)
+	offset += (s - sublocus + i)->numpatterns;
       if (theNode->sequence==NULL)
-	theNode->sequence = (char *) mycalloc(numpatterns,sizeof(char));
+	theNode->sequence = (char *) mycalloc(offset + numpatterns,sizeof(char));
       else
-	theNode->sequence = (char *) myrealloc(theNode->sequence, (size_t) numpatterns * sizeof(char));
+	theNode->sequence = (char *) myrealloc(theNode->sequence, (size_t) (offset + numpatterns) * sizeof(char));
     }
   for (k = 0; k < numpatterns; k++)
     {
@@ -2982,7 +2986,7 @@ void make_sequences(long sublocus, mutationmodel_fmt *s, node *theNode, site_fmt
       // ordering sequence the same way as the x array using k and not j
       if (s->estimateseqerror)
 	{
-	  theNode->sequence[k] = datapart[0][j][0];
+	  theNode->sequence[offset + k] = datapart[0][j][0];
 	}
       for (l = 0; l < s->numsiterates; l++)
         {
