@@ -77,7 +77,8 @@ void change_freq_tip(world_fmt *world, node *tip, MYREAL *errorrates)
   
   const long sublocistart = world->sublocistarts[locus];
   const long sublociend   = world->sublocistarts[locus+1];
-  for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
+  long offset = 0;   /* this sublocus' section of tip->sequence (make_sequences()) */
+  for(sublocus=sublocistart; sublocus < sublociend; sublocus++, offset += s->numpatterns)
     {
       s = &world->mutationmodels[sublocus];
       const long xs = sublocus - sublocistart;
@@ -88,7 +89,7 @@ void change_freq_tip(world_fmt *world, node *tip, MYREAL *errorrates)
 	  //j = s->alias[k] - 1;
 	  for (l = 0; l < s->numsiterates; l++)
 	    {
-	      set_nucleotide(tip->x[xs].s[k][l], tip->sequence[k],errorrates);
+	      set_nucleotide(tip->x[xs].s[k][l], tip->sequence[offset + k],errorrates);
 	    }
 	}
     }

@@ -1342,13 +1342,12 @@ void finish_mutationmodel(world_fmt *world, data_fmt *data, option_fmt *options,
 	  //s->numsites    = world->data->seq[0]->endsite; // number of sites
 	  s->estimateseqerror = options->has_estimateseqerror;
 	  s->seqerrorcombined = options->seqerrorcombined;
-	  if (s->estimateseqerror)
-	    {
-	      s->scoring_error[0]=options->seqerror[0];
-	      s->scoring_error[1]=options->seqerror[1];
-	      s->scoring_error[2]=options->seqerror[2];
-	      s->scoring_error[3]=options->seqerror[3];
-	    }
+	  /* fixed sequencing error rates, or the start of their estimation:
+	     the tips are built with them (make_sequences()) */
+	  s->scoring_error[0]=options->seqerror[0];
+	  s->scoring_error[1]=options->seqerror[1];
+	  s->scoring_error[2]=options->seqerror[2];
+	  s->scoring_error[3]=options->seqerror[3];
 	  if(world->maxnumpattern[locus] < s->numpatterns)
 	    {
 	      world->maxnumpattern[locus] = s->numpatterns;

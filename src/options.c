@@ -6304,26 +6304,16 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  options->has_estimateseqerror = FALSE;
 	  if(value[0]=='{')
 	    {
-	      temp = strtok (value, ",:;\n");
-	      if (temp != NULL)
+	      /* {A,C,G,T}; a value left out repeats the last one given */
+	      long n = 0;
+	      temp = strtok (value + 1, ",:;}\n");
+	      while (temp != NULL && n < 4)
 		{
-		  options->seqerror[0] = atof (temp);
-		  temp = strtok (NULL, ",:;\n");
-		  if (temp != NULL)
-		    {
-		      options->seqerror[1] = atof (temp);
-		      temp = strtok (NULL, ",:;\n");
-		      if (temp != NULL)
-			{
-			  options->seqerror[2] = atof (temp);
-			  temp = strtok (value, ",:;\n");
-			  if (temp != NULL)
-			    {
-			      options->seqerror[3] = atof (temp);
-			    }
-			}
-		    }
-		}    
+		  options->seqerror[n++] = atof (temp);
+		  temp = strtok (NULL, ",:;}\n");
+		}
+	      for (; n > 0 && n < 4; n++)
+		options->seqerror[n] = options->seqerror[n-1];
 	    }
 	  else
 	    {
