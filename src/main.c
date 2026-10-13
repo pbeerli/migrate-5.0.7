@@ -723,8 +723,10 @@ main (int argc, char **argv)
       {
 #endif
 	if(EARTH->has_estimateseqerror)
-	  seqerror_report(EARTH,"seqerror");
-	  pdf_seqerror_report(EARTH);
+	  {
+	    seqerror_report(EARTH,"seqerror");
+	    pdf_seqerror_report(EARTH);
+	  }
 	
 	ckpt_restore (EARTH, options); /* recover=YES: loci skipped in this run */
 	print_bayesfactor(universe,options);
