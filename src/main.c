@@ -523,7 +523,7 @@ main (int argc, char **argv)
 	options->menu = set_usemenu(usemenu, options->menu);
 	print_menu_title (stdout, options, EARTH);
 	get_menu (options, EARTH, data);
-	check_force_moves (options); /* default move frequencies, forces with frequency 0 off */
+	check_force_moves (options); /* active forces get a move weight > 0, inactive ones 0 */
 	//check_bayes_options(options);
 
 #ifndef NEWVERSION

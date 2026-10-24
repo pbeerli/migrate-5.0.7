@@ -523,10 +523,10 @@ void init_options (option_fmt * options)
     options->window_delta = 0.03;     // half-width of the uniform log-M step
     options->window_size = 4;         // branches jointly resampled per move
     options->parameter_updatefreq =0.2;
-    options->haplotype_updatefreq = 0.2;
-    options->timeparam_updatefreq = 0.2;
-    options->unassigned_updatefreq = 0.2;
-    options->seqerror_updatefreq = 0.1;
+    options->haplotype_updatefreq = DEFAULT_HAPLOTYPE_UPDATEFREQ;
+    options->timeparam_updatefreq = DEFAULT_TIMEPARAM_UPDATEFREQ;
+    options->unassigned_updatefreq = DEFAULT_ASSIGNMENT_UPDATEFREQ;
+    options->seqerror_updatefreq = DEFAULT_SEQERROR_UPDATEFREQ;
 #ifdef NEWVERSION
     options->mlalpha_updatefreq = 0.1;
 #endif
@@ -8203,58 +8203,54 @@ option_note (const char *fmt, ...)
   option_notes[option_notes_len] = '\0';
 }
 
-/* a force with its own MCMC move: default frequency if the move is not named
-   in updatefreq=, switched off if its frequency is set to 0 */
-static boolean
-check_force_move (option_fmt * options, boolean on, int kind, MYREAL freq,
-                  const char *force, const char *move)
+/* a force with its own MCMC move: a force that is off gets move weight 0;
+   a force that is on needs a weight > 0, so it gets the default weight when
+   its move is not named in updatefreq= (note) or is set to 0 (warning) */
+static void
+check_force_move (option_fmt * options, boolean on, int kind, MYREAL *freq,
+                  MYREAL default_freq, const char *force, const char *move)
 {
   if (!on)
-    return FALSE;
+    {
+      *freq = 0.0;
+      return;
+    }
   if (!(options->updatefreq_given & (1L << kind)))
     {
+      if (*freq <= 0.0)
+        *freq = default_freq;
       option_note ("%s uses the default move weight %g (updatefreq= %s:VALUE not given)",
-                   force, (double) freq, move);
-      return FALSE;
+                   force, (double) *freq, move);
+      return;
     }
-  if (freq <= 0.0)
+  if (*freq <= 0.0)
     {
-      warning ("%s is turned off: its move frequency is 0 (updatefreq= %s:0)\n", force, move);
-      option_note ("%s is turned off: its move frequency is 0 (updatefreq= %s:0)", force, move);
-      return TRUE;
+      warning ("%s is on but its move weight is %g: adjusted to the default %g (updatefreq= %s:%g)\n",
+               force, (double) *freq, (double) default_freq, move, (double) default_freq);
+      option_note ("%s is on but its move weight was %g: adjusted to the default %g (updatefreq= %s:%g)",
+                   force, (double) *freq, (double) default_freq, move, (double) default_freq);
+      *freq = default_freq;
     }
-  return FALSE;
 }
 
-/// forces that are switched on: note default move frequencies, turn off a
-/// force whose move frequency is set to 0. Call on the master after the
-/// options are final and before they are sent to the workers.
+/// forces with their own move: an active force gets a move weight > 0 (the
+/// default if unset or 0), an inactive one weight 0. Call on the master
+/// after the options are final and before they are sent to the workers.
 void
 check_force_moves (option_fmt * options)
 {
-  long i;
-  if (check_force_move (options, options->has_unassigned, ASSIGNMENTUPDATE,
-                        options->unassigned_updatefreq, "Assignment (assign=YES)", "assignment"))
-    options->has_unassigned = FALSE;   /* ? individuals stay in their listed population */
-  if (check_force_move (options, options->skyline_param, SKYLINETIMEUPDATE,
-                        options->timeparam_updatefreq, "Parametric skyline (skyline=PARAM)", "timeparam"))
-    {
-      options->skyline_param = FALSE;
-      options->timeelements = 2;
-    }
-  if (check_force_move (options, options->has_estimateseqerror, SEQUENCEERRORUPDATE,
-                        options->seqerror_updatefreq, "Sequencing error estimation", "seqerror"))
-    {
-      options->has_estimateseqerror = FALSE;
-      for (i = 0; i < 4; i++)
-        options->seqerror[i] = 0.0;
-    }
-  if (check_force_move (options, options->haplotyping, HAPLOTYPEUPDATE,
-                        options->haplotype_updatefreq, "Haplotyping", "haplotype"))
-    {
-      options->haplotyping = FALSE;
-      options->haplotyping_report = FALSE;
-    }
+  check_force_move (options, options->has_unassigned, ASSIGNMENTUPDATE,
+                    &options->unassigned_updatefreq, DEFAULT_ASSIGNMENT_UPDATEFREQ,
+                    "Assignment (assign=YES)", "assignment");
+  check_force_move (options, options->skyline_param, SKYLINETIMEUPDATE,
+                    &options->timeparam_updatefreq, DEFAULT_TIMEPARAM_UPDATEFREQ,
+                    "Parametric skyline (skyline=PARAM)", "timeparam");
+  check_force_move (options, options->has_estimateseqerror, SEQUENCEERRORUPDATE,
+                    &options->seqerror_updatefreq, DEFAULT_SEQERROR_UPDATEFREQ,
+                    "Sequencing error estimation", "seqerror");
+  check_force_move (options, options->haplotyping, HAPLOTYPEUPDATE,
+                    &options->haplotype_updatefreq, DEFAULT_HAPLOTYPE_UPDATEFREQ,
+                    "Haplotyping", "haplotype");
 }
 
 /// copy the collected notes into the cold chain's warnings, plus the joint

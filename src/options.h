@@ -72,6 +72,12 @@ extern void read_options_worker (char **buffer, option_fmt * options);
 extern void set_heating_ladder (option_fmt * options, long n, boolean power);
 extern void option_note (const char *fmt, ...);
 extern char * getpriortype(int kind);
+/* default move weights of the forces with their own move: create_options()
+   and check_force_moves() (an active force with weight 0 gets these) */
+#define DEFAULT_HAPLOTYPE_UPDATEFREQ 0.2
+#define DEFAULT_TIMEPARAM_UPDATEFREQ 0.2
+#define DEFAULT_ASSIGNMENT_UPDATEFREQ 0.2
+#define DEFAULT_SEQERROR_UPDATEFREQ 0.1
 extern void check_force_moves (option_fmt * options);
 extern void record_option_notes (world_fmt * world, option_fmt * options);
 //
