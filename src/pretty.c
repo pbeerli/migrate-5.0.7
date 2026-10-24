@@ -8293,6 +8293,8 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
 		warning("histogram of expected rate changes not implemented");
 		continue;
 	      }
+	    else if (i0 >= world->numparamcumvec[SPLITSTDPRIOR] && i0 < world->numparamcumvec[MLFPRIOR])
+	      continue; // growth rates and ML alpha have no events
 	    else
 	      d2mm(i, world, &frompop, &topop);
 	  }
@@ -9125,7 +9127,8 @@ void pdf_print_time_table(world_fmt *world,
     long    frompop;
     long    topop;
     long    locus;
-    long    npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
+    // stride of meantime/freq/...: print_mighist_output()'s npp, includes grownum
+    long    npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu + world->grownum;
     char    title[LINESIZE];
     //double   left_margin = 55;
     long     end = world->loci > 1 ? world->loci + 1: 1;
@@ -9173,16 +9176,18 @@ void pdf_print_time_table(world_fmt *world,
           {
             if(shortcut(pop0, world,&pop))
               continue;
+            if (pop0 >= world->numparamcumvec[SPLITSTDPRIOR] && pop0 < world->numparamcumvec[GROWTHPRIOR])
+              continue; // growth rates have no events
             if(pop >= world->numpop2)
               {
                 species_fmt * s;
                 if (pop==world->numpop2 && world->bayes->mu)
                   continue;
                 s = get_which_species_model(pop,world->species_model, world->species_model_size);
-                if (pop != s->paramindex_mu)
+                if (s == NULL || pop != s->paramindex_mu)
                   continue;
               }
-            if (freq[locus * world->numpop2 + pop] > 0.0)
+            if (freq[locus * npall + pop] > 0.0)
               has_rows = TRUE;
           }
         pdf_advance(&page_height);
@@ -9282,6 +9287,8 @@ void pdf_print_time_table(world_fmt *world,
 	      {
 		continue;
 	      }
+	    if (pop0 >= world->numparamcumvec[SPLITSTDPRIOR] && pop0 < world->numparamcumvec[GROWTHPRIOR])
+	      continue; // growth rates have no events
 	    if(pop<world->numpop2)
 	      m2mm(pop, world->numpop, &frompop, &topop);
 	    else
@@ -9294,7 +9301,7 @@ void pdf_print_time_table(world_fmt *world,
 		else
 		  {
 		    species_fmt * s = get_which_species_model(pop,world->species_model, world->species_model_size);
-		    if (pop == s->paramindex_mu)
+		    if (s != NULL && pop == s->paramindex_mu)
 		      {
 			frompop = s->from;
 			topop = s->to;
@@ -9304,7 +9311,7 @@ void pdf_print_time_table(world_fmt *world,
 		  }
 	      }
 
-            lp = locus * world->numpop2 + pop;
+            lp = locus * npall + pop;
             if(freq[lp]>0.0)
             {
                 pretty_ua_push(HPDF_UA_ROLE_TR);

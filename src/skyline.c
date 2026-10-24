@@ -452,7 +452,7 @@ void setup_expected_events (world_fmt * world, option_fmt * options)
   (void) options;
   long locus, i, j,z;
     long allocsize = 1;
-    long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
+    long npall = world->numparam; // MPI pack_skyline_buffer() sends numparam slots
     MYREAL  binsize = (double) world->options->eventbinsize; // in mutational units (=time scale)
     if (world->options->mighist && world->options->skyline)
     {
@@ -481,7 +481,7 @@ void
 destroy_expected_events (world_fmt * world)
 {
     long locus, i;
-    long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
+    long npall = world->numparam; // MPI pack_skyline_buffer() sends numparam slots
     if (world->options->mighist && world->options->skyline)
     {
       for (locus = 0; locus < world->loci; locus++)
