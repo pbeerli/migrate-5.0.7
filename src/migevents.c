@@ -129,6 +129,7 @@ print_mighist_output (FILE * out, world_fmt * world, MYREAL *sums, boolean mrca)
     const long column   = (mrca ? 1 : 0 );
     const long numpop2  = world->numpop2;
     const long npp      =  numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
+    const long npgrowth = numpop2 + world->bayes->mu + world->species_model_size * 2;
     const long startpop = (world->options->mighist_all ? 0 : world->numpop);
     const long endpop   = (mrca ? world->numpop : npp);
     const long loci1    = ((world->loci == 1) ? 1 : world->loci + 1);
@@ -232,7 +233,6 @@ print_mighist_output (FILE * out, world_fmt * world, MYREAL *sums, boolean mrca)
                 meantime[sumloc * npp + pop] += meantime[lp]/world->loci;
 		mediantime[sumloc * npp + pop] += mediantime[lp]/world->loci;
                 stdtime[sumloc * npp + pop] += stdtime[lp]/world->loci;
-                mediantime[sumloc * npp + pop] += mediantime[lp]/world->loci;
               }
           }
         // calculating the frequences over all parameters using the sums
@@ -247,7 +247,8 @@ print_mighist_output (FILE * out, world_fmt * world, MYREAL *sums, boolean mrca)
         for (pop = startpop; pop < endpop; pop++)
           {
             lp = locus * npp + pop;
-            freq[lp] /= ntotal;
+            if (ntotal > 0.0)
+              freq[lp] /= ntotal;
             if(loci1>1)
 	      freq[sumloc * npp + pop] += freq[lp]/world->loci;
           }
@@ -294,16 +295,20 @@ print_mighist_output (FILE * out, world_fmt * world, MYREAL *sums, boolean mrca)
         FPRINTF (out,
                  "---------------------------------------------------------\n");
 	//        for (pop = (world->options->mighist_all ? 0 : world->numpop); pop <  (mrca ? world->numpop : world->numpop2); pop++)
-        for (pop = 0; pop < npp; pop++)
+        // the MRCA is located in a population; growth-rate slots (from
+        // npgrowth on) and the mutation-rate slot carry no events
+        for (pop = 0; pop < (mrca ? world->numpop : npgrowth); pop++)
           {
 	    if(world->bayes->map[pop][1] == INVALID)
 	      continue;
-	    if (pop>world->numpop2)
+	    if (pop >= numpop2 + world->bayes->mu)
 	      {
-		if ((pop-world->numpop2-world->bayes->mu)%2 == 1)
+		if ((pop-numpop2-world->bayes->mu)%2 == 1)
 		  continue;
 		d2mm(pop,world,&frompop,&topop);
 	      }
+	    else if (pop >= numpop2)
+	      continue;
 	    else
 	      {
 		m2mm(pop,world->numpop,&frompop,&topop);
@@ -642,7 +647,8 @@ void prepare_event_values(world_fmt *world, MYREAL *sums0,MYREAL *sums1)
     long   pop;
     long   i;
     //long   numpop2 = world->numpop2;
-    long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
+    // same slot count as setup_mig_coal_events() and print_mighist_output()
+    long npall = mig_coal_npall(world);
     duo    **eventbins;
     duo    **eventbins_all;
     long   *eventbinnum;
@@ -654,6 +660,7 @@ void prepare_event_values(world_fmt *world, MYREAL *sums0,MYREAL *sums1)
 	  {
 	    eventbins =  world->mighistloci[locus].migeventbins;
 	    eventbinnum = world->mighistloci[locus].migeventbinnum;
+	    z = locus * npall; // readers index locus*npall+pop, skipped loci stay 0
 	    for(pop = 0; pop < npall; pop++)
 	      {
 		sum0 = (MYREAL) 0.0;
@@ -753,7 +760,8 @@ void print_event_values(world_fmt * world)
     long sumloc = (world->loci > 1) ? 1 : 0;
     MYREAL *sums0;
     MYREAL *sums1;
-    long npall = world->numpop2+world->species_model_size * 2 + world->bayes->mu;
+    // sums0/sums1 are indexed with print_mighist_output()'s stride, which includes grownum
+    long npall = mig_coal_npall(world);
     if(world->options->mighist)
       {
     

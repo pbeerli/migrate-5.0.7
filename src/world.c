@@ -4160,8 +4160,8 @@ void set_numparam(world_fmt* world)
   world->numparamvec[RATEPRIOR] = world->bayes->mu;
   world->numparamvec[SPLITPRIOR] = world->species_model_size;
   world->numparamvec[SPLITSTDPRIOR] = world->species_model_size ;
-  world->numparamvec[GROWTHPRIOR] = world->options->growpops_numalloc ;//world->grownum;
-  world->numparamvec[MLFPRIOR] =  world->options->mlalphapops_numalloc ;//world->mlalphanum;
+  world->numparamvec[GROWTHPRIOR] = world->grownum;
+  world->numparamvec[MLFPRIOR] =  world->mlalphanum;
   long i;
   world->numparamcumvec[THETAPRIOR] =   world->numparamvec[THETAPRIOR];
   world->numparamcumvec[MIGPRIOR]   =   world->numparamvec[MIGPRIOR]; 
