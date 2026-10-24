@@ -1,4 +1,4 @@
-/* Synced from libharu-pdfua commit 73af7b6bb214 via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
+/* Synced from libharu-pdfua commit b952f3f3a657 via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
 /*
  * hpdf_ua_stack.c -- the tag stack (0.9.0), see hpdf_ua.h.
  *
@@ -157,6 +157,18 @@ HPDF_EXPORT(HPDF_UINT)
 HPDF_UA_Stack_Depth (HPDF_UA_Stack stack)
 {
     return stack ? stack->depth : 0;
+}
+
+HPDF_EXPORT(HPDF_BOOL)
+HPDF_UA_Stack_ContentOpen (HPDF_UA_Stack stack)
+{
+    return (HPDF_BOOL) (stack && stack->content_page != NULL);
+}
+
+HPDF_EXPORT(HPDF_BOOL)
+HPDF_UA_Stack_ArtifactOpen (HPDF_UA_Stack stack)
+{
+    return (HPDF_BOOL) (stack && stack->artifact_page != NULL);
 }
 
 HPDF_EXPORT(HPDF_STATUS)
