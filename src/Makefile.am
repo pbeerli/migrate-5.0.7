@@ -17,7 +17,7 @@ COMMON_SOURCES = \
     tree.c uep.c watterson.c world.c znzlib.c mittag_leffler.c hermite_interpoly.c \
     mittag_leffler_interpol_data.c romberg.c tables.c mlalpha.c windowupdate.c mlf_hastings.c \
     joint_combine.c \
-    hpdf_ua_context.c hpdf_ua_docmeta.c hpdf_ua_metadata.c hpdf_ua_structure.c \
+    hpdf_ua_context.c hpdf_ua_docmeta.c hpdf_ua_metadata.c hpdf_ua_structure.c hpdf_ua_stack.c \
     pretty_ua.c pdf_fonts_embedded.c
 
 # Not compiled directly, but every one of them is #included by the

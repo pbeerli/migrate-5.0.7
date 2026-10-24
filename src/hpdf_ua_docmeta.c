@@ -1,4 +1,4 @@
-/* Synced from libharu-pdfua commit 6d0b8eda6670 via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
+/* Synced from libharu-pdfua commit 73af7b6bb214 via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
 /*
  * hpdf_ua_docmeta.c -- real, working Milestone-0 additions: document
  * language, DisplayDocTitle, and idempotent MarkInfo/StructTreeRoot setup.
