@@ -9,7 +9,8 @@
   through the single global `page`) are NOT changed to take a structure
   element parameter each -- that would mean touching every one of
   pretty.c's ~90 report-producing functions individually, all at once, a
-  large, high-risk change. Instead, this module keeps a small stack of
+  large, high-risk change. Instead, this module keeps a small stack (a
+  thin wrapper around libharu-pdfua's HPDF_UA_Stack, see pretty_ua.c) of
   "currently open" structure elements; a handful of call sites at each
   function's natural section boundaries (start/end of a table, a row, a
   cell, a figure) push/pop that stack and bracket a block of otherwise
