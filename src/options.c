@@ -6421,6 +6421,12 @@ numbercheck (option_fmt * options, char *var, char *value)
 			  }
                     }
                     options->heated_chains = z;
+                    if (z < 4)   /* run_chains() and print_heating_progress() assume 4 chains */
+                    {
+                        warning ("heating needs at least 4 chains, %li temperatures given: using 1, 1.5, 3, 1000000\n", (long) z);
+                        option_note ("heating needs at least 4 chains, %li temperatures given: using 1, 1.5, 3, 1000000", (long) z);
+                        set_heating_ladder (options, 4, FALSE);
+                    }
                 }
             }
         }
@@ -8290,6 +8296,8 @@ set_heating_ladder (option_fmt * options, long n, boolean power)
     {
       warning ("heating=...:%s:N needs N >= 4 chains, using 4\n",
                power ? "POWER" : "LINEAR");
+      option_note ("heating=...:%s:N needs N >= 4 chains, using 4",
+                   power ? "POWER" : "LINEAR");
       n = 4;
     }
   if (n > maxchains)
