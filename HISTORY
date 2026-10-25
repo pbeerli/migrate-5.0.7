@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 25   Migrate 6.1.69 Active forces (assignment, haplotype, sequencing error) always get a
+             move weight > 0: a weight of 0 is set to the default with a warning;
+             inactive forces get weight 0. Event-time tables with population growth
+             reported wrong Frequency values (buffer overrun) and a spurious row; fixed.
+             PDF tagging uses libharu-pdfua 0.9.1.
+
 October 12   Migrate 6.1.68 Fixed a crash at the end of runs without sequencing error estimation
              (introduced in 6.1.67).
 
