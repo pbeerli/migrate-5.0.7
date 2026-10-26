@@ -29,5 +29,6 @@ extern boolean jc_joint_scaling (world_fmt *world, double *logc, double *err);
 #ifdef MPI
 extern void jc_worker_service (world_fmt *world, long part);
 #endif
+extern boolean jc_sky_quantiles (world_fmt *world, long k, long sg, double *qt, double *qv);
 
 #endif

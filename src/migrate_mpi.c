@@ -35,6 +35,7 @@ $Id: migrate_mpi.c 2170 2013-09-19 12:08:27Z beerli $
 #include "assignment.h"
 #include "sighandler.h"
 #include "migrate_mpi.h"
+#include "skyparam.h"
 #include "marginallike.h"
 #include "joint_combine.h"
 #include "migevents.h"
@@ -3296,6 +3297,8 @@ unpack_skyline_buffer (MYREAL *buffer, world_fmt * world,
 	  aa->eventbins[j][i][5] += (float) buffer[z++];// * invmaxrep;
 	}
     }
+    // skyline=PARAM multipliers of this locus
+    z += skyline_param_unpack(world, locus, buffer + z);
     //debug_skyline(world,"after unpack_skyline_buffer");
     myfree(receive_eventbinnum);
 }
@@ -3310,7 +3313,7 @@ long pack_skyline_buffer (MYREAL **buffer, world_fmt * world,
   long z = 0L;
   mighistloci_fmt *aa;
   long npall = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
-  long bufsize = npall + 1;
+  long bufsize = npall + 1 + skyline_param_bufsize(world);
   aa = &world->mighistloci[locus];
   //printf("Buffer in pack_skyline()=%f (%p)(%p)\n",(*buffer)[0], (*buffer), buffer);
   for (j = 0; j < npall; j++)
@@ -3342,6 +3345,8 @@ long pack_skyline_buffer (MYREAL **buffer, world_fmt * world,
 	  (*buffer)[z++] =  (MYREAL) aa->eventbins[j][i][5];
 	}
     }
+  // skyline=PARAM multipliers of this locus
+  z += skyline_param_pack(world, locus, (*buffer) + z);
   if(bufsize < z)
     {
       fprintf(stderr,"error: bufsize=%li, z=%li\n", bufsize, z);

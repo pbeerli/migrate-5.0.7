@@ -554,6 +554,91 @@ fill_worlddata (worlddata_fmt * wdata, world_fmt * world,
 }
 
 /// initialization of world, Step II allocation, filling values
+/* skyline=PARAM: expand skyline-model={...} into one code per parameter
+   (Theta_p first, then M in custm2 order, as custom-migration) and resolve
+   the bayes-priors= SKYLINE lines; the first segment's multiplier is 1 */
+static void skyline_param_setup(world_fmt *world, option_fmt *options, long loci)
+{
+  const long numpop = world->numpop;
+  const long numpop2 = world->numpop2;
+  long i, j, k, z, n;
+  char *m = options->skylinemodel;
+  char *full;
+  world->skymodel2 = (char *) mycalloc(numpop2 + 1, sizeof(char));
+  world->skyptype = (int *) mycalloc(numpop2, sizeof(int));
+  world->skypa = (double *) mycalloc(numpop2, sizeof(double));
+  world->skypb = (double *) mycalloc(numpop2, sizeof(double));
+  world->sky_trials = world->sky_accept = 0;
+  world->sky_nent = 0;
+  world->sky_ng = 0;
+  world->skyloc = NULL;
+  for (k = 0; k < numpop2; k++)
+    {
+      world->skymodel2[k] = 'c';
+      world->skyptype[k] = SKYPRIOR_RANDOMWALK;
+      world->skypa[k] = 1.0;
+    }
+  if (!options->skyline_param || world->timeelements <= 2)
+    return;
+  /* row-major numpop x numpop matrix, row = receiving population; missing
+     entries repeat the last one; no skyline-model: everything varies */
+  n = (long) strlen(m);
+  full = (char *) mycalloc(numpop * numpop + 1, sizeof(char));
+  for (i = 0; i < numpop * numpop; i++)
+    full[i] = (n == 0) ? '*' : m[(i < n) ? i : n - 1];
+  z = numpop;
+  for (i = 0; i < numpop; i++)
+    for (j = 0; j < numpop; j++)
+      {
+        k = (i == j) ? i : z++;
+        world->skymodel2[k] = (full[i * numpop + j] == '0') ? 'c' : full[i * numpop + j];
+      }
+  myfree(full);
+  for (k = 0; k < numpop2; k++)
+    {
+      if (world->options->custm2[k] == '0')
+        world->skymodel2[k] = 'c';   /* not estimated / zero route */
+      if (k < numpop)
+        {
+          boolean grows = world->options->growpops != NULL && options->growpops_numalloc > k
+            && options->growpops[k] != 0;
+          if (world->skymodel2[k] == 'g' && !grows)
+            usererror("skyline-model: 'g' for Theta_%li needs population-growth for population %li\n", k + 1, k + 1);
+          if (world->skymodel2[k] == '*' && grows)
+            usererror("skyline-model: Theta_%li has free segments and population growth; use 'g' to link it to growth\n", k + 1);
+        }
+      else if (world->skymodel2[k] == 'g')
+        error("skyline-model: 'g' (growth-linked) is only possible for Theta, not for M\n");
+    }
+  /* priors: later lines override earlier ones */
+  for (i = 0; i < options->skyprior_num; i++)
+    {
+      skyprior_fmt *sp = &options->skyprior[i];
+      for (k = 0; k < numpop2; k++)
+        {
+          long from, to;
+          if (k < numpop)
+            from = to = k;
+          else
+            m2mm(k, numpop, &from, &to);
+          if ((sp->from < 0 || sp->from == from) && (sp->to < 0 || sp->to == to))
+            {
+              world->skyptype[k] = sp->type;
+              world->skypa[k] = sp->a;
+              world->skypb[k] = sp->b;
+            }
+        }
+    }
+  /* start inside the prior: a log-uniform prior that excludes 1 starts at
+     the geometric mean of its bounds */
+  for (k = 0; k < numpop2; k++)
+    if (world->skymodel2[k] == '*' && world->skyptype[k] == SKYPRIOR_LOGUNIFORM
+        && (world->skypa[k] > 1.0 || world->skypb[k] < 1.0))
+      for (i = 1; i < world->timeelements - 1; i++)
+        world->timek[i * numpop2 + k] = sqrt(world->skypa[k] * world->skypb[k]);
+  skyline_param_alloc(world, loci);
+}
+
 void
 init_world (world_fmt * world, data_fmt * data, option_fmt * options)
 {
@@ -811,19 +896,28 @@ init_world (world_fmt * world, data_fmt * data, option_fmt * options)
       world->param00 = (MYREAL *) mycalloc (world->numparam, sizeof (MYREAL));
       // skyline parameters
       world->timeelements = options->timeelements;
+      if (options->skyline_param && options->skylinetimes_num > 0)
+	world->timeelements = options->skylinetimes_num + 2;
       world->times = (MYREAL *) mycalloc ((world->timeelements +  world->timeelements * (world->numpop2)), sizeof (MYREAL));
       world->timek = world->times + world->timeelements;
       world->times[0] = 0.0;
       for(i=1;i<world->timeelements-1;i++)
 	{
-	  //TODO time range needs to be fixed
-	  world->times[i] += world->times[i-1] + (double) options->eventbinsize;
+	  if (options->skyline_param && options->skylinetimes_num > 0)
+	    {
+	      world->times[i] = options->skylinetimes[i-1];
+	      if (world->times[i] <= world->times[i-1])
+		error("skyline-times: boundaries must be positive and increasing\n");
+	    }
+	  else
+	    world->times[i] = world->times[i-1] + (double) options->eventbinsize;
 	}
       world->times[i]=MYREAL_MAX;
       for(i=0;i<world->timeelements*world->numpop2;i++)
 	{
 	  world->timek[i]=1.0;
 	}
+      skyline_param_setup(world, options, data->loci);
       //-----------------------
       world->heat = 1.;
       world->heatid=0;

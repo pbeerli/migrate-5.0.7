@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/}
-#define NUMNUMBER 71
+#define NUMNUMBER 73
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -360,6 +360,9 @@ void init_options (option_fmt * options)
     options->mighist_increment = 1;
     options->skyline = FALSE;
     options->skyline_param = FALSE;
+    options->skylinemodel[0] = '\0';
+    options->skylinetimes_num = 0;
+    options->skyprior_num = 0;
     options->timeelements = 2;
     options->eventbinsize = (float) 0.001;
     options->mixplot = FALSE;
@@ -4275,6 +4278,14 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "        binsize has to be in mutation units, with an average Theta=0.01 try 0.001");
     print_parm_comment(&bufsize, buffer, allocbufsize, "Print a histogram of the parameters through time (skyline plot)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax  skyline=<NO | YES | PARAM:n >:binsize:skylinefile >");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        PARAM:n       n time segments of width binsize (the last one open-ended),");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                      Theta and M get a multiplier per segment (the first is 1)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   skyline-model={...}  which parameters vary, laid out like custom-migration:");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        * free segments, g follows population growth (Theta only), c constant");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        [default: all estimated parameters vary]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   skyline-times={t1 t2 ...}  segment boundaries instead of binsize");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   bayes-priors= SKYLINE <from> <to> RANDOMWALK: sigma   [default sigma 1]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   bayes-priors= SKYLINE <from> <to> LOGUNIFORM: min max");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        NO            do not calculate parameter estimates through time");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        YES           calculate parameters through time");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        binsize has to be in mutation units, with an average Theta=0.01 try 0.001");
@@ -4289,7 +4300,30 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 	if(options->skyline)
 	  {
 	    if(options->skyline_param)
-	      print_parm_mutable(&bufsize, buffer, allocbufsize, "skyline=PARAM:%li:%f:%s  #needs mig-histogram", options->timeelements, (double) options->eventbinsize, options->skylinefilename);
+	      {
+		long i, pos = 0;
+		char line[LINESIZE];
+		print_parm_mutable(&bufsize, buffer, allocbufsize, "skyline=PARAM:%li:%f:%s  #needs mig-histogram", options->timeelements - 1, (double) options->eventbinsize, options->skylinefilename);
+		if (options->skylinemodel[0] != '\0')
+		  print_parm_mutable(&bufsize, buffer, allocbufsize, "skyline-model={%s}", options->skylinemodel);
+		if (options->skylinetimes_num > 0)
+		  {
+		    for (i = 0; i < options->skylinetimes_num && pos < LINESIZE - 32; i++)
+		      pos += snprintf(line + pos, (size_t) (LINESIZE - pos), "%s%g", i ? " " : "", options->skylinetimes[i]);
+		    print_parm_mutable(&bufsize, buffer, allocbufsize, "skyline-times={%s}", line);
+		  }
+		for (i = 0; i < options->skyprior_num; i++)
+		  {
+		    skyprior_fmt *sp = &options->skyprior[i];
+		    char f[32], t[32];
+		    if (sp->from < 0) strcpy(f, "*"); else snprintf(f, sizeof(f), "%li", sp->from + 1);
+		    if (sp->to < 0) strcpy(t, "*"); else snprintf(t, sizeof(t), "%li", sp->to + 1);
+		    if (sp->type == SKYPRIOR_LOGUNIFORM)
+		      print_parm_mutable(&bufsize, buffer, allocbufsize, "bayes-priors= SKYLINE %s %s LOGUNIFORM: %g %g", f, t, sp->a, sp->b);
+		    else
+		      print_parm_mutable(&bufsize, buffer, allocbufsize, "bayes-priors= SKYLINE %s %s RANDOMWALK: %g", f, t, sp->a);
+		  }
+	      }
 	    else
 	      print_parm_mutable(&bufsize, buffer, allocbufsize, "skyline=YES:%f:%s  #needs mig-histogram", (double) options->eventbinsize, options->skylinefilename);
 	  }
@@ -4838,6 +4872,53 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 ///
 /// fill the prior information of bayes theta, migrations, and rates 
 /// this fills the first theta prior, migration prior, rate prior.
+/* bayes-priors= SKYLINE <from> <to> RANDOMWALK: sigma | LOGUNIFORM: min max
+   (from == to: Theta_from; otherwise M from->to; * = all) */
+static void set_skyline_prior(char *value, option_fmt *options)
+{
+  char name[LINESIZE], sfrom[LINESIZE], sto[LINESIZE], ptype[LINESIZE];
+  skyprior_fmt *sp;
+  char *args;
+  double a = 1.0, b = 0.0;
+  if (options->skyprior_num >= SKYLINE_MAXSEGMENTS)
+    {
+      warning("bayes-priors: too many SKYLINE lines, ignoring \"%s\"\n", value);
+      return;
+    }
+  if (sscanf(value, "%s%s%s%s", name, sfrom, sto, ptype) != 4)
+    {
+      warning("bayes-priors: SKYLINE needs <from> <to> <RANDOMWALK|LOGUNIFORM>: ...; ignoring \"%s\"\n", value);
+      return;
+    }
+  sp = &options->skyprior[options->skyprior_num];
+  sp->from = (sfrom[0] == '*' || sfrom[0] == '-') ? -1 : atol(sfrom) - 1;
+  sp->to = (sto[0] == '*' || sto[0] == '-') ? -1 : atol(sto) - 1;
+  args = strchr(value, ':');
+  if (args != NULL)
+    sscanf(args + 1, "%lf%lf", &a, &b);
+  if (uppercase(ptype[0]) == 'L')
+    {
+      sp->type = SKYPRIOR_LOGUNIFORM;
+      if (!(a > 0.0 && b > a))
+        {
+          warning("bayes-priors: SKYLINE LOGUNIFORM needs 0 < min < max; ignoring \"%s\"\n", value);
+          return;
+        }
+    }
+  else
+    {
+      sp->type = SKYPRIOR_RANDOMWALK;
+      if (!(a > 0.0))
+        {
+          warning("bayes-priors: SKYLINE RANDOMWALK needs sigma > 0; ignoring \"%s\"\n", value);
+          return;
+        }
+    }
+  sp->a = a;
+  sp->b = b;
+  options->skyprior_num++;
+}
+
 void set_bayes_options(char *value, option_fmt *options)
 {
   //prior_fmt *last;
@@ -4864,6 +4945,11 @@ void set_bayes_options(char *value, option_fmt *options)
   strcpy(ptypename[MLFPRIOR],"MLF");
   
   sscanf(value,"%s%s", paramtype, priortype);
+  if (!strncmp(paramtype, "SKY", 3) || !strncmp(paramtype, "sky", 3))
+    {
+      set_skyline_prior(value, options);
+      return;
+    }
   char *valueptr = strstr(value,priortype);
   if (strchr("-*1234567890", uppercase(priortype[0])))
     {
@@ -6552,6 +6638,26 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    }
 	}
       break;
+    case 71: /*skyline-model={...}: which parameters vary over the skyline=PARAM segments*/
+      {
+	long i = 0;
+	char *c;
+	for (c = value; *c != '\0' && i < LINESIZE - 1; c++)
+	  if (strchr("*gGcC0", *c))
+	    options->skylinemodel[i++] = (char) ((*c == 'G' || *c == 'C') ? tolower(*c) : *c);
+	options->skylinemodel[i] = '\0';
+      }
+      break;
+    case 72: /*skyline-times={t1 t2 ...}: boundaries of the skyline=PARAM segments*/
+      options->skylinetimes_num = 0;
+      get_next_word(&value,"{}:,; ",&tmp);
+      while (tmp != NULL && options->skylinetimes_num < SKYLINE_MAXSEGMENTS - 2)
+	{
+	  if (tmp[0] != '\0')
+	    options->skylinetimes[options->skylinetimes_num++] = atof(tmp);
+	  get_next_word(&value,"{}:,; ",&tmp);
+	}
+      break;
     case 49: /*bayes-posteriorbins*/    
       tbins = BAYESTHETABIN;
       mbins = BAYESNUMBIN;
@@ -6693,7 +6799,11 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  options->skyline = TRUE;
 	  options->skyline_param = TRUE;
 	  get_next_word(&value,":",&tmp);
-	  options->timeelements = atol(tmp);
+	  /* n segments (the last one open-ended) are stored as n+1 boundary
+	     entries times[0..n], times[n] = MYREAL_MAX */
+	  options->timeelements = atol(tmp) + 1;
+	  if (options->timeelements < 2)
+	    options->timeelements = 2;
 	}
       if(options->skyline)
 	{
@@ -8101,19 +8211,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     choices[HAPLOTYPEUPDATE]=options->haplotype_updatefreq;
   else
     choices[HAPLOTYPEUPDATE] = 0.0;
-  // skyline=PARAM: the per-segment multipliers were proposed without ever
-  // entering the tree density used for the parameter updates, while the
-  // genealogy proposal used them, which biased Theta and M; until the
-  // parametric skyline is finished (see migrate-codex-7) the multipliers
-  // stay at 1, so skyline=PARAM gives the results of skyline=YES
-  choices[SKYLINETIMEUPDATE]=0;
   if(options->skyline_param)
-    {
-      static boolean warned = FALSE;
-      if (!warned && myID == MASTER)
-	warning("skyline=PARAM: segment multipliers are not estimated in this version; results are those of skyline=YES\n");
-      warned = TRUE;
-    }
+    choices[SKYLINETIMEUPDATE] = options->timeparam_updatefreq;
+  else
+    choices[SKYLINETIMEUPDATE]=0;
   if(options->has_unassigned)
     choices[ASSIGNMENTUPDATE] = options->unassigned_updatefreq;
   else

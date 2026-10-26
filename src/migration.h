@@ -729,6 +729,55 @@ typedef struct startparam_fmt
   float *mlalpha; 
 } startparam_fmt;
 
+#define SKYLINE_MAXSEGMENTS 64
+#define SKYPRIOR_RANDOMWALK 1
+#define SKYPRIOR_LOGUNIFORM 2
+/* one bayes-priors= SKYLINE line: from/to are 0-based, -1 = all */
+typedef struct
+{
+  long from;
+  long to;
+  int type;
+  double a;
+  double b;
+} skyprior_fmt;
+
+/* skyline=PARAM samples of one locus: histograms of log tau on
+   SKYLINE_HISTBINS bins over [-SKYLINE_HISTMAX, SKYLINE_HISTMAX], effective
+   sample sizes and move counts (all additive over replicates/workers);
+   samples are kept only until the ESS is computed */
+#define SKYLINE_HISTBINS 320
+#define SKYLINE_HISTMAX 8.0
+/* joint grid of (log parameter, log tau) per multiplier, combined over loci
+   like the other parameters (product of the per-locus posteriors divided by
+   the prior loci-1 times) but in two dimensions, so that the correlation
+   between a parameter and its multipliers is kept */
+#define SKY2_NX 100
+#define SKY2_NY 120
+#define SKY2_XRANGE 7.0
+#define SKY2_YMAX 6.0
+#define SKY2_NG 400      /* growth axis of the growth-linked Theta grid, over the growth prior range */
+#define SKY2_PRIORSPAN 18.42   /* log(1e8): cells combined where the prior is within 1e8 of its maximum */
+typedef struct
+{
+  float *samples;
+  long n;
+  long alloc;
+  double *hist;
+  double *ess;
+  float *hist2;       /* SKY2_NX x SKY2_NY counts per entry, until combined */
+  double *vq;         /* per-locus quantiles of the segment value, 3 per entry */
+  float *gsamples;    /* growth-linked Theta: log Theta and g per sample and entry */
+  float *ghist2;      /* SKY2_NX x SKY2_NG counts per growth-linked entry, until combined */
+  double *gess;       /* ESS of the log segment value, per growth-linked entry and segment */
+  double *gq;         /* per-locus quantiles (multiplier 3, value 3) per entry and segment */
+  double nsamples;
+  double trials;
+  double accept;
+  boolean finished;
+  boolean combined;
+} skyloc_fmt;
+
 /// data storage for all options
 typedef struct _option
 {
@@ -799,6 +848,14 @@ typedef struct _option
   boolean skyline;
   boolean skyline_param;
   long timeelements;
+  /* skyline=PARAM: skyline-model={...} (raw, expanded in init_world()),
+     skyline-times={...} (explicit segment boundaries), and the
+     bayes-priors= SKYLINE lines (resolved in init_world()) */
+  char skylinemodel[LINESIZE];
+  long skylinetimes_num;
+  double skylinetimes[SKYLINE_MAXSEGMENTS];
+  long skyprior_num;
+  skyprior_fmt skyprior[SKYLINE_MAXSEGMENTS];
   float eventbinsize;
   boolean mixplot;
   boolean dist;
@@ -1679,6 +1736,32 @@ typedef struct _world
   long timeelements;
   MYREAL *times;
   MYREAL *timek;
+  /* skyline=PARAM, per parameter (Theta_p, then M in custm2 order):
+     skymodel2 '*' free segments, 'g' growth-linked, 'c' constant;
+     prior type/arguments of the log multipliers */
+  char *skymodel2;
+  int *skyptype;
+  double *skypa;
+  double *skypb;
+  long sky_trials;
+  long sky_accept;
+  /* recorded multipliers: entry e is parameter sky_k[e], segment sky_s[e] */
+  long sky_nent;
+  long *sky_k;
+  long *sky_s;
+  long sky_loci;
+  skyloc_fmt *skyloc;
+  double *sky2sum;     /* summed per-locus log densities, per entry */
+  double *sky2xlo;     /* lower end of the log-parameter axis, per entry */
+  long *sky2loci;      /* loci added to sky2sum, per entry */
+  long sky_lastlocus;  /* serial runs: locus sampled last */
+  /* growth-linked Theta ('g'): entry j is Theta_p, p = sky_gk[j]; its value in
+     segment s is Theta_p exp(-g_p times[s]), recorded on a (log Theta, g) grid */
+  long sky_ng;
+  long *sky_gk;
+  double *sky2gsum;    /* summed per-locus log densities, SKY2_NX x SKY2_NG per entry */
+  double *sky2gxlo;    /* lower end of the log-Theta axis, per entry */
+  long *sky2gloci;     /* loci added to sky2gsum, per entry */
   long numtimesalloc;
   long numtimes;
   float **recording_times;

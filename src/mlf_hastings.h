@@ -6,6 +6,7 @@ Mittag-Leffler Hastings correction for genealogy moves, see mlf_hastings.c
 #include "migration.h"
 
 extern boolean mlh_supported(world_fmt *world);
+extern boolean mlh_density_applies(world_fmt *world);
 extern void mlh_set_assignment(long oldpop);
 extern double mlh_probg_treetimes(world_fmt *world);
 extern double mlh_alpha(world_fmt *world, long pop);

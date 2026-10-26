@@ -310,27 +310,40 @@ static double mlh_u_growth(double A, double B, double g, double alpha,
   return 0.5 * h * u;
 }
 
-/* pair coalescence rate in pop: 2/(mu theta) */
-static double mlh_pairrate(world_fmt *world, long pop)
+/* skyline=PARAM segment containing time t (0 without segments); the
+   multipliers of segment s are timek[s * numpop2 + parameter] */
+static long mlh_seg(world_fmt *world, double t)
+{
+  long s = world->timeelements - 2;
+  if (s <= 0)
+    return 0;
+  while (s > 0 && t < world->times[s])
+    s--;
+  return s;
+}
+
+/* pair coalescence rate in pop: 2/(mu theta), theta the locus Theta
+   (inheritance scalar x the reference Theta param0) */
+static double mlh_pairrate_s(world_fmt *world, long pop, long seg)
 {
   return 2.0 / (world->options->mu_rates[world->locus]
                 * world->options->inheritance_scalars[world->locus]
-                * world->param0[pop] * world->timek[pop]);
+                * world->param0[pop] * world->timek[seg * world->numpop2 + pop]);
 }
 
 /* migration rate of one lineage in pop 'below' moving to 'above' (backwards
    in time), as in time_to_migration() */
-static double mlh_migrate(world_fmt *world, long above, long below)
+static double mlh_migrate_s(world_fmt *world, long above, long below, long seg)
 {
   long i = m2mmm(above, below, world->numpop);
   if (world->options->custm2[i] == '0')
     return 0.0;
-  return world->data->geo[i] * migration_M(world, i, below) * world->timek[i]
-    / world->options->mu_rates[world->locus];
+  return world->data->geo[i] * migration_M(world, i, below)
+    * world->timek[seg * world->numpop2 + i] / world->options->mu_rates[world->locus];
 }
 
 /* total migration rate out of pop for one lineage */
-static double mlh_migtotal(world_fmt *world, long pop)
+static double mlh_migtotal_s(world_fmt *world, long pop, long seg)
 {
   long i;
   double sum = 0.0;
@@ -338,27 +351,47 @@ static double mlh_migtotal(world_fmt *world, long pop)
     {
       if (world->options->custm2[i] == '0')
         continue;
-      sum += world->data->geo[i] * migration_M(world, i, pop) * world->timek[i];
+      sum += world->data->geo[i] * migration_M(world, i, pop) * world->timek[seg * world->numpop2 + i];
     }
   return sum / world->options->mu_rates[world->locus];
 }
 
+static double mlh_pairrate(world_fmt *world, long pop)
+{
+  return mlh_pairrate_s(world, pop, 0);
+}
+
+static double mlh_migrate(world_fmt *world, long above, long below)
+{
+  return mlh_migrate_s(world, above, below, 0);
+}
+
+static double mlh_migtotal(world_fmt *world, long pop)
+{
+  return mlh_migtotal_s(world, pop, 0);
+}
+
 /* log survival of all migration clocks of a lineage in pop over dt */
-static double mlh_logS_mig(world_fmt *world, long pop, double dt)
+static double mlh_logS_mig_s(world_fmt *world, long pop, double dt, long seg)
 {
   long i;
   double alpha = mlh_alpha(world, pop), logs = 0.0;
   const double mu = world->options->mu_rates[world->locus];
   if (alpha >= 1.0)
-    return -mlh_migtotal(world, pop) * dt;
+    return -mlh_migtotal_s(world, pop, seg) * dt;
   for (i = world->mstart[pop]; i < world->mend[pop]; i++)
     {
       if (world->options->custm2[i] == '0')
         continue;
-      logs += mlh_logS(world->data->geo[i] * migration_M(world, i, pop) * world->timek[i] / mu,
-                       alpha, dt);
+      logs += mlh_logS(world->data->geo[i] * migration_M(world, i, pop)
+                       * world->timek[seg * world->numpop2 + i] / mu, alpha, dt);
     }
   return logs;
+}
+
+static double mlh_logS_mig(world_fmt *world, long pop, double dt)
+{
+  return mlh_logS_mig_s(world, pop, dt, 0);
 }
 
 #ifdef MIGRATE_MLH_VERIFY
@@ -422,6 +455,68 @@ static double mlh_lambda(world_fmt *world, long pop, long kp)
   return lam;
 }
 
+/* rescaled time of pop's clock with kp lineages from a to b; the rate
+   changes at skyline=PARAM segment boundaries (the clock does not restart
+   there) and, with growth, continuously */
+static double mlh_u_spell(world_fmt *world, long pop, long kp, double a, double b)
+{
+  const double alpha = mlh_alpha(world, pop);
+  const double g = mlh_growth(world, pop);
+  long s = mlh_seg(world, a), last = mlh_seg(world, b);
+  double u = 0.0;
+  for (; s <= last; s++)
+    {
+      double x = (s == mlh_seg(world, a)) ? a : world->times[s];
+      double y = (s == last) ? b : world->times[s + 1];
+      double A = (kp > 1) ? kp * (kp - 1) * mlh_pairrate_s(world, pop, s) / 2.0 : 0.0;
+      double B = (kp > 0) ? kp * mlh_migtotal_s(world, pop, s) : 0.0;
+      u += mlh_u_growth(A, B, g, alpha, x, y);
+    }
+  return u;
+}
+
+/* the same density with skyline=PARAM segments (piecewise-constant
+   multipliers) */
+static double mlh_logp_perpop_sky(world_fmt *world, const mlh_list *L, double *a)
+{
+  const long numpop = L->numpop;
+  long i, pop, x;
+  double logp = 0.0;
+  for (i = 0; i < L->n; i++)
+    {
+      const mlh_event *e = &L->ev[i];
+      const long *kb = L->k + i * numpop;
+      const long *ka = (i + 1 < L->n) ? L->k + (i + 1) * numpop : NULL;
+      x = -1;
+      if (e->type == 'c' || e->type == 'm')
+        {
+          const long s = mlh_seg(world, e->age);
+          double alpha, g, A, B, lam_end, rate;
+          x = e->below;
+          alpha = mlh_alpha(world, x);
+          g = mlh_growth(world, x);
+          A = (kb[x] > 1) ? kb[x] * (kb[x] - 1) * mlh_pairrate_s(world, x, s) / 2.0 : 0.0;
+          B = kb[x] * mlh_migtotal_s(world, x, s);
+          lam_end = A * exp(g * e->age) + B;
+          rate = (e->type == 'c') ? mlh_pairrate_s(world, x, s) * exp(g * e->age)
+            : mlh_migrate_s(world, e->above, x, s);
+          logp += mlh_logf_u(mlh_u_spell(world, x, kb[x], a[x], e->age), lam_end, alpha)
+            - log(lam_end) + log(rate);
+          a[x] = e->age;
+        }
+      for (pop = 0; pop < numpop; pop++)
+        {
+          if (pop == x || (ka != NULL && ka[pop] == kb[pop]) || (ka == NULL && kb[pop] == 0))
+            continue;
+          if (ka != NULL)   /* censored */
+            logp += mlh_logS_u(mlh_u_spell(world, pop, kb[pop], a[pop], e->age),
+                               mlh_alpha(world, pop));
+          a[pop] = e->age;
+        }
+    }
+  return logp;
+}
+
 /* log density of the events of L (and of everything L's populations wait
    through) given the start a[pop] of each population's spell open below the
    first event of L; a[] is updated. The process stops at the last event. */
@@ -430,6 +525,8 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
   const long numpop = L->numpop;
   long i, pop, x;
   double logp = 0.0;
+  if (world->timeelements > 2)
+    return mlh_logp_perpop_sky(world, L, a);
   for (i = 0; i < L->n; i++)
     {
       const mlh_event *e = &L->ev[i];
@@ -515,9 +612,36 @@ long mlh_count_events(world_fmt *world)
   return n;
 }
 
+/* skyline=PARAM: the value of a free parameter in every segment
+   (parameter times multiplier) must lie within the parameter's prior range;
+   outside, the tree density is zero, so every move (Metropolis, slice
+   sampler, multiplier move, scaler) rejects such states */
+static boolean mlh_skyline_in_range(world_fmt *world)
+{
+  long k, s, i;
+  if (world->timeelements <= 2 || world->skymodel2 == NULL)
+    return TRUE;
+  for (k = 0; k < world->numpop2; k++)
+    {
+      /* every free entry, also one that shares its parameter (symmetric, mean) */
+      i = world->bayes->map[k][1];
+      if (world->skymodel2[k] != '*' || i == INVALID)
+        continue;
+      for (s = 1; s < world->timeelements - 1; s++)
+        {
+          const double v = world->param0[k] * world->timek[s * world->numpop2 + k];
+          if (v < world->bayes->minparam[i] || v > world->bayes->maxparam[i])
+            return FALSE;
+        }
+    }
+  return TRUE;
+}
+
 /* probg_treetimes() for Mittag-Leffler runs within mlh_supported() */
 double mlh_probg_treetimes(world_fmt *world)
 {
+  if (!mlh_skyline_in_range(world))
+    return (double) -HUGE;
   static mlh_list L;
   static double *a = NULL;
   static long aalloc = 0;
@@ -630,11 +754,11 @@ static long mlh_first(const mlh_list *B, double t)
 /* log density of all clocks of a lineage in pop firing 'which' at dt:
    which = -1 coalescence, -2 none (survival only), else a migration to
    population 'which' (backwards) */
-static double mlh_clocks(world_fmt *world, long pop, long kcoal, long which,
-                         double t0, double dt)
+static double mlh_clocks_s(world_fmt *world, long pop, long kcoal, long which,
+                           double t0, double dt, long seg)
 {
   const double alpha = mlh_alpha(world, pop);
-  const double lc = (kcoal > 0) ? kcoal * mlh_pairrate(world, pop) : 0.0;
+  const double lc = (kcoal > 0) ? kcoal * mlh_pairrate_s(world, pop, seg) : 0.0;
   const double g = mlh_growth(world, pop);
   double logq;
   if (g != 0.0 && lc > 0.0)
@@ -651,16 +775,35 @@ static double mlh_clocks(world_fmt *world, long pop, long kcoal, long which,
     logq = mlh_logS(lc, alpha, dt);
   if (which >= 0)
     {
-      double lm = mlh_migrate(world, which, pop);
+      double lm = mlh_migrate_s(world, which, pop, seg);
       if (alpha >= 1.0)
-        logq += log(lm) - mlh_migtotal(world, pop) * dt;
+        logq += log(lm) - mlh_migtotal_s(world, pop, seg) * dt;
       else
-        logq += mlh_logS_mig(world, pop, dt) - mlh_logS(lm, alpha, dt)
+        logq += mlh_logS_mig_s(world, pop, dt, seg) - mlh_logS(lm, alpha, dt)
           + mlh_logf(lm, alpha, dt);
     }
   else
-    logq += mlh_logS_mig(world, pop, dt);
+    logq += mlh_logS_mig_s(world, pop, dt, seg);
   return logq;
+}
+
+/* the same over [t0, t0 + dt] when skyline=PARAM segment boundaries lie
+   inside: the proposal redraws all clocks at each boundary */
+static double mlh_clocks(world_fmt *world, long pop, long kcoal, long which,
+                         double t0, double dt)
+{
+  double t = t0, logq = 0.0;
+  const double end = t0 + dt;
+  long s = mlh_seg(world, t0);
+  if (world->timeelements <= 2)
+    return mlh_clocks_s(world, pop, kcoal, which, t0, dt, 0);
+  while (s + 2 < world->timeelements && world->times[s + 1] < end)
+    {
+      logq += mlh_clocks_s(world, pop, kcoal, -2, t, world->times[s + 1] - t, s);
+      t = world->times[s + 1];
+      s++;
+    }
+  return logq + mlh_clocks_s(world, pop, kcoal, which, t, end - t, s);
 }
 
 /* one step of a lineage in pop over [t0, t0 + dt]: its ML clocks (kcoal
@@ -782,6 +925,9 @@ static void mlh_push_mig(migr_table_fmt **tab, long *alloc, long n,
   (*tab)[n].event = event;
 }
 
+/* the per-population density applies to Mittag-Leffler runs and, for any
+   alpha, to skyline=PARAM runs (the interval density ignores the segment
+   multipliers) */
 /* divergence is covered for the normal split-time distribution and
    untied splits (custom-migration d/D) */
 static boolean mlh_div_supported(world_fmt *world)
@@ -797,11 +943,16 @@ static boolean mlh_div_supported(world_fmt *world)
   return TRUE;
 }
 
-/* timeelements == 2 is the no-skyline default (one open segment); tip
-   dates and normal-distribution divergence are included */
+boolean mlh_density_applies(world_fmt *world)
+{
+  return (world->has_mlalpha || world->timeelements > 2) && mlh_div_supported(world);
+}
+
+/* runs the Hastings correction covers (skyline=PARAM segments, growth,
+   tip dates and normal-distribution divergence are included) */
 boolean mlh_supported(world_fmt *world)
 {
-  return world->timeelements <= 2 && mlh_div_supported(world);
+  return mlh_div_supported(world);
 }
 
 /* population of the reassigned tip before an assignment move */
