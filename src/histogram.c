@@ -534,10 +534,11 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 	{
 	  remove(options->bayesmdimfilename);
 	}
-      // skyline parameters if present
-      if (world->options->skyline_param)
-	skyline_param_reader(world, step, locus, &inptr);
-      // end skyline parameters
+      /* skyline=PARAM columns at the end of each line are skipped with
+         the rest of the line above; the multipliers reach the reports
+         through skyline_param_sample()/the skyline buffer instead (the
+         former reader ran after the file was closed, on a stale pointer,
+         and crashed) */
 #ifdef DEBUG
       fprintf(stdout,"%s closed\n",files[f]);
 #endif

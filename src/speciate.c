@@ -1709,14 +1709,13 @@ long newtree_update (world_fmt * world, long g, boolean assign)
     }
     zz--;
  
-    // adjusting the timeinterval for the skylineplots
-    skyz=world->timeelements-1;
-    while (skyz > 0 && tentry->age <  proposal->world->times[skyz])
+    // skyline=PARAM: skyz is the segment containing age; the clocks are
+    // redrawn at the next segment boundary and at the next timelist entry,
+    // whichever comes first (without segments times[1] = MYREAL_MAX)
+    skyz = world->timeelements - 2;
+    while (skyz > 0 && age < proposal->world->times[skyz])
       skyz--;
-    skyz++;
-    nexttime =  proposal->world->times[skyz];
-    tentry->timeslice=skyz-1;
-   
+    nexttime = proposal->world->times[skyz + 1];
     if (tentry->age < nexttime)
       nexttime = tentry->age;
 
@@ -1738,7 +1737,7 @@ long newtree_update (world_fmt * world, long g, boolean assign)
          0) ? proposal->migr_table[proposal->migr_table_counter -
                                    1].from : proposal->origin->pop;
 
-	x = eventtime_single(proposal,world, actualpop, tentry->timeslice, tentry->lineages, /*tentry->*/ age, &event, &to, &from);
+	x = eventtime_single(proposal,world, actualpop, skyz, tentry->lineages, /*tentry->*/ age, &event, &to, &from);
 	//if (x>=HUGE)
 	//  {
 	//    fprintf(stdout,"%i> X Proposal failed: time=%f origin time=%f nexttime=%f, deltatime=%f\n", myID, proposal->time, proposal->origin->tyme, nexttime, age);
@@ -1834,27 +1833,25 @@ long newtree_update (world_fmt * world, long g, boolean assign)
                 break;
             }
         }   /*end if proposal->time < nextime */
-        age = nexttime;
-        zz++;
-        if(zz >= timevector->T)
-        {
-            break;
-        }
-        tentry = &(*timevector).tl[zz]; /*next entry in timelist */
-	// skyparam
-	if (tentry->age > proposal->world->times[skyz])
-	  {
-	    zz--;
-	    tentry = &(*timevector).tl[zz]; /*next entry in timelist */
-	    tentry->timeslice = skyz;
-	    nexttime =  proposal->world->times[skyz];
-	    skyz++;
-	  }
-	else
-	  {
-	    nexttime = tentry->age;
-	    tentry->timeslice = skyz-1;
-	  }
+        if (nexttime < tentry->age)
+          {   // a segment boundary inside the interval: same lineages, next segment
+            age = nexttime;
+            skyz++;
+          }
+        else
+          {
+            age = nexttime;
+            zz++;
+            if(zz >= timevector->T)
+              {
+                break;
+              }
+            tentry = &(*timevector).tl[zz]; /*next entry in timelist */
+          }
+        tentry->timeslice = skyz;
+        nexttime = proposal->world->times[skyz + 1];
+        if (tentry->age < nexttime)
+          nexttime = tentry->age;
     }
     if (!coalesced)
     {
@@ -1978,9 +1975,29 @@ void calc_time_per_line(proposal_fmt * proposal, char type, long popto, boolean 
   long  *lineages = (long *) mycalloc(world->numpop, sizeof(long));
   MYREAL interval;
   lineages[pop] = same ? 1 : 0;
+  timeslice = world->timeelements - 2;
   while (timeslice > 0 && age < world->times[timeslice])
     timeslice--;
-  interval = eventtime_single(proposal, world, pop, timeslice, lineages, age, event, to, from);
+  // skyline=PARAM: the clocks are redrawn at every segment boundary
+  for (;;)
+    {
+      *to = pop;
+      interval = eventtime_single(proposal, world, pop, timeslice, lineages, age, event, to, from);
+      if (*event != ' ' && interval < (double) HUGE && age + interval > world->times[timeslice + 1]
+          && timeslice + 2 < world->timeelements)
+        {
+          age = world->times[timeslice + 1];
+          timeslice++;
+          continue;
+        }
+      if (timeslice + 2 < world->timeelements && (*event == ' ' || interval >= (double) HUGE))
+        {   // no event in this segment: the next one may have one
+          age = world->times[timeslice + 1];
+          timeslice++;
+          continue;
+        }
+      break;
+    }
   myfree(lineages);
   if (*event == ' ' || interval >= (double) HUGE)
     {

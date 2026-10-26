@@ -1,7 +1,7 @@
 /*------------------------------------------------------------------------
   Joint multi-locus combination of Bayesian posteriors (2026-10-01; ported
-  from migrate-codex-7 7.0.67 to migrate 5.0.7 6.1.42: without skyline=PARAM
-  multipliers, log-scale histogram bins, the markdown report and the
+  from migrate-codex-7 7.0.67 to migrate 5.0.7 6.1.42 (skyline=PARAM
+  multipliers added 6.1.71): without log-scale histogram bins, the markdown report and the
   numbers-of-migrants (S/M) models, which keep the product of the
   per-locus marginals here).
 
@@ -82,11 +82,6 @@ extern const MPI_Datatype mpisizeof;
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef SKYLINE_HISTMAX
-#define SKYLINE_HISTMAX 8.0      /* |log tau| limit (no skyline=PARAM in 5.0.7) */
-#define SKYPRIOR_RANDOMWALK 1
-#define SKYPRIOR_LOGUNIFORM 2
-#endif
 #define JC_MAXSAMPLES 4000   /* per locus used in the combination for two populations
                                  (at 200 loci, 1000 gave 95% coverage of 0.4 for an M,
                                  4000 0.8); scaled by (numpop-1)^2, see jc_maxsamples() */
@@ -362,8 +357,8 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->nrow += 2 + JC_NM * ly->split_ns[k];
       ly->nsplit++;
     }
-  /* skyline=PARAM segments: none in 5.0.7 (the code stays general) */
-  ly->nseg = 1;
+  /* skyline=PARAM segments */
+  ly->nseg = world->timeelements > 2 ? world->timeelements - 1 : 1;
   ly->sky_j = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
   ly->sky_k = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
   ly->sky_type = (int *) mycalloc ((size_t) world->numpop2, sizeof (int));
@@ -375,6 +370,31 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
   for (p = 0; p < world->numpop2; p++)
     ly->sky_j[p] = -1;
   ly->segt[ly->nseg] = HUGE_VAL;
+  if (ly->nseg > 1)
+    {
+      for (s = 0; s < ly->nseg; s++)
+        ly->segt[s] = world->times[s];
+      for (p = 0; p < world->numpop2; p++)
+        if (world->skymodel2 != NULL && world->skymodel2[p] == '*' && ly->rep[p] >= 0)
+          {
+            const long j = ly->nfree++;
+            ly->sky_j[p] = j;
+            ly->sky_k[j] = p;
+            ly->sky_type[j] = world->skyptype[p];
+            ly->sky_a[j] = world->skypa[p];
+            ly->sky_b[j] = world->skypb[p];
+            ly->sky_lo[j] = world->bayes->minparam[ly->rep[p]];
+            ly->sky_hi[j] = world->bayes->maxparam[ly->rep[p]];
+          }
+      ly->off_sc = ly->nrow;
+      ly->nrow += ly->nseg * numpop;
+      ly->off_sK = ly->nrow;
+      ly->nrow += ly->nseg * numpop;
+      ly->off_sS = ly->nrow;
+      ly->nrow += ly->nseg * numpop;
+      ly->off_sm = ly->nrow;
+      ly->nrow += ly->nseg * ly->nmig;
+    }
   ly->ntau = ly->nfree * (ly->nseg - 1);
   ly->nphi = ly->np + ly->ntau;
   ly->off_mu = ly->nrow;
@@ -411,9 +431,30 @@ jc_supported (world_fmt *world)
   long i;
   if (!world->options->bayes_infer || world->has_mlalpha)
     return FALSE;
-  /* a skyline with time-varying parameters is not handled here */
+  /* skyline=PARAM: free ('*') Theta and M multipliers without growth and
+     without xNm parameters; divergence as the per-population density of
+     mlf_hastings.c covers it (normal split times, untied splits) */
   if (world->timeelements > 2)
-    return FALSE;
+    {
+      if (!world->options->skyline_param || world->has_growth || world->skymodel2 == NULL)
+        return FALSE;
+      if (world->has_speciation && world->species_model_dist != NORMAL_DIST)
+        return FALSE;
+      for (i = 0; i < world->species_model_size && world->has_speciation; i++)
+        if (world->species_model[i].type != 'd')
+          return FALSE;
+      for (i = 0; i < world->numpop2; i++)
+        {
+          if (!strchr ("*c", world->skymodel2[i]))
+            return FALSE;
+          if (i >= world->numpop && !migration_is_M (world, i))
+            return FALSE;
+          if (world->skymodel2[i] == '*'
+              && (world->bayes->map[i][1] < 0 || world->bayes->map[i][1] >= world->numpop2
+                  || strchr ("0c", world->options->custm2[i]) != NULL))
+            return FALSE;
+        }
+    }
   if (world->has_speciation)
     for (i = 0; i < world->species_model_size; i++)
       {
@@ -3376,4 +3417,47 @@ jc_param_flagged (world_fmt *world, long p)
   if (js == NULL || !js->done || !js->has_boot || p < 0 || p >= js->np)
     return FALSE;
   return js->boot_flag[p];
+}
+
+/// skyline=PARAM: quantiles (2.5%, median, 97.5%) of the multiplier of
+/// matrix entry k in segment sg and of the segment value (parameter x
+/// multiplier) from the joint multi-locus samples; FALSE when the joint
+/// combination did not run for this model
+boolean
+jc_sky_quantiles (world_fmt *world, long k, long sg, double *qt, double *qv)
+{
+  jc_store *js = (jc_store *) world->jointstats;
+  const double pq[3] = { 0.025, 0.5, 0.975 };
+  long j, i, a;
+  if (js == NULL || !js->done || js->nseg < 2 || sg < 1 || sg >= js->nseg)
+    return FALSE;
+  for (j = 0; j < js->nfree; j++)
+    if (js->sky_k[j] == k)
+      break;
+  if (j == js->nfree)
+    return FALSE;
+  const long pt = js->numparam + j * (js->nseg - 1) + sg - 1;
+  const long pb = world->bayes->map[k][1];
+  /* a parameter or multiplier with a large genealogy-sampling error
+     (Joint*): the caller uses the product of the per-locus posteriors */
+  if (jc_param_flagged (world, pb) || jc_param_flagged (world, pt))
+    return FALSE;
+  double *t = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
+  double *v = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
+  for (i = 0; i < js->nsweeps; i++)
+    {
+      t[i] = js->trace[pt * js->nsweeps + i];
+      v[i] = t[i] * js->trace[pb * js->nsweeps + i];
+    }
+  qsort (t, (size_t) js->nsweeps, sizeof (double), jc_cmp_double);
+  qsort (v, (size_t) js->nsweeps, sizeof (double), jc_cmp_double);
+  for (a = 0; a < 3; a++)
+    {
+      i = (long) (pq[a] * (js->nsweeps - 1) + 0.5);
+      qt[a] = t[i];
+      qv[a] = v[i];
+    }
+  myfree (t);
+  myfree (v);
+  return TRUE;
 }

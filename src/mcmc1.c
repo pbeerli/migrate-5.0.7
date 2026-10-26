@@ -1722,7 +1722,7 @@ acceptlike (world_fmt * world, proposal_fmt * proposal, long g,
 	else if (!warned)
 	  {
 	    warned = TRUE;
-	    warning("Mittag-Leffler genealogy correction is not yet implemented for this model (skyline, or divergence other than untied normal-distribution splits); using the uncorrected move\n");
+	    warning("Mittag-Leffler genealogy correction is not yet implemented for this model (tip dates, or divergence other than untied normal-distribution splits); using the uncorrected move\n");
 	  }
       }
     if (assign)

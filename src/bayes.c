@@ -461,7 +461,7 @@ MYREAL probg_treetimes(world_fmt* world)
     /* Mittag-Leffler: every population runs its own clock with its own
        alpha (mlf_hastings.c); divergence, tip dates and skyline=PARAM
        still use the interval density below */
-    if (world->has_mlalpha && mlh_supported(world))
+    if (mlh_density_applies(world))
       {
 #ifdef MIGRATE_MLH_VERIFY
         /* for alpha = 1 both densities describe the structured coalescent
@@ -473,13 +473,14 @@ MYREAL probg_treetimes(world_fmt* world)
         for (pop = 0; pop < world->numpop; pop++)
           if (mlh_alpha(world, pop) < 1.0)
             alpha1 = FALSE;
-        if (alpha1 && world->has_growth)
+        if (alpha1 && (world->has_growth || world->timeelements > 2 || world->has_speciation
+                       || world->options->has_datefile))
           {
             MYREAL pi = probg_treetimes_local(world, world->treetimes);
             if (fabs(pp - pi) > worst)
               {
                 worst = fabs(pp - pi);
-                fprintf(stderr, "MLHVERIFY probg per-pop vs interval density (growth): worst |diff| = %g (logp %g)\n",
+                fprintf(stderr, "MLHVERIFY probg per-pop vs interval density (growth, segments or divergence): worst |diff| = %g (logp %g)\n",
                         worst, pp);
               }
           }
@@ -2558,6 +2559,7 @@ long bayes_rowlen(world_fmt *world)
 
 void bayes_save_parameter(world_fmt *world, long pnum, long step)
 {
+  skyline_param_sample(world);
   //needs addition of world->mlalpha
     long i;//,i0;
     //long frompop      = 0;
@@ -2762,9 +2764,13 @@ void	  print_bayes_tofile(FILE *mdimfile, MYREAL *params, bayes_fmt *bayes, worl
 #if defined(MPI) && !defined(PARALIO)
 	//print_growth_record(temp, &z, world);
 	print_marginal_like(temp, &z, world);
+	if (world->options->skyline_param)
+	  skyline_param_record(temp, &z, world);
 #else
         //print_growth_record(temp, &c, world);
 	print_marginal_like(temp, &c, world);
+	if (world->options->skyline_param)
+	  skyline_param_record(temp, &c, world);
 #endif
 #if defined(MPI) && !defined(PARALIO)
         //#ifdef MPI
@@ -4774,6 +4780,29 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     if(world->options->heated_chains>1)
         bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tss_t");
 #endif
+    if (world->options->skyline_param)
+      {   /* skyline_param_record(): segment boundaries, then the multipliers */
+        long s, k, from, to;
+        const long te = world->timeelements;
+        if (bufsize + (te + te * world->numpop2) * 40 + 64 > allocbufsize)
+          {
+            allocbufsize = bufsize + (te + te * world->numpop2) * 40 + 64;
+            buf = (char *) myrealloc(buf, (size_t) allocbufsize * sizeof(char));
+          }
+        for (s = 0; s < te; s++)
+          bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tSkyTime_%li", s);
+        for (s = 0; s < te; s++)
+          for (k = 0; k < world->numpop2; k++)
+            {
+              if (k < world->numpop)
+                bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tSky_Theta_%li[%li]", k+1, s+1);
+              else
+                {
+                  m2mm(k, world->numpop, &from, &to);
+                  bufsize += mysnprintf(buf+bufsize,LINESIZE,"\tSky_M_%li_%li[%li]", from+1, to+1, s+1);
+                }
+            }
+      }
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"\n");
     
 #ifdef MPI

@@ -71,6 +71,7 @@
 #include "seqerror.h"
 #include "sighandler.h"
 #include "skyline.h"
+#include "skyparam.h"
 #include "tools.h"
 #include "tree.h"
 #include "world.h"
@@ -695,6 +696,10 @@ main (int argc, char **argv)
 	if(options->skyline)
 	  {
 	    print_expected_values(EARTH, options);       
+	    skyline_param_print(EARTH->outfile, EARTH);
+#ifdef PRETTY
+	    pdf_skyline_param_table(EARTH);
+#endif
 	  }
 	if(options->mighist || options->skyline)
 	  {

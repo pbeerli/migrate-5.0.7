@@ -100,6 +100,7 @@ extern void pdf_print_time_table(world_fmt *world,
 extern void pdf_event_histogram(long loci, long numparams,  world_fmt *world);
 // SKYLINE plot
 extern void pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enlarged);
+extern void pdf_skyline_param_table(world_fmt *world);
 
 // ML OUPUTS
 // print mcmc table

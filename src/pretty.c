@@ -29,6 +29,7 @@
  */
 //#ifdef PRETTY
 #pragma clang diagnostic ignored "-Wformat-nonliteral"
+#include "skyparam.h"
 #include "pretty.h"
 #include "joint_combine.h"
 #include "data.h"
@@ -8344,6 +8345,117 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
     free_doublevec2d(eventbins_all);
 }
 
+
+///
+/// skyline=PARAM: table of the segment multipliers (same tagging as
+/// pdf_bayes_print_ess(): H2 title, Table with a TH header row and one TR
+/// of TD cells per row; rows are closed before pdf_advance() so that a page
+/// break never splits an open row)
+void pdf_skyline_param_table(world_fmt *world)
+{
+  static const char *heads[9] = {"Parameter", "Seg.", "From", "Locus",
+                                 "2.5%", "Multiplier", "97.5%", "Value", "ESS"};
+  static const double xs[9] = {55, 170, 205, 265, 305, 355, 420, 470, 540};
+  skyline_row_fmt *rows;
+  double trials, accept, w, page_width;
+  long n, i, c;
+  char title[LINESIZE], cell[9][64];
+  if (world->sky_nent == 0 && world->sky_ng == 0)
+    return;
+  n = skyline_param_summary(world, &rows, &trials, &accept);
+  left_margin = 55;
+  mysnprintf(title, LINESIZE, "Parametric skyline: multipliers of Theta and M");
+  pdf_new_page("");
+  HPDF_Page_SetFontAndSize(page, helvob, 16.0);
+  w = (double) HPDF_Page_TextWidth(page, title);
+  page_height = (double) HPDF_Page_GetHeight(page);
+  page_width = (double) HPDF_Page_GetWidth(page);
+  pretty_ua_push(HPDF_UA_ROLE_H2);
+  pretty_ua_begin_content(page);
+  pdf_print_contents_at((page_width - w) / 2, page_height - 100, title);
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* H2 */
+  HPDF_Page_SetRGBStroke(page, 0.f, 0.f, 0.f);
+  page_height -= 126;
+  pretty_ua_begin_artifact(page);
+  pdf_draw_line(50, page_height, page_width - 50, page_height);
+  pretty_ua_end_artifact(page);
+  HPDF_Page_SetFontAndSize(page, helv, 10.0);
+  pdf_advance(&page_height);
+  pretty_ua_push(HPDF_UA_ROLE_P);
+  pretty_ua_begin_content(page);
+  pdf_print_contents_at(left_margin, page_height,
+                        "Segment 1 (today) is the reference; Value = parameter x multiplier (median); All = loci combined.");
+  pretty_ua_end_content(page);
+  pretty_ua_pop(); /* P */
+  if (world->sky_ng > 0)
+    {
+      pdf_advance(&page_height);
+      pretty_ua_push(HPDF_UA_ROLE_P);
+      pretty_ua_begin_content(page);
+      pdf_print_contents_at(left_margin, page_height,
+                            "Theta (growth): multiplier exp(-g t) at the segment start t, from the joint posterior of Theta and g.");
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* P */
+    }
+  pdf_advance(&page_height);
+  pdf_advance(&page_height);
+  pretty_ua_push(HPDF_UA_ROLE_TABLE);
+  pretty_ua_push(HPDF_UA_ROLE_TR);
+  for (c = 0; c < 9; c++)
+    {
+      pretty_ua_push(HPDF_UA_ROLE_TH);
+      pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+      pretty_ua_begin_content(page);
+      pdf_print_contents_at(xs[c], page_height, (char *) heads[c]);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TH */
+    }
+  pretty_ua_pop(); /* TR: header */
+  pdf_advance(&page_height);
+  pretty_ua_begin_artifact(page);
+  pdf_draw_line(50, page_height, page_width - 50, page_height);
+  pretty_ua_end_artifact(page);
+  pdf_advance(&page_height);
+  for (i = 0; i < n; i++)
+    {
+      skyline_row_fmt *r = &rows[i];
+      mysnprintf(cell[0], 64, "%s", r->label);
+      mysnprintf(cell[1], 64, "%li", r->seg + 1);
+      mysnprintf(cell[2], 64, "%.4f", r->t0);
+      if (r->locus < 0) mysnprintf(cell[3], 64, "All"); else mysnprintf(cell[3], 64, "%li", r->locus + 1);
+      mysnprintf(cell[4], 64, "%.3f", r->q025);
+      mysnprintf(cell[5], 64, "%.3f", r->q50);
+      mysnprintf(cell[6], 64, "%.3f", r->q975);
+      if (r->v50 < 0.0) mysnprintf(cell[7], 64, "-"); else mysnprintf(cell[7], 64, "%.4g", r->v50);
+      if (r->ess < 0.0) mysnprintf(cell[8], 64, "-"); else mysnprintf(cell[8], 64, "%.0f", r->ess);
+      pretty_ua_push(HPDF_UA_ROLE_TR);
+      for (c = 0; c < 9; c++)
+        {
+          pretty_ua_push(HPDF_UA_ROLE_TD);
+          pretty_ua_begin_content(page);
+          pdf_print_contents_at(xs[c], page_height, cell[c]);
+          pretty_ua_end_content(page);
+          pretty_ua_pop(); /* TD */
+        }
+      pretty_ua_pop(); /* TR */
+      pdf_advance(&page_height);
+    }
+  pretty_ua_pop(); /* Table */
+  if (trials > 0.0)
+    {
+      char line[LINESIZE];
+      pdf_advance(&page_height);
+      mysnprintf(line, LINESIZE, "Acceptance ratio of the multiplier moves: %.0f/%.0f = %.5f", accept, trials, accept / trials);
+      pretty_ua_push(HPDF_UA_ROLE_P);
+      pretty_ua_begin_content(page);
+      pdf_print_contents_at(left_margin, page_height, line);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* P */
+      pdf_advance(&page_height);
+    }
+  myfree(rows);
+}
 
 ///
 /// plot skyline histograms
