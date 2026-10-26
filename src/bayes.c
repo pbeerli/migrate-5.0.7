@@ -673,9 +673,12 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		      x = theta_rate * param0[pop];
 		      g = growth[growpops[pop]-1];
 		      //		  waitprob += kpop * (kpop - 1) / (x * exp(-g * t1));
-		      waitprobcoal +=  -kpop * (kpop - 1) * (exp(g * (t1)) - exp(g * (t0)))/(x * g);
-		      if (isnan(waitprobcoal))
-			waitprobcoal = (double) -HUGE;
+		      /* exp(g t0) (exp(g (t1 - t0)) - 1) / g: exact for short
+		         intervals; exp(g t1) - exp(g t0) cancelled there and,
+		         deep in the tree, became inf - inf, which was then set
+		         to -HUGE (= -FLT_MAX on macOS), so such states tied */
+		      if (t1 > t0)   /* a zero-length interval waits for nothing */
+			waitprobcoal += -kpop * (kpop - 1) * exp(g * t0) * (expm1(g * (t1 - t0)) / g) / x;
 		      assert(!isnan(waitprobcoal));
 		    }
 		  else
