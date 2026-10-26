@@ -1761,10 +1761,19 @@ long newtree_update (world_fmt * world, long g, boolean assign)
 	// be scale-aware (relative to the interval) or break ties explicitly,
 	// not add a fixed absolute offset.
 	//x += EPSILON*UNIF_RANDUM();
-	// tie-break: with strong growth the waiting time can be below the
-	// resolution of age (age + x == age); time_above() then moves the
-	// event to the next representable time instead of a fixed offset
-	proposal->time = time_above(age + x, age);
+	// with strong growth deep in the tree (Theta(t) shrunk by 1e14 or
+	// more) the waiting time can be below the resolution of age (age + x
+	// == age). Moving the event to the next representable time (the old
+	// tie-break) gave a genealogy with p(G) ~ exp(-1e35) that acceptlike()
+	// accepted on the data alone, and the chain stuck there with g ~ 0
+	// (2026-10-26); such a genealogy cannot be represented, so the
+	// proposal is rejected
+	if (!(age + x > age))
+	  {
+	    loopcleanup(assign, world, proposal, oldpop, newpop, timevector);
+	    return 0;
+	  }
+	proposal->time = age + x;
 	//fprintf(world->options->logfile,"#proposal %li %li %c %f\n",from, to, event, proposal->time);
 	if(proposal->time < 0.0 || isnan(proposal->time))
 	  {
@@ -1979,8 +1988,14 @@ void calc_time_per_line(proposal_fmt * proposal, char type, long popto, boolean 
       *from = -1;
       *time = (double) HUGE;
     }
+  else if (!(age + interval > age))
+    {   // below the resolution of age: the caller rejects the proposal,
+        // see the comment in the main loop above
+      *event = 'X';
+      *time = age;
+    }
   else
-    *time = time_above(age + interval, age);
+    *time = age + interval;
 }
 
 
@@ -2061,6 +2076,8 @@ int beyond_last_node(proposal_fmt* proposal, vtlist *tentry, long gte, long *sli
       // calculate only for the dangling lineage, gets the timeinterval (not the full age)
       to = pop1;
       calc_time_per_line(proposal, type1, popto1, pop1 == pop2, &time, &event, &to, &from);
+      if (event == 'X')
+        return 0;
       // start proposal->time pop1, pop2
       // proposal time        to/from pop2
       if (time >= horizon)
@@ -2107,6 +2124,8 @@ int beyond_last_node(proposal_fmt* proposal, vtlist *tentry, long gte, long *sli
       // per-lineage and must be drawn for both lines.
       calc_time_per_line(proposal, type1, popto1, pop1 == pop2, &time1, &event1, &to1, &from1);
       calc_time_per_line(proposal, type2, popto2, FALSE,        &time2, &event2, &to2, &from2);
+      if (event1 == 'X' || event2 == 'X')
+        return 0;
       //printf("%i> _both() interval line1: (%f,%c) line 2: (%f, %c) \n",myID,time1 - proposal->time, event1,time2 - proposal->time, event2);
       if (time1 < time2)
 	{
