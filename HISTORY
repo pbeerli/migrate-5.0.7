@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 26   Migrate 6.1.71 skyline=PARAM estimates per-segment multipliers of Theta and M
+             (ported from 7.x): skyline-model={...}, skyline-times={...}, bayes-priors=
+             SKYLINE lines, outfile and PDF tables; before, the multipliers were fixed at 1.
+
 October 26   Migrate 6.1.70 Growth: genealogy proposals whose waiting time falls below the
              time resolution are rejected (they had prior probability ~ -1e35 but were
              accepted); numerically stable growth waiting term. Heating with fewer than
