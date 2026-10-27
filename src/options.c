@@ -4658,14 +4658,16 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     parameter moves : parameter (also growth, divergence, rate and Mittag-Leffler alpha), timeparam, seqerror");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c (Mittag-Leffler: Theta*c^alpha,");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); 0.1 by default");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with mittag-leffler-alpha, otherwise 0 (off); the move is");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skipped with tip dates, growth, skyline, divergence, an");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); unset (auto):");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0.1 with mittag-leffler-alpha, otherwise 0 (off); always");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       off with tip dates, growth, skyline=PARAM, divergence, an");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       estimated rate modifier, or a migration model not all *]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 turns the scaler off; a move left out of the line keeps its default");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     (unset), shown as auto in the #default line: the run then decides as");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     described above; the outfile lists the frequency used");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     names not listed keep their current value");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
@@ -8204,6 +8206,30 @@ static boolean options_use_mlalpha(option_fmt * options)
   return FALSE;
 }
 
+/// why the scaler move cannot run with these options (the same cases that
+/// make scaler_update() return at once), or NULL when it can
+static const char *scaler_unsupported(option_fmt * options)
+{
+  size_t i, n;
+  long j;
+  if (options->has_datefile)
+    return "tip dates";
+  for (j = 0; j < options->growpops_numalloc; j++)
+    if (options->growpops[j] > 0)
+      return "growth";
+  if (options->skyline_param)
+    return "skyline=PARAM";
+  if (options->has_speciation)
+    return "divergence";
+  if (options->bayesmurates)
+    return "an estimated rate modifier";
+  n = options->custm2 != NULL ? strlen(options->custm2) : 0;
+  for (i = 0; i < n; i++)
+    if (options->custm2[i] != '*')
+      return "a migration model that is not all *";
+  return NULL;
+}
+
 void set_updating_choices(double *choices, option_fmt * options, int flag)
 {
   //fprintf(stdout,"%i> @@@@ options->has_unassigned=%li [%f]\n",myID, (long) options->has_unassigned, options->unassigned_updatefreq);
@@ -8241,7 +8267,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
   // an unset scaler weight defaults to 0.1 for Mittag-Leffler runs: the
   // Hastings-corrected ML tree move mixes poorly in the tail of long trees
   // and the joint rescaling fixes that (NODATA prior recovery); off otherwise
-  if(options->scaler_updatefreq<0.0)
+  // the scaler is off where it cannot run (it would only waste proposals)
+  if(scaler_unsupported(options) != NULL)
+    choices[SCALERUPDATE]=0.0;
+  else if(options->scaler_updatefreq<0.0)
     choices[SCALERUPDATE] = options_use_mlalpha(options) ? 0.1 : 0.0;
   else if(options->scaler_updatefreq>0.0)
     choices[SCALERUPDATE]=options->scaler_updatefreq;
@@ -8370,6 +8399,8 @@ check_force_moves (option_fmt * options)
                     "Haplotyping", "haplotype");
 }
 
+static const char *scaler_unsupported(option_fmt * options);
+
 /// copy the collected notes into the cold chain's warnings, plus the joint
 /// moves that were switched on by default
 void
@@ -8378,6 +8409,10 @@ record_option_notes (world_fmt * world, option_fmt * options)
   char *line;
   char *next;
   double *c = world->options->choices;
+  const char *noscaler = scaler_unsupported(options);
+  if (noscaler != NULL && options->scaler_updatefreq > 0.0)
+    record_warnings (world, "Scaler move turned off: it does not work with %s (updatefreq= scaler:%g ignored)",
+                     noscaler, options->scaler_updatefreq);
   if (c[SCALERUPDATE] - c[SCALERUPDATE - 1] > 0.0 && options->scaler_updatefreq < 0.0)
     record_warnings (world, "Scaler move is on by default (effective frequency %.5f; updatefreq= scaler:VALUE not given)",
                      c[SCALERUPDATE] - c[SCALERUPDATE - 1]);
