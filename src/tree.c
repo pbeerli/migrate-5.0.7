@@ -3238,6 +3238,7 @@ find_tipdate(char * id, long pop, world_fmt *world)
 	  //if(!strncmp(sampledates[ind].name,id, (size_t) slen))
 	  if(!strcmp(sampledates[ind].name,id))
 	    {
+	      // years * generations per year * mutation rate per generation
 	      date = (sampledates[ind].date     
 		      * world->options->generation_year 
 		      * world->options->meanmu[locus]) * world->options->mu_rates[locus];

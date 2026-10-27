@@ -5989,12 +5989,16 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
         pdf_print_contents_at(left_margin, page_height,"Generations per year:");
         pdf_printf_right_next(left_margin, &page_height,"%f", (double) options->generation_year);
         
-        //fprintf (file, "Mutationrate per year: %s", options->mutationrate_year[0]);
-        pdf_print_contents_at(left_margin, page_height,"Mutationrate per year:");
-        pdf_printf_right_next(left_margin, &page_height,"%f",  options->mutationrate_year[0]);
-        for(locus=1; locus < options->mutationrate_year_numalloc; locus++)
+        pdf_print_contents_at(left_margin, page_height,
+                              options->mutationrate_peryear
+                              ? "Mutation rate per generation (given per year):"
+                              : "Mutation rate per generation:");
+        for(locus=0; locus < options->mutationrate_numalloc; locus++)
         {
-            pdf_printf_right_next(left_margin, &page_height,"%f",  options->mutationrate_year[locus]);
+            pdf_printf_right_next(left_margin, &page_height,"%g",
+                                  options->mutationrate_peryear
+                                  ? options->mutationrate[locus] / options->generation_year
+                                  : options->mutationrate[locus]);
         }
     }
     pdf_print_contents_at(left_margin, page_height,"Number of loci:");
@@ -8323,7 +8327,7 @@ pdf_event_histogram(long loci, long numparams,  world_fmt *world)
 		  symbol_D(lx+12, ly+125, 12, frompop+1, topop+1);
 	      }
         }
-        pdf_print_contents_at(lx+90,ly-25, "Time [scaled by mutation rate / site / generation]");
+        pdf_print_contents_at(lx+90,ly-25, "Time [expected mutations; generations = time / mutation rate per generation]");
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
         pdf_histogram(eventbins_all[i], set50, set95, bins, delta,
                       0., -999, lx, ly, page_width - 55 - lx, 116,TRUE,NULL);
@@ -8668,7 +8672,7 @@ pdf_skyline_histogram(long loci, long numparams,  world_fmt *world, boolean enla
 		  }
 	      }
 	  }
-	pdf_print_contents_at(lx+90,ly-25, "Time [scaled by mutation rate / generation (DNA: per site, other: per locus)]");
+	pdf_print_contents_at(lx+90,ly-25, "Time [expected mutations; generations = time / mutation rate per generation]");
         HPDF_Page_SetFontAndSize (page, helv, 10.0);
         
         // focus on all recorded times or only on 0..mean of largest population
@@ -9507,11 +9511,10 @@ pdf_histogram_legend(void)
     lx = 60;
     pdf_printf_next(lx-5, &page_height, "Skyline plots:");
     pdf_printf_next(lx, &page_height, "Skyline plots visualize the changes of population sizes and migration rates through time");
-    pdf_printf_next(lx, &page_height, "(today is on the left side and time is measured into the past. The time scale is in units of");
-    pdf_printf_next(lx, &page_height, "expected mutations per generation. To calculate the absolute time scale you must supply an");
-    pdf_printf_next(lx, &page_height, "mutation rate per year and the duration of a  generation in years in the data option.");
-    pdf_printf_next(lx, &page_height, "You can calculate the absolute time by multiplying the scale by generation time times ");
-    pdf_printf_next(lx, &page_height, "mutation rate per year (per site for DNA; per locus for all other datatypes).");
+    pdf_printf_next(lx, &page_height, "(today is on the left side and time is measured into the past). Time is in expected");
+    pdf_printf_next(lx, &page_height, "mutations (per site for DNA, per locus for other data), the same scale as divergence times.");
+    pdf_printf_next(lx, &page_height, "Time in generations = time / mutation rate per generation; time in years = generations /");
+    pdf_printf_next(lx, &page_height, "generations per year (= time / mutation rate per year).");
     pdf_advance(&page_height);
     pdf_printf_next(lx, &page_height, "With estimated mutation rate only the combined rate modifier is plotted.");
     pdf_printf_next(lx, &page_height, "[this will change to  mutation rate plot].");
