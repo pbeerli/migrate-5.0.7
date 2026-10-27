@@ -2047,25 +2047,57 @@ void traverse_adjust(node *theNode, MYREAL new_old_ratio)
 }
 
 
+/* tip dates: t -> t0 + c (t - t0) for the nodes older than the oldest tip
+   t0; the tips and everything younger than t0 stay where they are */
+static void traverse_adjust_above(node *theNode, MYREAL c, MYREAL t0)
+{
+    MYREAL age;
+    node *right;
+    if (theNode == NULL || theNode->type == 't' || theNode->tyme <= t0)
+        return;
+    right = theNode->next;
+    while (!right->top)
+      {
+        traverse_adjust_above(right->back, c, t0);
+        right = right->next;
+      }
+    age = t0 + c * (theNode->tyme - t0);
+    right = theNode->next;
+    while (!right->top)
+      {
+        if (right->back != NULL)
+          age = time_above(age, right->back->tyme);
+        right = right->next;
+      }
+    adjust_time_all (theNode, age);
+}
+
+static void recalc_timelist_above (world_fmt * world, MYREAL new_old_ratio, MYREAL t0);
+
 //
 // changes branchlength of all branches and the likelihood needs to be calculated completely
 void
 recalc_timelist (world_fmt * world, MYREAL new_ratio, MYREAL old_ratio)
 {
-    MYREAL new_old_ratio = new_ratio / old_ratio;
-    //if (fabs(new_old_ratio - 1.0) < SMALLEPSILON)
-    //    return;
-#ifdef DEBUG
-    //printf("+++++++++++++\n%f=%f/%f\n",new_old_ratio,new_ratio,old_ratio);
-#endif
+    recalc_timelist_above (world, new_ratio / old_ratio, -1.0);
+}
+
+/* rescales the node times by new_old_ratio (above t0 when t0 > 0) and
+   recomputes the tree likelihood */
+static void
+recalc_timelist_above (world_fmt * world, MYREAL new_old_ratio, MYREAL t0)
+{
     first_smooth(world,world->locus);
-    traverse_adjust(world->root->next->back, new_old_ratio);
+    if (t0 > 0.0)
+      traverse_adjust_above(world->root->next->back, new_old_ratio, t0);
+    else
+      traverse_adjust(world->root->next->back, new_old_ratio);
     set_v (world->root->next->back);
     first_smooth(world,world->locus);
     construct_tymelist (world, &world->treetimes[0]);
 #ifdef RATE_DEBUG
     //if(world->cold)
-    printf("%i> HEAT: %f, RATE: newrate=%f oldrate=%f oldlike=%f ",myID, world->heat, new_ratio, old_ratio,world->likelihood[world->G]);
+    printf("%i> HEAT: %f, RATE: ratio=%f oldlike=%f ",myID, world->heat, new_old_ratio, world->likelihood[world->G]);
 #endif
     world->likelihood[world->G] = treelikelihood(world);
 #ifdef RATE_DEBUG
@@ -2143,10 +2175,8 @@ void recalc_timelist_1 (world_fmt * world, MYREAL new_old_ratio)
 // can travel along the Theta*M = 4Nm ridge in one step.
 //
 // The invariance assumes the plain structured coalescent: any second time
-// scale breaks it. The guards below therefore refuse the move rather than
-// silently biasing the chain. Growth and skyline could be added later by
-// scaling their rates by 1/c and their times by c respectively, but each needs
-// its own Jacobian term, so they are excluded for now.
+// scale breaks it. All other models take the explicit p(G) path (see the
+// guards), so the move runs in every model the density covers.
 long scaler_update(world_fmt *world)
 {
   const long numpop  = world->numpop;
@@ -2165,65 +2195,44 @@ long scaler_update(world_fmt *world)
   MYREAL newval;
   MYREAL oldval;
   MYREAL hastings;
+  MYREAL t0;            // oldest tip age (tip dates), else -1
+  boolean constrained;
+  boolean explicit_pg;
   boolean success;
 
-  // ---- guards: only the plain structured coalescent is exactly invariant ----
-  if (world->options->has_datefile)   // tip dates are fixed data; scaling moves them
+  // ---- guards ----
+  // Mittag-Leffler and skyline=PARAM need the per-population density.
+  // Every other model takes the explicit p(G) path below, which does not
+  // rely on the invariance:
+  //  - growth: each estimated growth rate g -> g/c (exp((g/c)(c t)) = exp(g t));
+  //  - Mittag-Leffler: population p's clock sees Lambda_p * dt^alpha_p, so
+  //    Theta_p -> c^alpha_p Theta_p and the immigration rates into p scale
+  //    by c^-alpha_p;
+  //  - skyline=PARAM: the segment boundaries are fixed, so events move
+  //    across them; p(G) is evaluated, not assumed;
+  //  - tip dates: only the node times older than the oldest tip t0 move,
+  //    t -> t0 + c (t - t0), so the dated tips stay fixed;
+  //  - divergence: the split-time mean and standard deviation scale by c;
+  //  - constrained matrices: free entries scale, tied entries (symmetric,
+  //    mean, letter groups) copy them, constants and zeros stay; only the
+  //    free coordinates enter the Jacobian;
+  //  - an estimated rate modifier is left unchanged.
+  if ((world->has_mlalpha || world->timeelements > 2) && !mlh_supported(world))
     return 0;
-  // TODO(scaler_update, growth): NOT fundamentally incompatible, just not yet
-  // implemented. The growth-adjusted coalescent rate uses exp(g*t) directly
-  // (bayes.c probWait, ~line 544-549), which is invariant under the COMBINED
-  // transform t->c*t, Theta->c*Theta, g->g/c (since exp((g/c)*(c*t))=exp(g*t)
-  // exactly cancels), but this move currently only rescales world->param0
-  // (Theta/M), never world->growth[]. Adding growth support means: (1) also
-  // scale growth[] by 1/c here, (2) add growth's own P/Q-style term to the
-  // Jacobian in the `hastings` line below. Until both are done, allowing this
-  // guard through would silently compute an INCOMPLETE Hastings ratio (the
-  // "p(G|Theta,M) cancels analytically" assumption a few lines below would no
-  // longer hold), not just a less-efficient move -- a real bias, not
-  // inefficiency.
-  if (world->has_growth)              // growth adds a time scale (would need g -> g/c)
-    return 0;
-  // TODO(scaler_update, skyline): same shape as growth, not fundamentally
-  // incompatible. Skyline intervals are binned by options->eventbinsize, a
-  // FIXED ABSOLUTE bin width (set once from the skyline= option, see
-  // options.c ~line 4194), not a proportion of tree height. Rescaling every
-  // event time by c without also rescaling the bin width (and adding its own
-  // Jacobian term) would silently reassign events to different skyline
-  // slices than before, corrupting the per-slice sufficient statistics --
-  // independent of whether Theta is directly re-estimated per slice.
-  //
-  // BUG FIX (2026-09-13): the guard used to read `world->timeelements > 1`,
-  // but options->timeelements defaults to 2 UNCONDITIONALLY (options.c) and
-  // is only ever changed by the parser inside the "skyline=PARAM:n" branch
-  // (case 55 below) -- plain skyline=NO/YES never touch it. That made this
-  // guard trip on every dataset regardless of skyline, so scaler_update()
-  // never got past its own guards in practice. skyline_param (the
-  // "PARAM:n" sub-form, which is the one that actually binds Theta/M to
-  // fixed-width time slices; skyline=YES alone is just an aggregate report,
-  // not a per-slice model constraint) is the field this guard actually
-  // needs. Found via a real run in migrate-codex-7 and ported back here.
-  if (world->options->skyline_param)
-    return 0;
-  // Mittag-Leffler: population p's clock sees Lambda_p * dt^alpha_p, so the
-  // move scales Theta_p by c^alpha_p and the immigration rates into p by
-  // c^-alpha_p; p(G) then changes by exactly c^-n (n events), which the time
-  // Jacobian c^n cancels. p(G) is still evaluated (below), so the move stays
-  // exact where that invariance does not hold.
-  if (world->has_mlalpha && !mlh_supported(world))
-    return 0;
-  if (world->species_model_size > 0)  // divergence times would have to scale too
-    return 0;
-  if (world->bayes->mu)               // an estimated rate modifier rescales times as well
-    return 0;
-  // Constrained matrices ('m','s','c','0','d') make the number of INDEPENDENT
-  // scaled coordinates differ from the number of matrix entries, which would
-  // corrupt the (P-Q) Jacobian. Only the fully general model is handled.
-  for (i = 0; i < numpop2; i++)
-    {
+  {
+    long t;
+    constrained = FALSE;
+    for (i = 0; i < numpop2; i++)
       if (world->options->custm2[i] != '*')
-	return 0;
-    }
+        constrained = TRUE;
+    t0 = -1.0;
+    if (world->options->has_datefile)
+      for (t = 0; t < world->sumtips; t++)
+        if (world->nodep[t] != NULL && world->nodep[t]->type == 't' && world->nodep[t]->tyme > t0)
+          t0 = world->nodep[t]->tyme;
+    explicit_pg = world->has_mlalpha || world->timeelements > 2 || world->has_growth
+      || t0 > 0.0 || world->species_model_size > 0 || world->bayes->mu || constrained;
+  }
 
   world->scaler_trials += 1;
 
@@ -2234,35 +2243,98 @@ long scaler_update(world_fmt *world)
 
   oldparam = (MYREAL *) mycalloc(np, sizeof(MYREAL));
   memcpy(oldparam, world->param0, sizeof(MYREAL) * (size_t) np);
+  MYREAL *oldgrowth = NULL;
+  if (world->has_growth)
+    {
+      oldgrowth = (MYREAL *) mycalloc(world->grownum + 1, sizeof(MYREAL));
+      memcpy(oldgrowth, world->growth, sizeof(MYREAL) * (size_t) world->grownum);
+    }
   oldlike     = world->likelihood[world->G];
   oldlogprior = calculate_prior(world);
 
-  if (world->has_mlalpha)
+  if (explicit_pg)
     {
-      long nev = mlh_count_events(world);
+      long nev = mlh_count_events_above(world, t0);
       MYREAL oldpg = probg_treetimes(world);
       MYREAL logj = 0.0;
-      boolean usem = world->options->usem;
       long to, from;
-      for (i = 0; i < numpop; i++)
+      // free Theta and M; with use-M=NO param0 holds xNm = Theta*M, which
+      // the move leaves unchanged
+      for (i = 0; i < numpop2; i++)
         {
-          MYREAL a = mlh_alpha(world, i);
+          MYREAL a;
+          if (world->bayes->map[i][1] != i)
+            continue;
+          if (i < numpop)
+            a = mlh_alpha(world, i);
+          else
+            {
+              if (!world->options->usem)
+                continue;
+              m2mm(i, numpop, &from, &to);
+              a = -mlh_alpha(world, to);
+            }
           world->param0[i] *= EXP(a * logc);
           logj += a * logc;
         }
-      // with use-M=NO param0 holds xNm = Theta*M, which the move leaves unchanged
-      if (usem)
-        for (i = numpop; i < numpop2; i++)
-          {
-            MYREAL a;
-            m2mm(i, numpop, &from, &to);
-            a = mlh_alpha(world, to);
-            world->param0[i] *= EXP(-a * logc);
-            logj -= a * logc;
-          }
+      // tied entries copy their free entry
+      for (i = 0; i < numpop2; i++)
+        {
+          const long j = world->bayes->map[i][1];
+          if (j >= 0 && j != i && j < numpop2)
+            world->param0[i] = world->param0[j];
+        }
+      // divergence: mean and standard deviation of every split time; the
+      // splits of a 't' group share theirs
+      for (i = 0; i < world->species_model_size; i++)
+        {
+          species_fmt *sp = &world->species_model[i];
+          const long idx[2] = {sp->paramindex_mu, sp->paramindex_sigma};
+          boolean tied = FALSE;
+          long t, k;
+          for (t = 0; t < i; t++)
+            if (sp->type == 't' && world->species_model[t].type == 't'
+                && world->species_model[t].from == sp->from)
+              tied = TRUE;
+          for (k = 0; k < 2; k++)
+            {
+              if (world->bayes->map[idx[k]][1] == INVALID)
+                continue;
+              world->param0[idx[k]] *= c;
+              if (!tied)
+                logj += logc;
+            }
+          sp->mu = world->param0[sp->paramindex_mu];
+          sp->sigma = world->param0[sp->paramindex_sigma];
+        }
+      // growth groups with an estimated rate: g -> g/c
+      if (world->has_growth)
+        {
+          const long npx = world->numparamcumvec[SPLITSTDPRIOR];
+          const long npg = world->numparamcumvec[GROWTHPRIOR];
+          boolean *done = (boolean *) mycalloc(world->grownum + 1, sizeof(boolean));
+          long p0, pp, pop;
+          for (p0 = npx; p0 < npg; p0++)
+            {
+              long gw;
+              if (shortcut(p0, world, &pp) || pp < npx || pp >= npg)
+                continue;
+              gw = world->options->growpops[pp - npx] - 1;
+              if (gw < 0 || gw >= world->grownum || done[gw]
+                  || world->bayes->maxparam[pp] <= world->bayes->minparam[pp])
+                continue;
+              done[gw] = TRUE;
+              world->growth[gw] /= c;
+              logj -= logc;
+            }
+          for (pop = 0; pop < numpop; pop++)
+            if (world->options->growpops[pop] != 0)
+              world->param0[npx + pop] = world->growth[world->options->growpops[pop] - 1];
+          myfree(done);
+        }
       precalc_world(world);
-      recalc_timelist(world, c, 1.0);
-      if (nev != mlh_count_events(world))
+      recalc_timelist_above(world, c, t0);
+      if (nev != mlh_count_events_above(world, t0))
         error("scaler_update(): the number of events changed while rescaling");
       newlogprior = calculate_prior(world);
       {
@@ -2338,12 +2410,22 @@ long scaler_update(world_fmt *world)
       world->bayes->oldval = probg_treetimes(world);
       world->param_like    = world->bayes->oldval;
       myfree(oldparam);
+      myfree(oldgrowth);
       return 1;
     }
   // ---- reject: undo the time scaling and restore the parameters ----
   memcpy(world->param0, oldparam, sizeof(MYREAL) * (size_t) np);
+  if (oldgrowth != NULL)
+    memcpy(world->growth, oldgrowth, sizeof(MYREAL) * (size_t) world->grownum);
+  myfree(oldgrowth);
+  for (i = 0; i < world->species_model_size; i++)
+    {
+      species_fmt *sp = &world->species_model[i];
+      sp->mu = world->param0[sp->paramindex_mu];
+      sp->sigma = world->param0[sp->paramindex_sigma];
+    }
   precalc_world(world);
-  recalc_timelist(world, 1.0, c);            // scale times back by 1/c
+  recalc_timelist_above(world, 1.0 / c, t0); // scale times back by 1/c
   world->likelihood[world->G] = oldlike;     // restore the exact previous value
   world->logprior             = oldlogprior;
   world->bayes->oldval        = probg_treetimes(world);

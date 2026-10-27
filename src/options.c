@@ -4659,9 +4659,11 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     joint moves     : scaler   [rescales genealogy AND parameters together:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       Theta*c, M/c, all times*c (Mittag-Leffler: Theta*c^alpha,");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); unset (auto):");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0.1 with mittag-leffler-alpha, otherwise 0 (off); always");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       off with tip dates, growth, skyline=PARAM, divergence, an");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       estimated rate modifier, or a migration model not all *]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0.1 with mittag-leffler-alpha, otherwise 0 (off); with");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       tip dates only the times older than the oldest sample");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       scale, divergence means and sd scale by c; always off");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with Mittag-Leffler or skyline=PARAM and a non-normal");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       or tied (t) divergence]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default]");
@@ -8211,22 +8213,14 @@ static boolean options_use_mlalpha(option_fmt * options)
 static const char *scaler_unsupported(option_fmt * options)
 {
   size_t i, n;
-  long j;
-  if (options->has_datefile)
-    return "tip dates";
-  for (j = 0; j < options->growpops_numalloc; j++)
-    if (options->growpops[j] > 0)
-      return "growth";
-  if (options->skyline_param)
-    return "skyline=PARAM";
-  if (options->has_speciation)
-    return "divergence";
-  if (options->bayesmurates)
-    return "an estimated rate modifier";
+  if (!options->has_speciation || !(options_use_mlalpha(options) || options->skyline_param))
+    return NULL;
+  if (options->species_model_dist != NORMAL_DIST)
+    return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal";
   n = options->custm2 != NULL ? strlen(options->custm2) : 0;
   for (i = 0; i < n; i++)
-    if (options->custm2[i] != '*')
-      return "a migration model that is not all *";
+    if (options->custm2[i] == 't' || options->custm2[i] == 'T')
+      return "Mittag-Leffler or skyline=PARAM and tied divergence (t)";
   return NULL;
 }
 

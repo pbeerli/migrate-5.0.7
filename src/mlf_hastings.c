@@ -604,10 +604,16 @@ static void mlh_spellstarts(timelist_fmt *tv, double s, long numpop, long atpop,
    contributes one event factor to mlh_logp_perpop() */
 long mlh_count_events(world_fmt *world)
 {
+  return mlh_count_events_above(world, -1.0);
+}
+
+/* the same for the events older than t0 (the scaler with tip dates) */
+long mlh_count_events_above(world_fmt *world, double t0)
+{
   timelist_fmt *tv = world->treetimes;
   long i, n = 0;
   for (i = 0; i <= tv->T - 2; i++)
-    if (mlh_type(tv->tl[i].eventnode->type) != 't')
+    if (mlh_type(tv->tl[i].eventnode->type) != 't' && tv->tl[i].age > t0)
       n++;
   return n;
 }
