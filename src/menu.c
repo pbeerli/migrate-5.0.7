@@ -618,35 +618,36 @@ void change_tipdate(char *input, option_fmt * options)
 }
 
 ///
-/// changing mutation rate associated with tipdate
+/// changing mutation rate (per generation) associated with tipdate
 void change_mutationrate(char *input, option_fmt * options)
 {
   char *in;
   char *tmp;
   long count=0;
-  printf(" Give the number of loci or\n when all loci have the same mutation rate, the rate\nor a C to cancel\n===> ");
+  printf(" Give the number of loci or\n when all loci have the same mutation rate, the rate per generation\nor a C to cancel\n===> ");
   fflush(stdout); FGETS(input, LINESIZE, stdin);
   if (uppercase(input[0]) == 'C')
     return;
-  if (input[0] == '0') 
+  options->mutationrate_peryear = FALSE;
+  if (input[0] == '0' || strpbrk(input, ".eE") != NULL) // a rate such as 3.2e-7, not a count
     {
-      options->mutationrate_year_numalloc = 1;
-      options->mutationrate_year[0] = atof(input);
+      options->mutationrate_numalloc = 1;
+      options->mutationrate[0] = atof(input);
     } 
   else 
     {
-      options->mutationrate_year_numalloc = atol(input);
-      options->mutationrate_year = (MYREAL *) myrealloc(options->mutationrate_year,
-							sizeof(MYREAL)* (size_t) options->mutationrate_year_numalloc);
-      while(count < options->mutationrate_year_numalloc)
+      options->mutationrate_numalloc = atol(input);
+      options->mutationrate = (MYREAL *) myrealloc(options->mutationrate,
+							sizeof(MYREAL)* (size_t) options->mutationrate_numalloc);
+      while(count < options->mutationrate_numalloc)
 	{
-	  printf(" Give the mutation rate per year for each locus\n[either in groups or singly use a space to separate]\n===> ");
+	  printf(" Give the mutation rate per generation for each locus\n[either in groups or singly use a space to separate]\n===> ");
 	  fflush(stdout); FGETS(input, LINESIZE, stdin);
 	  in = input;
 	  tmp = strsep(&in,";, ");
 	  while(tmp != NULL)
 	    {
-	      options->mutationrate_year[count++] = atof(tmp);
+	      options->mutationrate[count++] = atof(tmp);
 	      if(in==NULL)
 		break;
 	      tmp = strsep(&in,";, ");
@@ -811,11 +812,13 @@ void display_sampledate_option(char * text, option_fmt * options,
   if(options->has_datefile)
     {
       printf(" %2i   Tip date file %49.49s\n", tipdate, options->datefilename);
-      if(options->mutationrate_year_numalloc > 1)
+      if(options->mutationrate_numalloc > 1)
 	mysnprintf(text,LINESIZE, "multiple rates");
       else
-	mysnprintf(text,LINESIZE, "%.12f",options->mutationrate_year[0]);
-      printf(" %2i   Mutation rate per locus and year %30.30s\n", mutationrate, text);
+	mysnprintf(text,LINESIZE, "%.12f",options->mutationrate[0]);
+      printf(" %2i   Mutation rate per generation%s %*.*s\n", mutationrate,
+	     options->mutationrate_peryear ? " (per year)" : "",
+	     options->mutationrate_peryear ? 24 : 35, options->mutationrate_peryear ? 24 : 35, text);
       mysnprintf(text,LINESIZE,"%10.4f",options->generation_year);
       printf(" %2i   How many generations per year  %30.30s\n", generationtime, text);
     }

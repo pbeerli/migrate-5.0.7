@@ -1050,9 +1050,10 @@ typedef struct _option
   // fatal attraction of zero resistance
   MYREAL minmigsumstat;
   //
-  MYREAL *mutationrate_year; // keeps mutation rate per year for each locus 
-  long mutationrate_year_numalloc; // 
-  MYREAL generation_year;
+  MYREAL *mutationrate; // mutation rate per generation for each locus, as given
+  long mutationrate_numalloc; // 
+  boolean mutationrate_peryear; // rates were given per year (mutationrate-per-year)
+  MYREAL generation_year; // generations per year
   long randomsubset;
   unsigned long randomsubsetseed;
 #ifdef SEASON
@@ -1417,9 +1418,10 @@ typedef struct _worldoption
   long bayesmdiminterval;
     MYREAL minmigsumstat;
   boolean has_datefile;
-  MYREAL *mutationrate_year; // keeps mutation rate per year for each locus 
-  long mutationrate_year_numalloc; // 
-  MYREAL generation_year;
+  MYREAL *mutationrate; // mutation rate per generation for each locus, as given
+  long mutationrate_numalloc; // 
+  boolean mutationrate_peryear; // rates were given per year (mutationrate-per-year)
+  MYREAL generation_year; // generations per year
   boolean treeinmemory;
   boolean heatedswap_off;
   boolean has_autotune;

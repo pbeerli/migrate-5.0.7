@@ -467,17 +467,17 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->has_bayesmdimfile = options->has_bayesmdimfile;
     wopt->bayesmdiminterval = options->bayesmdiminterval;
     wopt->has_datefile = options->has_datefile;
-    // we use the inverse of the number of generations per year
-    wopt->generation_year = options->generation_year;//inverse of generations per year
-    // this will be used to standardize the interal timescale (expected mutations) with
-    // an external timescale of "years" 
-    wopt->mutationrate_year_numalloc = options->mutationrate_year_numalloc;
-    if(wopt->mutationrate_year==NULL)
-      wopt->mutationrate_year = (MYREAL *) mycalloc(options->mutationrate_year_numalloc,sizeof(MYREAL));
+    // generations per year: converts tip dates in years to generations, and
+    // a mutation rate per year to a rate per generation (set_meanmu)
+    wopt->generation_year = options->generation_year;
+    wopt->mutationrate_peryear = options->mutationrate_peryear;
+    wopt->mutationrate_numalloc = options->mutationrate_numalloc;
+    if(wopt->mutationrate==NULL)
+      wopt->mutationrate = (MYREAL *) mycalloc(options->mutationrate_numalloc,sizeof(MYREAL));
     //total = 0;
-    for(i = 0; i < options->mutationrate_year_numalloc; i++)
+    for(i = 0; i < options->mutationrate_numalloc; i++)
       {
-	wopt->mutationrate_year[i] = options->mutationrate_year[i];
+	wopt->mutationrate[i] = options->mutationrate[i];
       }
     set_meanmu(wopt,options,options->muloci);
 #ifdef UEP
@@ -1540,7 +1540,7 @@ free_world(world_fmt *world, option_fmt *options)
     myfree(world->data);
 
     // free the option section in world
-    myfree(world->options->mutationrate_year);
+    myfree(world->options->mutationrate);
     if(world->options->mu_rates!=NULL)
       {
 	myfree(world->options->mu_rates); //lmu_rates are freed here, too

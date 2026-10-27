@@ -3145,14 +3145,17 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
     {
       fprintf (file, "Sample dates:%46.46s\n", options->datefilename);
       fprintf (file, "Generations per year:                        %13.8f\n", options->generation_year);
-      fprintf (file, "Mutationrate per year: %.10g", options->mutationrate_year[0]);
-      for(locus=1; locus < options->mutationrate_year_numalloc; locus++)
+      fprintf (file, "Mutation rate per generation: ");
+      for(locus=0; locus < options->mutationrate_numalloc; locus++)
 	{
-	  if(locus % 4 == 0)
-	    fprintf(file,"                      ");
-	  fprintf(file,", %f", options->mutationrate_year[locus]); 
-	} 
-      fprintf(file,"\n"); 
+	  if(locus > 0 && locus % 4 == 0)
+	    fprintf(file,"\n                             ");
+	  fprintf(file,"%s%.6g", locus > 0 ? ", " : "",
+		  options->mutationrate_peryear
+		  ? options->mutationrate[locus] / options->generation_year
+		  : options->mutationrate[locus]);
+	}
+      fprintf(file,"%s\n", options->mutationrate_peryear ? " (given per year)" : "");
     }
   fprintf (file, "Number of loci:                         %20li\nMutationmodel:\n",
 	   data->loci);
@@ -4364,10 +4367,10 @@ MYREAL read_date_fromfile (FILE * datefile, data_fmt *data, option_fmt *options,
 #endif
 		for (locus=0; locus < data->loci; locus++)
 		  {
-		    //l = (locus >= options->mutationrate_year_numalloc ? options->mutationrate_year_numalloc -1 : locus);
-		    //fprintf(stdout,"Mutation rate of Locus %li: %g\n", locus, options->mutationrate_year[l]);
+		    //l = (locus >= options->mutationrate_numalloc ? options->mutationrate_numalloc -1 : locus);
+		    //fprintf(stdout,"Mutation rate of Locus %li: %g\n", locus, options->mutationrate[l]);
 		    
-		    //fprintf(stdout,"Locus %li: Tipdate %*.*s %f %f\n", locus, (int) nmlength, (int) nmlength, input, temp, temp * options->mutationrate_year[l] / options->generation_year);
+		    //fprintf(stdout,"Locus %li: Tipdate %*.*s %f %f\n", locus, (int) nmlength, (int) nmlength, input, temp, temp * options->mutationrate[l] / options->generation_year);
 		    data->sampledates[pop][locus][ind].date = temp;
 		    data->sampledates[pop][locus][ind].name = (char *) mycalloc(strlen(name)+1,sizeof(char));
 		    strcpy(data->sampledates[pop][locus][ind].name, name);

@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/}
-#define NUMNUMBER 73
+#define NUMNUMBER 74
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -581,8 +581,9 @@ void init_options (option_fmt * options)
     options->has_variableandone = FALSE; // analyze only one invariant locus (not more) and reweight
     options->firstinvariant = -1; // locus ID of invariant locus analyzed
 
-    options->mutationrate_year = (MYREAL*) mycalloc(1, sizeof(MYREAL));
-    options->mutationrate_year_numalloc = 1;
+    options->mutationrate = (MYREAL*) mycalloc(1, sizeof(MYREAL));
+    options->mutationrate_numalloc = 1;
+    options->mutationrate_peryear = FALSE;
     options->generation_year = 1.0;
     options->randomsubset = 0;
     options->randomsubsetseed = (unsigned long) -1;
@@ -829,7 +830,7 @@ read_options_worker (char **buffer, option_fmt * options)
       }
 #ifdef DEBUG_MPI
     printf("%i> DEBUG_MPI custm=%s custm2=%s\n",myID,options->custm, options->custm2);
-    printf("%i> DEBUG_MPI generation/year=%f mutationrate/year=%f\n",myID, options->generation_year, options->mutationrate_year[0]);
+    printf("%i> DEBUG_MPI generation/year=%f mutationrate=%f\n",myID, options->generation_year, options->mutationrate[0]);
 #endif
 
 }
@@ -2785,7 +2786,7 @@ destroy_options (option_fmt * options)
     myfree(options->custm);
     myfree(options->custm2);
     myfree(options->bayes_priors);
-    myfree(options->mutationrate_year);
+    myfree(options->mutationrate);
     free_options_filenames(options);
     //myfree(options);
 }
@@ -3175,23 +3176,27 @@ void print_parm_tipdate(long *bufsize, char **buffer, long *allocbufsize, option
   print_parm_comment(bufsize, buffer, allocbufsize, "Sampling dates of the individuals (ancient DNA, time series)");
   print_parm_comment(bufsize, buffer, allocbufsize, "  Syntax tipdate-file=< NO | YES:datefile >");
   print_parm_comment(bufsize, buffer, allocbufsize, "    with YES also give generation-per-year=VALUE (default 1.0) and");
-  print_parm_comment(bufsize, buffer, allocbufsize, "    mutationrate-per-year={rate_locus1, rate_locus2, ...} (the last value");
-  print_parm_comment(bufsize, buffer, allocbufsize, "    is used for the remaining loci)");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    mutationrate-per-generation={rate_locus1, rate_locus2, ...} (the last");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    value is used for the remaining loci); per site for DNA, per locus otherwise.");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    mutationrate-per-year={...} is accepted instead and divided by");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    generation-per-year. Times are reported in expected mutations:");
+  print_parm_comment(bufsize, buffer, allocbufsize, "    generations = time / rate per generation, years = generations / generation-per-year");
   if(!options->has_datefile)
     print_parm(bufsize, buffer, allocbufsize, "tipdate-file=NO");
   else
   {
     print_parm_mutable(bufsize, buffer, allocbufsize, "tipdate-file=YES:%s", options->datefilename); 
     print_parm_mutable(bufsize, buffer, allocbufsize, "generation-per-year=%f", options->generation_year); 
-    input = (char *) mycalloc(options->mutationrate_year_numalloc * 50, sizeof(char));
-    pos = mysnprintf(input,LINESIZE, "{%20.20f", options->mutationrate_year[0]);
-    for(locus=1; locus < options->mutationrate_year_numalloc; locus++)
+    input = (char *) mycalloc(options->mutationrate_numalloc * 50, sizeof(char));
+    pos = mysnprintf(input,LINESIZE, "{%.10g", options->mutationrate[0]);
+    for(locus=1; locus < options->mutationrate_numalloc; locus++)
       {
-	pos += mysnprintf(input + pos,LINESIZE,", %20.20f", options->mutationrate_year[locus]);
+	pos += mysnprintf(input + pos,LINESIZE,", %.10g", options->mutationrate[locus]);
       }
     	//xcode   pos += 
     mysnprintf(input + pos,LINESIZE,"}");
-    print_parm_mutable(bufsize, buffer, allocbufsize, "mutationrate-per-year=%s", input);
+    print_parm_mutable(bufsize, buffer, allocbufsize, "mutationrate-per-%s=%s",
+		       options->mutationrate_peryear ? "year" : "generation", input);
     myfree(input);
   }
 }
@@ -3868,14 +3873,15 @@ void print_parm_smoothing(long *bufsize, char **buffer, long *allocbufsize, opti
     }
 }
 
-///copy mu_rates into world->options
+/// mutation rate per generation for each locus into world->options->meanmu;
+/// rates given per year are divided by the generations per year
 void set_meanmu(worldoption_fmt * wopt, option_fmt * options, long loci)
 {
   long i;
   long n = 0;
   MYREAL last;
 
-  if(options->mutationrate_year_numalloc == 0)
+  if(options->mutationrate_numalloc == 0)
     {
       last = 1.0;
     }
@@ -3889,15 +3895,17 @@ void set_meanmu(worldoption_fmt * wopt, option_fmt * options, long loci)
     {
       wopt->meanmu[i] = 1.0;
     }
-  for(i=0;i< options->mutationrate_year_numalloc;i++)
+  for(i=0;i< options->mutationrate_numalloc;i++)
     {
       n++;
-      if (options->mutationrate_year[i]>0.0)
-	wopt->meanmu[i] = options->mutationrate_year[i];
+      if (options->mutationrate[i]>0.0)
+	wopt->meanmu[i] = options->mutationrate_peryear
+	  ? options->mutationrate[i] / options->generation_year
+	  : options->mutationrate[i];
       last += (wopt->meanmu[i] - last ) / n;
     }
 
-  for(i = options->mutationrate_year_numalloc; i < loci;i++)
+  for(i = options->mutationrate_numalloc; i < loci;i++)
       {
 	wopt->meanmu[i] = last;
       }
@@ -6902,19 +6910,21 @@ numbercheck (option_fmt * options, char *var, char *value)
       get_next_word(&value,":,; ",&tmp);
       options->generation_year = atof(tmp);
       break;
+    case 73: /*mutationrate-per-generation absolute mutation rate per generation for each locus*/
     case 59: /*mutationrate-per-year absolute mutation rate per year for each locus*/
-      options->mutationrate_year[0] = 1.0;
+      options->mutationrate_peryear = (i == 59);
+      options->mutationrate[0] = 1.0;
       get_next_word(&value,"{}:,; ",&tmp);
       z=0;
       while(tmp != NULL)
 	{
-	  if(z >= options->mutationrate_year_numalloc)
+	  if(z >= options->mutationrate_numalloc)
 	    {
-	      options->mutationrate_year_numalloc = z+1;
-	      options->mutationrate_year = (MYREAL*) myrealloc(options->mutationrate_year, options->mutationrate_year_numalloc * sizeof(MYREAL));
+	      options->mutationrate_numalloc = z+1;
+	      options->mutationrate = (MYREAL*) myrealloc(options->mutationrate, options->mutationrate_numalloc * sizeof(MYREAL));
 	    }
-	  options->mutationrate_year[z] = atof(tmp);
-	  //printf("%i> mutationrate_year[%li]=%g %s\n",myID,z, options->mutationrate_year[z],tmp);
+	  options->mutationrate[z] = atof(tmp);
+	  //printf("%i> mutationrate[%li]=%g %s\n",myID,z, options->mutationrate[z],tmp);
 	  z++;
 	  get_next_word(&value,"{}:,; ",&tmp);
 	}
