@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 26   Migrate 6.1.72 Mutation rate is per generation: new mutationrate-per-generation;
+             mutationrate-per-year is divided by generation-per-year (tip dates were too
+             old by the generations per year). Time axes say expected mutations.
+
 October 26   Migrate 6.1.71 skyline=PARAM estimates per-segment multipliers of Theta and M
              (ported from 7.x): skyline-model={...}, skyline-times={...}, bayes-priors=
              SKYLINE lines, outfile and PDF tables; before, the multipliers were fixed at 1.
