@@ -2773,6 +2773,22 @@ long find_missing(data_fmt *data, long pop, long locus)
 
 
 ///
+/// the tip date of an individual, found by name as find_tipdate() does (the
+/// date file need not follow the infile order); 0 when it has none
+static MYREAL subset_tipdate(data_fmt * data, long pop, long locus, const char *name)
+{
+  long k;
+  char id[SMALLBUFSIZE];
+  tipdate_fmt *sd = data->sampledates[pop][locus];
+  strncpy(id, name, SMALLBUFSIZE - 1);
+  id[SMALLBUFSIZE - 1] = '\0';
+  translate(id, ' ', '_');
+  for (k = 0; k < data->numind[pop][locus]; k++)
+    if (sd[k].name != NULL && !strcmp(sd[k].name, id))
+      return sd[k].date;
+  return 0.0;
+}
+
 /// Data set was subsampled and used a random sample of size
 void print_random_subset(FILE * file, data_fmt * data, option_fmt *options)
 {
@@ -2809,7 +2825,11 @@ void print_random_subset(FILE * file, data_fmt * data, option_fmt *options)
 		  remove_trailing_blanks(&name);
 		  if (options->has_datefile)
 		    {
-		      mysnprintf(name,LINESIZE,"%s (%f) ",name, data->sampledates[pop][locus][ind].date);
+		      /* the date of the sampled individual (index), not of the
+			 ind-th one; printed into a copy, name is the source */
+		      char tmp[SMALLBUFSIZE];
+		      mysnprintf(tmp,SMALLBUFSIZE,"%s (%f) ",name, subset_tipdate(data, pop, locus, name));
+		      strcpy(name, tmp);
 		    }
 		  length = (long) strlen(name);
 		  if (count+length < LINELENGTH)

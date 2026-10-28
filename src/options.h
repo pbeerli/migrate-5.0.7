@@ -189,7 +189,7 @@ extern void set_meanmu(worldoption_fmt * wopt, option_fmt * options, long loci);
 // \param flag {holds particular option: STANDARD allows input for all updates, NOPARAMETER
 //        sets parameter update to zero, NOTREE sets tree updates to zero.}
 // \returns {None}
-extern void set_updating_choices(double *choices, option_fmt * options, int flag);
+extern void set_updating_choices(double *choices, option_fmt * options, int flag, long numpop);
 //
 // initialize or reinitialize the start parameters, so that all parameter values can have a setting
 // that either comes from the PRIOR (using a value at a percentage of PDF or a random value

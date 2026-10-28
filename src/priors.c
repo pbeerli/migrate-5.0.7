@@ -1801,7 +1801,16 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
   for(j0=0;j0<np;j0++)
     {
       if(shortcut(j0, world, &j))
-	continue;
+	{
+	  /* a constant (custom-migration c) is not estimated, but its start
+	     value comes from its prior (set_mystartparams); without the
+	     functions it called NULL when no start value was given */
+	  if (j0 < world->numpop2 && options->custm2 != NULL
+	      && strchr ("cC", options->custm2[j0]) != NULL)
+	    j = j0;
+	  else
+	    continue;
+	}
       
       options->bayes_priors[j0].v[0]= (float) options->bayes_priors[j].min;
       options->bayes_priors[j0].v[1]= (float) options->bayes_priors[j].max;

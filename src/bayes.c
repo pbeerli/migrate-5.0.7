@@ -3178,7 +3178,7 @@ void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options)
         //
         options->updateratio = 1.0;
         //world->options->updateratio = 1.0;
-        set_updating_choices(world->options->choices, options, NOPARAMETER);
+        set_updating_choices(world->options->choices, options, NOPARAMETER, world->numpop);
     }
     bayes->oldval = -MYREAL_MAX;
     bayes->allocparams = 1;
