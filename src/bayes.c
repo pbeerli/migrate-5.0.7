@@ -5089,6 +5089,47 @@ static void shortest_interval(const double *x, long n, double target, long *lo, 
     }
 }
 
+/* half-width (in bins) of the smoothing kernel of calc_hpd_credibility():
+   Silverman's rule for the Epanechnikov kernel (2.34 sigma n^-1/5, sigma the
+   smaller of sd and IQR/1.34 of the histogram, in bins), at least 2 and at
+   most the former fixed width max(5, sqrt(bins)). The fixed width alone was
+   wider than narrow posteriors (38 bins = Theta 0.13 for a prior up to 5);
+   mirrored at the lower bound, it put the mode in the first bin and the HPD
+   lower limits at 0. */
+static long smooth_halfwidth(const double *x, long n, long nsamples)
+{
+  long i;
+  long el;
+  long cap = (long) MAX(5.0, sqrt((double) n));
+  double sum = 0.0, mean = 0.0, var = 0.0, cum = 0.0;
+  double q25 = -1.0, q75 = -1.0, sigma, h;
+  for (i = 0; i < n; i++)
+    {
+      sum += x[i];
+      mean += x[i] * (double) i;
+    }
+  if (sum <= 0.0 || nsamples < 2)
+    return cap;
+  mean /= sum;
+  for (i = 0; i < n; i++)
+    {
+      var += x[i] * ((double) i - mean) * ((double) i - mean);
+      cum += x[i] / sum;
+      if (q25 < 0.0 && cum >= 0.25)
+        q25 = (double) i;
+      if (q75 < 0.0 && cum >= 0.75)
+        q75 = (double) i;
+    }
+  sigma = sqrt(var / sum);
+  if (q75 > q25 && (q75 - q25) / 1.34 < sigma)
+    sigma = (q75 - q25) / 1.34;
+  h = 2.34 * sigma * pow((double) nsamples, -0.2);
+  el = (long) ceil(h);
+  if (el < 2)
+    el = 2;
+  return el < cap ? el : cap;
+}
+
 void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numparam)
 {
   (void) numpop2;
@@ -5212,7 +5253,8 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
 	    // with zeros and dragged the histogram down over the first ~el bins --
 	    // an artificial ramp exactly where priors with mass at the lower bound
 	    // (uniform from 0, exponential) carry their density.
-	    bayes_smooth(results+numbins,bins[rpa], MAX(5.0,(long) (sqrt((double) bins[rpa]))),FALSE,TRUE);
+	    bayes_smooth(results+numbins,bins[rpa],
+			 smooth_halfwidth(results+numbins, bins[rpa], world->options->lsteps),FALSE,TRUE);
 #ifdef DEBUG
 	  printf("%i> after bayes_smooth: bins[%li]=%li (%li)\n",myID, rpa,bins[rpa], (long) (sqrt(world->options->lsteps)));
 #endif
@@ -5261,12 +5303,14 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         // median is at 0.5 of the cumulative probability distribution
         li = 0;
         tmp = 0;
-        while(tmp < total/2  && li < bins[rpa]-1)
+        /* from the unsmoothed histogram: smoothing near a bound moves mass;
+           li ends one past the bin where the cumulative mass reaches 0.5 */
+        while(tmp < total22/2  && li < bins[rpa]-1)
         {
-            tmp += parts[li][1];
+            tmp += results2[numbins + li];
             li++;
         }
-        medians[pa] = parts[li][0];
+        medians[pa] = parts[li > 0 && tmp >= total22/2 ? li - 1 : li][0];
         //
         // sort parts using the histogram y-axis for easy finding of quantiles
         paired_qsort2(parts, bins[rpa]);
@@ -5323,8 +5367,10 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         // "95%" intervals 55-148 wide, and growth undercovered in calibration
         // tests). For a unimodal posterior both agree. The set itself
         // (set50/set95, used for plotting) is unchanged.
-        shortest_interval(results + numbins, bins[rpa], total * alpha50, &lo50, &hi50);
-        shortest_interval(results + numbins, bins[rpa], total * alpha95, &lo95, &hi95);
+        /* the unsmoothed histogram: the interval is a mass criterion and
+           needs no smoothing, which smears mass down to the prior bound */
+        shortest_interval(results2 + numbins, bins[rpa], total22 * alpha50, &lo50, &hi50);
+        shortest_interval(results2 + numbins, bins[rpa], total22 * alpha95, &lo95, &hi95);
         cred50[pa] = mini[rpa] + lo50 * delta;
         cred50[pa + numparam] = mini[rpa] + (hi50 + 1) * delta;
         cred95[pa] = mini[rpa] + lo95 * delta;
