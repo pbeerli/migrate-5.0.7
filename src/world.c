@@ -460,7 +460,7 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->scaler_delta = options->scaler_delta;
     wopt->window_delta = options->window_delta;
     wopt->window_size = options->window_size;
-    set_updating_choices(wopt->choices, options, STANDARD);
+    set_updating_choices(wopt->choices, options, STANDARD, numpop);
     memcpy(wopt->slice_sampling,options->slice_sampling,sizeof(boolean) * PRIOR_SIZE);
     memcpy(wopt->multiplier_proposal,options->multiplier_proposal,sizeof(boolean) * PRIOR_SIZE);
     wopt->has_bayesfile = options->has_bayesfile;

@@ -4666,7 +4666,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       or tied (t) divergence]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default; always off with one population or");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       when no migration rate is estimated]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 turns the scaler off; a move left out of the line keeps its default");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     (unset), shown as auto in the #default line: the run then decides as");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     described above; the outfile lists the frequency used");
@@ -8208,6 +8209,26 @@ static boolean options_use_mlalpha(option_fmt * options)
   return FALSE;
 }
 
+/// why the window move cannot run (it changes one estimated migration rate),
+/// or NULL when it can
+static const char *window_unsupported(option_fmt * options, long numpop)
+{
+  long i, j, n;
+  const char *c = options->custm; /* matrix order, missing entries are * */
+  if (numpop < 2)
+    return "a single population (no migration rates)";
+  if (c == NULL || (n = (long) strlen(c)) == 0)
+    return NULL;
+  for (i = 0; i < numpop; i++)
+    for (j = 0; j < numpop; j++)
+      {
+        const long k = i * numpop + j;
+        if (i != j && (k >= n || (c[k] != '0' && c[k] != 'c' && c[k] != 'C')))
+          return NULL;
+      }
+  return "no estimated migration rate (all 0 or constant)";
+}
+
 /// why the scaler move cannot run with these options (the same cases that
 /// make scaler_update() return at once), or NULL when it can
 static const char *scaler_unsupported(option_fmt * options)
@@ -8217,14 +8238,14 @@ static const char *scaler_unsupported(option_fmt * options)
     return NULL;
   if (options->species_model_dist != NORMAL_DIST)
     return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal";
-  n = options->custm2 != NULL ? strlen(options->custm2) : 0;
+  n = options->custm != NULL ? strlen(options->custm) : 0;
   for (i = 0; i < n; i++)
-    if (options->custm2[i] == 't' || options->custm2[i] == 'T')
+    if (options->custm[i] == 't' || options->custm[i] == 'T')
       return "Mittag-Leffler or skyline=PARAM and tied divergence (t)";
   return NULL;
 }
 
-void set_updating_choices(double *choices, option_fmt * options, int flag)
+void set_updating_choices(double *choices, option_fmt * options, int flag, long numpop)
 {
   //fprintf(stdout,"%i> @@@@ options->has_unassigned=%li [%f]\n",myID, (long) options->has_unassigned, options->unassigned_updatefreq);
   // order in choice vector
@@ -8270,7 +8291,9 @@ void set_updating_choices(double *choices, option_fmt * options, int flag)
     choices[SCALERUPDATE]=options->scaler_updatefreq;
   else
     choices[SCALERUPDATE]=0.0;
-  if(options->window_updatefreq>0.0)
+  if(window_unsupported(options, numpop) != NULL)
+    choices[WINDOWUPDATE]=0.0;
+  else if(options->window_updatefreq>0.0)
     choices[WINDOWUPDATE]=options->window_updatefreq;
   else
     choices[WINDOWUPDATE]=0.0;
@@ -8394,6 +8417,7 @@ check_force_moves (option_fmt * options)
 }
 
 static const char *scaler_unsupported(option_fmt * options);
+static const char *window_unsupported(option_fmt * options, long numpop);
 
 /// copy the collected notes into the cold chain's warnings, plus the joint
 /// moves that were switched on by default
@@ -8404,9 +8428,13 @@ record_option_notes (world_fmt * world, option_fmt * options)
   char *next;
   double *c = world->options->choices;
   const char *noscaler = scaler_unsupported(options);
+  const char *nowindow = window_unsupported(options, world->numpop);
   if (noscaler != NULL && options->scaler_updatefreq > 0.0)
     record_warnings (world, "Scaler move turned off: it does not work with %s (updatefreq= scaler:%g ignored)",
                      noscaler, options->scaler_updatefreq);
+  if (nowindow != NULL && options->window_updatefreq > 0.0)
+    record_warnings (world, "Window move turned off: it does not work with %s (updatefreq= window:%g ignored)",
+                     nowindow, options->window_updatefreq);
   if (c[SCALERUPDATE] - c[SCALERUPDATE - 1] > 0.0 && options->scaler_updatefreq < 0.0)
     record_warnings (world, "Scaler move is on by default (effective frequency %.5f; updatefreq= scaler:VALUE not given)",
                      c[SCALERUPDATE] - c[SCALERUPDATE - 1]);
