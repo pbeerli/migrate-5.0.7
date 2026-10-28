@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 27   Migrate 6.1.74 Posterior table: modes, medians and HPD intervals no longer stick
+             to 0 for posteriors narrow against the prior range. Window move off (with a
+             warning) for one population or no estimated migration rate; subset list
+             dates; constant M without start values crashed.
+
 October 27   Migrate 6.1.73 Scaler move runs with growth, skyline=PARAM, tip dates (only times
              older than the oldest sample scale), divergence, constrained migration
              matrices and an estimated rate modifier; a warning names the rare cases
