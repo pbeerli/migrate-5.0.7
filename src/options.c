@@ -8270,15 +8270,13 @@ static const char *window_unsupported(option_fmt * options, long numpop)
 /// make scaler_update() return at once), or NULL when it can
 static const char *scaler_unsupported(option_fmt * options)
 {
-  size_t i, n;
+  /* Mittag-Leffler and skyline=PARAM need the per-population density
+     (mlf_hastings.c), which covers normal and exponential split times,
+     tied or not */
   if (!options->has_speciation || !(options_use_mlalpha(options) || options->skyline_param))
     return NULL;
-  if (options->species_model_dist != NORMAL_DIST)
-    return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal";
-  n = options->custm != NULL ? strlen(options->custm) : 0;
-  for (i = 0; i < n; i++)
-    if (options->custm[i] == 't' || options->custm[i] == 'T')
-      return "Mittag-Leffler or skyline=PARAM and tied divergence (t)";
+  if (options->species_model_dist != NORMAL_DIST && options->species_model_dist != EXP_DIST)
+    return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal or exponential";
   return NULL;
 }
 
