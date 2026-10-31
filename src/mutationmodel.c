@@ -475,7 +475,19 @@ void calc_seq_basefreq(mutationmodel_fmt *s, world_fmt *world, option_fmt *optio
 #ifdef DEBUG
   printf("%i> Locus %li  Basefrequency calculations:\n",myID,locus);
 #endif
-  accumulate_basefreq_counts(s, options, data, locus, sublocus, &freqa, &freqc, &freqg, &freqt, &total);
+  if (options->freqsfrom_locus)
+    {
+      /* freqs-from-data=YES:locus: one set for the locus, pooled over its
+	 sequence subloci, so cutting a locus into haplotyping blocks does
+	 not change the model */
+      long other;
+      for (other = world->sublocistarts[locus]; other < world->sublocistarts[locus+1]; other++)
+	if (strchr(SEQUENCETYPES, world->mutationmodels[other].datatype))
+	  accumulate_basefreq_counts(&world->mutationmodels[other], options, data, locus, other,
+				     &freqa, &freqc, &freqg, &freqt, &total);
+    }
+  else
+    accumulate_basefreq_counts(s, options, data, locus, sublocus, &freqa, &freqc, &freqg, &freqt, &total);
 
   if (total <= 0.0)
     {

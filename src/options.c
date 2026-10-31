@@ -481,6 +481,7 @@ void init_options (option_fmt * options)
     options->ttratio = (MYREAL *) mycalloc (1, sizeof (MYREAL) * 3);
     options->ttratio[0] = 2.0;
     options->freqsfrom = TRUE;
+    options->freqsfrom_locus = FALSE;
     options->categs = ONECATEG;
     options->rate = (MYREAL *) mycalloc (1, sizeof (MYREAL));
     options->rate[0] = 1.0;
@@ -2984,7 +2985,8 @@ void print_parm_freqfrom(long *bufsize, char **buffer,  long *allocbufsize, opti
       mysnprintf(totalsites,LINESIZE,"");
     }
   if (options->freqsfrom)
-    print_parm_mutable(bufsize, buffer, allocbufsize, "freqs-from-data=YES %s\n",totalsites);
+    print_parm_mutable(bufsize, buffer, allocbufsize, "freqs-from-data=YES%s %s\n",
+		       options->freqsfrom_locus ? ":locus" : "", totalsites);
   else
     print_parm_mutable(bufsize,buffer, allocbufsize, "freqs-from-data=NO:%f,%f, %f, %f %s\n", options->freqa,
 		       options->freqc, options->freqg, options->freqt,totalsites);
@@ -4060,9 +4062,11 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_comment(&bufsize, buffer, allocbufsize,"        SEQENCEDATA: typical linked stretches of DNA, for example mtDNA");
   print_parm_comment(&bufsize, buffer, allocbufsize,"        NUCLEOTIDE: linked DNA stretches, all invariable sites removed");
   print_parm_br(&bufsize, buffer, allocbufsize);
-  print_parm_comment(&bufsize, buffer, allocbufsize,"         freqs-from-data=<YES | NO: freq(A), freq(C), freq(G), freq(T)> <[totalsites]>");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"         freqs-from-data=<YES | YES:locus | NO: freq(A), freq(C), freq(G), freq(T)> <[totalsites]>");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               calculate the prior base frequencies from the data,");
-  print_parm_comment(&bufsize, buffer, allocbufsize, "               or specify the frequencies");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               separately for every sublocus (YES) or once per locus,");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               pooled over its linked subloci (YES:locus, for loci cut");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               into haplotyping blocks), or specify the frequencies");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               the optional totalsites will be used to calculate");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               invariant sites if the datatype is snps, otherwise it will not be used.");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         ttratio=<RATIO1 RATIO2 ....> Default is 2.0,");
@@ -5280,8 +5284,13 @@ booleancheck (option_fmt * options, char *var, char *value)
         break;
     case 5:   /* freqs-from-data =  <yes | no> */
         options->freqsfrom = (boolean) (check);
+        options->freqsfrom_locus = FALSE;
         if (options->freqsfrom)
 	  {
+	    /* YES:locus pools the counts over the subloci of a locus */
+	    tmp = strchr (value, ':');
+	    if (tmp != NULL && (tmp[1] == 'L' || tmp[1] == 'l'))
+	      options->freqsfrom_locus = TRUE;
 	    strtok (value, "[");
             tmp = strtok (NULL, "]");
             if (tmp != NULL)

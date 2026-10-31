@@ -1306,7 +1306,7 @@ print_seqfreqs (FILE * outfile, world_fmt * world, option_fmt * options)
   if(outfile==NULL)
     return;
   if (options->freqsfrom)
-    FPRINTF (outfile, "\nEmpirical ");
+    FPRINTF (outfile, options->freqsfrom_locus ? "\nEmpirical (pooled per locus) " : "\nEmpirical ");
   FPRINTF (outfile, "Base Frequencies\n");
   FPRINTF (outfile,
 	   "------------------------------------------------------------\n");
