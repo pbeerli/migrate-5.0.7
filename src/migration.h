@@ -1793,6 +1793,8 @@ typedef struct _world
   long scaler_trials;   //attempts of the joint rescaling move
   long window_accept;   //acceptances of the windowed joint local-M move
   long window_trials;   //attempts of the windowed joint local-M move
+  long window_tune_accept;  //window acceptances in the current burn-in tuning batch
+  long window_tune_trials;  //window attempts in the current burn-in tuning batch
   long species_model_size;
   long species_model_dist;
   divtime_fmt *divtime;

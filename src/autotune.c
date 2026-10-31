@@ -351,6 +351,8 @@ void burnin_chain (world_fmt * world)
     world->options->treeprint = myNONE;
     
     world->in_burnin = TRUE;
+    world->window_tune_accept = 0;  /* window-delta tuning batch (windowupdate.c) */
+    world->window_tune_trials = 0;
     if (world->cold)
     {
         print_menu_equilib (world);
@@ -370,6 +372,10 @@ void burnin_chain (world_fmt * world)
     world->window_trials = window_trials;
     if (world->cold)
       {
+	if (world->options->has_autotune
+	    && world->options->choices[WINDOWUPDATE] > world->options->choices[WINDOWUPDATE - 1])
+	  FPRINTF(stdout,"[%3i]            window log-M step tuned to %.3f\n",
+		  myID, world->options->window_delta);
 	z = world->burnin_z-1;
 	switch(autostop)
 	  {
