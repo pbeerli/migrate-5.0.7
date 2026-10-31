@@ -522,7 +522,7 @@ void init_options (option_fmt * options)
     options->tree_updatefreq = 0.2;
     options->scaler_updatefreq = -1.0; // unset: 0.1 for Mittag-Leffler runs, else off (set_updating_choices)
     options->scaler_delta = 0.2;      // multiplier bound b = 1.2
-    options->window_updatefreq = -1.0; // unset: 0.10 for the plain structured coalescent with free M, else off (set_updating_choices)
+    options->window_updatefreq = -1.0; // unset: 0.10 unless assignment or haplotyping (set_updating_choices)
     options->window_delta = 0.3;      // half-width of the uniform log-M step (start value, tuned in burn-in)
     options->window_size = 4;         // branches jointly resampled per move
     options->parameter_updatefreq =0.2;
@@ -4661,15 +4661,11 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       M/c^alpha of the receiving population); unset (auto):");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       0.1 with mittag-leffler-alpha, otherwise 0 (off); with");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       tip dates only the times older than the oldest sample");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       scale, divergence means and sd scale by c; always off");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       with Mittag-Leffler or skyline=PARAM and a non-normal");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       or tied (t) divergence]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       scale, divergence means and sd scale by c]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       unset: 10% of all moves when all migration rates are free");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       (* or x) and there is no divergence, Mittag-Leffler,");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skyline=PARAM, tip dates, growth, assignment or");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       haplotyping; otherwise 0 (off); always off with one");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       unset: 10% of all moves, 0 (off) with assignment or");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       haplotyping; always off with one");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       population or when no migration rate is estimated]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 or window:0 turns the move off; a move left out of the line keeps its default");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     (unset), shown as auto in the #default line: the run then decides as");
@@ -8214,36 +8210,15 @@ static boolean options_use_mlalpha(option_fmt * options)
 }
 
 /// default share of the windowed local-M move when the user set none: 10% of
-/// all moves (1.7x the run time without it on a 2-population test with 20 tips per
-/// locus; it frees per-locus chains stuck in
-/// migration histories), but only for the case it was tested on: the plain structured
-/// coalescent with at least one free migration rate and no shared ones. A
-/// custom-migration string shorter than numpop^2 is filled with * (fillup_custm).
+/// all moves (about 1.5x the run time on a 2-population test; it frees
+/// per-locus chains stuck in migration histories). It is on for every model
+/// the move supports (window_unsupported() is checked first) except
+/// assignment and haplotyping, where it stays off unless the user sets it.
 static double window_default_weight(option_fmt * options, long numpop)
 {
-  long i, j, n, nfree = 0;
-  /* custm (matrix order): custm2 is still unset for the first world */
-  const char *c = options->custm;
-  if (numpop < 2 || c == NULL || (n = (long) strlen(c)) == 0)
+  if (numpop < 2 || options->has_unassigned || options->haplotyping)
     return 0.0;
-  if (options->has_speciation || options_use_mlalpha(options) || options->skyline_param
-      || options->has_datefile || options->has_unassigned || options->haplotyping)
-    return 0.0;
-  for (i = 0; i < options->growpops_numalloc; i++)
-    if (options->growpops[i] > 0)
-      return 0.0;
-  for (i = 0; i < numpop; i++)
-    for (j = 0; j < numpop; j++)
-      {
-        const long k = i * numpop + j;
-        if (i == j)
-          continue;
-        if (k >= n || c[k] == '*' || c[k] == 'x')
-          nfree++;
-        else if (c[k] != '0')
-          return 0.0;
-      }
-  return nfree > 0 ? 1.0 : 0.0;
+  return 1.0;
 }
 
 /// why the window move cannot run (it changes one estimated migration rate),
@@ -8270,15 +8245,13 @@ static const char *window_unsupported(option_fmt * options, long numpop)
 /// make scaler_update() return at once), or NULL when it can
 static const char *scaler_unsupported(option_fmt * options)
 {
-  size_t i, n;
+  /* Mittag-Leffler and skyline=PARAM need the per-population density
+     (mlf_hastings.c), which covers normal and exponential split times,
+     tied or not */
   if (!options->has_speciation || !(options_use_mlalpha(options) || options->skyline_param))
     return NULL;
-  if (options->species_model_dist != NORMAL_DIST)
-    return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal";
-  n = options->custm != NULL ? strlen(options->custm) : 0;
-  for (i = 0; i < n; i++)
-    if (options->custm[i] == 't' || options->custm[i] == 'T')
-      return "Mittag-Leffler or skyline=PARAM and tied divergence (t)";
+  if (options->species_model_dist != NORMAL_DIST && options->species_model_dist != EXP_DIST)
+    return "Mittag-Leffler or skyline=PARAM and a divergence distribution other than normal or exponential";
   return NULL;
 }
 

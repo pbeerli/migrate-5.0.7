@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 31   Migrate 6.1.76 Window move works with tied migration rates and divergence
+             and is on by default (10%) for every model except assignment and haplotyping.
+             Mittag-Leffler: corrected genealogy move and scaler also with exponential and
+             tied splits; exponential split times no longer depend on alpha (split mean
+             collapsed toward 0).
+
 October 31   Migrate 6.1.75 Window move on by default (10% of all moves) for the plain
              structured coalescent with free migration rates; its log-M step (window-delta)
              starts at 0.3 (was 0.03) and is tuned in burn-in toward 40% acceptance.

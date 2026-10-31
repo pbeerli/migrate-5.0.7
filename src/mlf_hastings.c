@@ -207,8 +207,10 @@ static double mlh_div_wait(world_fmt *world, long pop, double t0, double t1)
       species_fmt *sp = &world->species_model[i];
       if (sp->to != pop)
         continue;
-      v += log_prob_wait_speciate_normalorig(t0, t1, world->param0[sp->paramindex_mu],
-                                             world->param0[sp->paramindex_sigma], sp);
+      /* the distribution's own waiting term (normal or exponential), as in
+         probg_treetimes_local() */
+      v += (*log_prob_wait_speciate)(t0, t1, world->param0[sp->paramindex_mu],
+                                     world->param0[sp->paramindex_sigma], sp);
     }
   return v;
 }
@@ -220,8 +222,8 @@ static double mlh_div_point(world_fmt *world, long below, long above, double t)
                                             world->species_model_size);
   if (sp == NULL)
     return (double) -HUGE;
-  return log_point_prob_speciate_normalorig(t, world->param0[sp->paramindex_mu],
-                                            world->param0[sp->paramindex_sigma], sp);
+  return (*log_point_prob_speciate)(t, world->param0[sp->paramindex_mu],
+                                    world->param0[sp->paramindex_sigma], sp);
 }
 
 /* divergence terms of the events of L above 'start': every lineage of a
@@ -934,19 +936,17 @@ static void mlh_push_mig(migr_table_fmt **tab, long *alloc, long n,
 /* the per-population density applies to Mittag-Leffler runs and, for any
    alpha, to skyline=PARAM runs (the interval density ignores the segment
    multipliers) */
-/* divergence is covered for the normal split-time distribution and
-   untied splits (custom-migration d/D) */
+/* divergence is covered for the normal and exponential split-time
+   distributions, untied (d/D) and tied (t/T) splits: every derived
+   population waits with its own species model (a tied group shares the
+   parameter values) and each split event has the hazard of its pair, as in
+   probg_treetimes_local(). The normal "shortcut" scores the split at the
+   middle of its interval and is not covered. */
 static boolean mlh_div_supported(world_fmt *world)
 {
-  long i;
   if (!world->has_speciation)
     return TRUE;
-  if (world->species_model_dist != NORMAL_DIST)
-    return FALSE;
-  for (i = 0; i < world->species_model_size; i++)
-    if (world->species_model[i].type != 'd')
-      return FALSE;
-  return TRUE;
+  return world->species_model_dist == NORMAL_DIST || world->species_model_dist == EXP_DIST;
 }
 
 boolean mlh_density_applies(world_fmt *world)

@@ -815,16 +815,14 @@ MYREAL time_to_speciate_exp(world_fmt *world, long pop, MYREAL t0, char *event, 
       mu = world->param0[s->paramindex_mu];
       //double priormin = s->min;
       //double priormax = s->max; 
-      if(has_mlalpha)
-	{
-	  mlalpha = world->mlalpha[world->options->mlalphapops[pop]-1];
-	  intervalnew = propose_new_mlftime(1.0/mu, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
-	  //intervalnew = interval_mittag_leffler(UNIF_RANDUM(), mlalpha, 1.0/mu,tmin,tmax);
-	}
-      else
-	{
+      /* the split clock is exponential for every alpha, as for the normal
+         split time (time_to_speciate_normalorig()) and as the
+         per-population density scores it (mlf_hastings.c); a
+         Mittag-Leffler draw here disagreed with that density and drove the
+         split mean to 0 (NODATA, alpha 0.7) */
+      (void) has_mlalpha;
+      (void) mlalpha;
       intervalnew =  (-(LOG (UNIF_RANDUM ())) * mu);
-	}
       if (intervalnew < interval)
 	{
 	  interval = intervalnew;

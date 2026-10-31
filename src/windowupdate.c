@@ -264,7 +264,10 @@ window_touched_branches (node ** window, long window_n,
 
    `which`/`which_value` let the caller substitute ONE migration parameter's
    value (the one being locally perturbed by this move) without mutating
-   world->param0 itself -- pass which=-1 to build Q from param0 as-is. */
+   world->param0 itself -- pass which=-1 to build Q from param0 as-is.
+   Every rate tied to `which` (symmetric s/S, mean m/M, letter groups:
+   bayes->map[idx][1] == which) takes the new value too, as
+   bayes_set_param() does when the move is committed. */
 static void
 build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
 {
@@ -291,7 +294,8 @@ build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
           if (from == to)
             continue;
           long idx = m2mmm (to, from, d);      /* forward route to -> from */
-          MYREAL mval = (idx == which) ? which_value : param0[idx];
+          MYREAL mval = (which >= 0 && world->bayes->map[idx][1] == which)
+                        ? which_value : param0[idx];
           rate = usem ? mval : mval / param0[from];
           rate *= geo[idx] / mu_rate;
           Q[from * d + to] = rate;
@@ -1694,6 +1698,95 @@ extract_migr_events (node * up, long *out_n)
   return tab;
 }
 
+/* Divergence: the move keeps every divergence ('d') event of a touched
+   branch fixed and redraws only the migration events between them, so a
+   branch is a chain of bridges: up -> first 'd' -> ... -> last 'd' -> down.
+   A 'd' event's .to is its younger-side population and .from its
+   older-side one (migr_table_fmt convention, see log_path_density()).
+   Without divergence events this is the single bridge up -> down. */
+static MYREAL
+score_segments (const MYREAL * Q, long d, MYREAL t_up, MYREAL t_down, long a,
+                long b, const migr_table_fmt * tab, long n)
+{
+  MYREAL logq = 0.0;
+  MYREAL t0 = t_up;
+  long s = a, start = 0, i;
+  for (i = 0; i <= n; i++)
+    {
+      if (i < n && tab[i].event != 'd')
+        continue;
+      {
+        const MYREAL t1 = (i == n) ? t_down : tab[i].time;
+        const long e = (i == n) ? b : tab[i].to;
+        logq += log_bridge_density (Q, d, t1 - t0, s, e, tab + start, i - start, t0);
+        if (i < n)
+          {
+            s = tab[i].from;
+            t0 = t1;
+            start = i + 1;
+          }
+      }
+    }
+  return logq;
+}
+
+/* draws new migration events on a branch from (t_up, a) to (t_down, b),
+   keeping the 'd' events of `fixed`; returns the merged young-to-old table
+   (NULL when empty) with *out_n events, or NULL with *out_n = -1 when a
+   segment cannot be bridged; *logq gets the proposal density */
+static migr_table_fmt *
+draw_segments (const MYREAL * Q, long d, MYREAL t_up, MYREAL t_down, long a,
+               long b, const migr_table_fmt * fixed, long n, long *out_n,
+               MYREAL * logq)
+{
+  migr_table_fmt *out = NULL;
+  long nout = 0, alloc = 0, i, k;
+  MYREAL t0 = t_up;
+  long s = a;
+  *logq = 0.0;
+  for (i = 0; i <= n; i++)
+    {
+      MYREAL t1;
+      long e, ns;
+      migr_table_fmt *seg;
+      if (i < n && fixed[i].event != 'd')
+        continue;
+      t1 = (i == n) ? t_down : fixed[i].time;
+      e = (i == n) ? b : fixed[i].to;
+      seg = ctmc_bridge (Q, d, t1 - t0, s, e, t0, &ns);
+      if (ns < 0)
+        {
+          if (out != NULL)
+            myfree (out);
+          *out_n = -1;
+          return NULL;
+        }
+      *logq += log_bridge_density (Q, d, t1 - t0, s, e, seg, ns, t0);
+      if (nout + ns + 1 > alloc)
+        {
+          alloc = nout + ns + 16;
+          out = (migr_table_fmt *) myrealloc (out, (size_t) alloc * sizeof (migr_table_fmt));
+        }
+      for (k = 0; k < ns; k++)
+        out[nout++] = seg[k];
+      if (seg != NULL)
+        myfree (seg);
+      if (i < n)
+        {
+          out[nout++] = fixed[i];
+          s = fixed[i].from;
+          t0 = t1;
+        }
+    }
+  *out_n = nout;
+  if (nout == 0 && out != NULL)
+    {
+      myfree (out);
+      out = NULL;
+    }
+  return out;
+}
+
 // Joint local-M + windowed migration-history move.
 //
 // Propose M' via local_M_propose() (a local, log-uniform step -- not an
@@ -1859,9 +1952,8 @@ windowed_joint_update_core (world_fmt * world)
       bnew = (down->type == 't') ? down->pop : new_pop[node_index (world, down)];
 
       oldtab = extract_migr_events (up, &oldn);
-      logq_bridge_old += log_bridge_density (Qm, d, down->tyme - up->tyme,
-                                              aold, bold, oldtab, oldn,
-                                              up->tyme);
+      logq_bridge_old += score_segments (Qm, d, up->tyme, down->tyme,
+                                         aold, bold, oldtab, oldn);
 
       b_up[nb] = up;
       b_down[nb] = down;
@@ -1875,8 +1967,10 @@ windowed_joint_update_core (world_fmt * world)
 
       {
         long nout;
-        migr_table_fmt *seg = ctmc_bridge (Qp, d, b_T[nb], anew, bnew,
-                                            up->tyme, &nout);
+        MYREAL lq;
+        migr_table_fmt *seg = draw_segments (Qp, d, up->tyme, down->tyme,
+                                              anew, bnew, oldtab, oldn,
+                                              &nout, &lq);
         if (nout < 0)
           {
             bridge_failed = TRUE;
@@ -1887,8 +1981,7 @@ windowed_joint_update_core (world_fmt * world)
           }
         b_new_events[nb] = seg;
         b_new_n[nb] = nout;
-        logq_bridge_new += log_bridge_density (Qp, d, b_T[nb], anew, bnew,
-                                                seg, nout, up->tyme);
+        logq_bridge_new += lq;
       }
       nb++;
     }
@@ -1917,7 +2010,8 @@ windowed_joint_update_core (world_fmt * world)
   oldfull = probg_treetimes (world);
   oldlogprior = calculate_prior (world);
 
-  world->param0[which] = Mnew;
+  /* a tied rate (s, S, m, M, letter groups) moves with its whole group */
+  bayes_set_param (world->param0, Mnew, which, world->options->custm2, d);
   precalc_world (world);
 
   {
@@ -2088,7 +2182,7 @@ windowed_joint_update_core (world_fmt * world)
                 myfree (verify_tab);
               }
           }
-        world->param0[which] = Mold;
+        bayes_set_param (world->param0, Mold, which, world->options->custm2, d);
         precalc_world (world);
         construct_tymelist (world, &world->treetimes[0]);
         world->logprior = oldlogprior;
