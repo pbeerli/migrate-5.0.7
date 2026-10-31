@@ -894,12 +894,46 @@ static void add_phase_counter(individualDB_fmt *w)
   myfree(het);
 }
 
-/// update haplotypes
+/// swaps the heterozygous subloci number first..last (counted among the
+/// individual's heterozygous ones) between its two copies: the tip data, or
+/// with record TRUE the phase record states1
+static void swap_het_subloci(individualDB_fmt *w, long first, long last, boolean record)
+{
+  long i, k = 0;
+  for (i = 0; i < w->numstates; i++)
+    {
+      if (w->difference[i] == 0)
+	continue;
+      if (k >= first && k <= last)
+	{
+	  if (record)
+	    {
+	      int tmp = w->states1[i];
+	      w->states1[i] = w->states1[i + w->numstates];
+	      w->states1[i + w->numstates] = tmp;
+	    }
+	  else
+	    {
+	      xarray_fmt one = w->nodep[0]->x[i];
+	      w->nodep[0]->x[i] = w->nodep[1]->x[i];
+	      w->nodep[1]->x[i] = one;
+	    }
+	}
+      k++;
+    }
+}
+
+/// update haplotypes: swaps one heterozygous sublocus between the two copies
+/// of an individual or, in half of the moves when it has more than two, all
+/// its heterozygous subloci from a random one onward (block flip). Single
+/// swaps had to pass through poorly fitting recombinant haplotypes, and
+/// individuals with many heterozygous subloci stayed in one phase. Both
+/// proposals are their own inverse and are chosen independently of the
+/// state, so the acceptance is the likelihood ratio.
 long swap_haplotypes(world_fmt *world)
 {
   long locus = world->locus;
-  long sublocus;
-  long sublocus2;
+  long first, last;
   const long sublociend   = world->sublocistarts[locus+1]-world->sublocistarts[locus];
   if (sublociend==1)
     return -1L; // no swapping of haplotype needed
@@ -908,106 +942,48 @@ long swap_haplotypes(world_fmt *world)
   if (!world->data->haplotyping || world->data->numindividuals < 1)
     return -1L;
   long winnerid = RANDINT(0,world->data->numindividuals-1);
-  long count=0;
   individualDB_fmt *winner = &(world->data->individuals[winnerid]);
-  long rh = RANDINT(0, winner->checksum-1);
-  //fprintf(stderr,"rh=%li\n",rh);
-  count = 0;
-  long i=0;
+  const long nhet = winner->checksum;
 #ifdef DEBUG
   debug_states(winner);
 #endif
-  while(1)
+  if (nhet > 2 && RANDUM() < 0.5)
     {
-      if(winner->difference[i] != 0 )
-	count++;
-      if(count>rh)
-	break;
-      i++;
+      first = RANDINT(1, nhet-1);
+      last = nhet-1;
     }
-  sublocus = i;
-  sublocus2 = i + winner->numstates;
-  xarray_fmt one;
-  one = winner->nodep[0]->x[sublocus];
-  winner->nodep[0]->x[sublocus] = winner->nodep[1]->x[sublocus];
-  winner->nodep[1]->x[sublocus] = one;
+  else
+    {
+      first = last = RANDINT(0, nhet-1);
+    }
+  swap_het_subloci(winner, first, last, FALSE);
   // accept or reject move
   MYREAL oldlike = world->likelihood[world->G];
   set_tree_down_dirty (winner->nodep[0]);      
   set_tree_down_dirty (winner->nodep[1]);
-  //      set_tree_dirty(world->root);
   smooth (world->root->next, crawlback (world->root->next), world, locus);
   MYREAL newlike = treelikelihood(world);
   if (newlike==0.0)
     error("likelihood zeroed");
-  if (oldlike < newlike)
+  /* power posterior: the data likelihood is heated (fixed 2026-10-01);
+     without data (NODATA=YES) every phase is equally likely, as in the
+     other moves (the data likelihood was used here) */
+  if (world->options->prioralone || oldlike < newlike
+      || LOG(RANDUM()) < (newlike - oldlike) * (world->options->heating ? world->heat : 1.0))
     {
-      //accept
       world->likelihood[world->G] = newlike;
-      // original state:  0 0 0
-      //               :  1 1 1
-      // 000,001,010,100,011,101,110,111
-      ///111,110,101,011,100,010,001,000
-      // these are 2^n choices: say n=10 -> 1024,
-      // with many more it will be difficult to trace them all 
-      // tracing should be able to be turned off and on depending on need also should be able
-      // to write to  file
-      long tmp = winner->states1[sublocus];
-      winner->states1[sublocus] = winner->states1[sublocus2];
-      winner->states1[sublocus2] = (int) tmp;
-#ifdef DEBUG
-      // printf("S %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-      //	     winner->states1[0], winner->states1[1],
-      //	     winner->states1[2], winner->states1[2], winnerid, sublocus, world->heat);
-#endif      
+#ifdef MIGRATE_VERIFY_BEAGLE_ACCEPTED_TREE_CACHE
+      verify_beagle_haplotype_cache(world);
+#endif
+      swap_het_subloci(winner, first, last, TRUE);
     }
   else
     {
-      /* power posterior: the data likelihood is heated (fixed 2026-10-01) */
-      if(LOG(RANDUM()) < (newlike - oldlike) * (world->options->heating ? world->heat : 1.0))
-	{
-	  //accept
-	  world->likelihood[world->G] = newlike;
-	  long tmp = winner->states1[sublocus];
-	  winner->states1[sublocus] = winner->states1[sublocus2];
-	  winner->states1[sublocus2] = (int) tmp;
-#ifdef DEBUG
-	  //    printf("S %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-	  // winner->states1[0], winner->states1[1],
-	  // winner->states1[2], winner->states1[3], winnerid, sublocus, world->heat);
-#endif
-	}
-      else
-	{
-	  one = winner->nodep[0]->x[sublocus];
-	  winner->nodep[0]->x[sublocus] = winner->nodep[1]->x[sublocus];
-	  winner->nodep[1]->x[sublocus] = one;
-	  set_tree_down_dirty (winner->nodep[0]);      
-	  set_tree_down_dirty (winner->nodep[1]);
-#ifdef DEBUG
-	  //	  	  printf("F %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-	  // winner->states1[0], winner->states1[1],
-	  // winner->states1[2], winner->states1[3], winnerid, sublocus, world->heat);
-#endif
-	  smooth (world->root->next, crawlback (world->root->next), world, locus);
-	  newlike = treelikelihood(world);
-#ifdef DEBUGXX
-	  if(fabs(newlike-oldlike)> (double) FLT_EPSILON)
-	    {
-	      set_tree_dirty(world->root);
-	      smooth (world->root->next, crawlback (world->root->next), world, locus);
-	      newlike = treelikelihood(world);
-	      if(fabs(newlike-oldlike)> (double) FLT_EPSILON)
-		{
-		  warning("Haplotyping: newL=%f != oldL=%f\n", newlike, oldlike);
-		}
-	    }
-	  //	  else
-	  //  {
-	  //    printf("OK ");
-	  //  }
-#endif
-	} 
+      swap_het_subloci(winner, first, last, FALSE);
+      set_tree_down_dirty (winner->nodep[0]);      
+      set_tree_down_dirty (winner->nodep[1]);
+      smooth (world->root->next, crawlback (world->root->next), world, locus);
+      newlike = treelikelihood(world);
     }
   if(world->data->haplotyping_report)
     add_phase_counter(winner);
