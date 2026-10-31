@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 31   Migrate 6.1.77 Haplotyping: exact individual names (ind1 matched ind10),
+             works under MPI (did not phase, crashed), phase states over heterozygous
+             subloci only, block-flip move, NODATA ignored by the phase move; the last
+             locus of some infiles lost its individuals. freqs-from-data=YES:locus pools
+             base frequencies over a locus's subloci. The block tool is in the
+             codex repository (tools/haplotype_blocks.py).
+
 October 31   Migrate 6.1.76 Window move works with tied migration rates and divergence
              and is on by default (10%) for every model except assignment and haplotyping.
              Mittag-Leffler: corrected genealogy move and scaler also with exponential and
