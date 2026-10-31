@@ -268,7 +268,12 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
   long namelength = *bufsize;
   int poplen = (world->numpop > 8 ? ((world->numpop > 98) ? 3 : 2) : 1);
   increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-  *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
+  /* the MPI transfer (fraction FALSE) needs the full name: the master
+     matches it exactly */
+  if (fraction)
+    *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
+  else
+    *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%s\t ", poplen,pop+1, ii->name);
   namelength = *bufsize - namelength + 1;
   if(ii->total1 != 0.0f)
     {
@@ -380,7 +385,9 @@ void print_haplotypes(char **buffer, long *allocbufsize, long *bufsize, world_fm
 	      strcpy(oldname,newname);
 		       
 	      long id = find_inDB(data->indnames[pop][ind][locus], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
-	      if( id != -1)
+	      /* under MPI the master keeps every individual, also those the
+		 workers dropped (fewer than two heterozygous subloci) */
+	      if( id != -1 && world->haplotypes[locus][id].total1 > 0.0f)
 		{
 		  print_haplotypes2(buffer, allocbufsize, bufsize, world, locus, pop, id,TRUE);
 		}
