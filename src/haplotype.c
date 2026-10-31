@@ -24,6 +24,7 @@ Copyright 2010 Peter Beerli, Tallahassee FL
  works and are not responsible for any damage you may cause or have.
  
 */
+#include <ctype.h>
 #include "migration.h"
 #include "random.h"
 #include "world.h"
@@ -263,24 +264,30 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 {
   //long numreplicates = (world->options->replicatenum > 0 ? world->options->replicatenum : 1);
   individualDB_fmt * ii = &world->haplotypes[locus][ind];
+  const long keylen = ii->keylength > 0 ? ii->keylength : keylen;
   //  printf("%li>    %li  %li:%-10.10s\n", locus, ind, pop+1, ii->name);
   long namelength = *bufsize;
   int poplen = (world->numpop > 8 ? ((world->numpop > 98) ? 3 : 2) : 1);
   increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
-  *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
+  /* the MPI transfer (fraction FALSE) needs the full name: the master
+     matches it exactly */
+  if (fraction)
+    *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%-10.10s\t ", poplen,pop+1, ii->name);
+  else
+    *bufsize += mysnprintf(*buffer + *bufsize,LINESIZE,"%*li:%s\t ", poplen,pop+1, ii->name);
   namelength = *bufsize - namelength + 1;
   if(ii->total1 != 0.0f)
     {
       char **showkeys, **showkeys2;
       long leaves=0;
       hash_leaves(ii->hash,ii->numhash, &leaves);
-      charvec2d(&showkeys,leaves,ii->numstates+1);
-      charvec2d(&showkeys2,leaves,ii->numstates+1);
+      charvec2d(&showkeys,leaves,keylen+1);
+      charvec2d(&showkeys2,leaves,keylen+1);
       int *showvalues = (int *) mycalloc(leaves,sizeof(int));
       long z=0;
       int i;
       long lines = *bufsize + HUNDRED - namelength;
-      show_hash(ii->hash,ii->numhash, (size_t) ii->numstates, &showkeys,&showvalues,&z);
+      show_hash(ii->hash,ii->numhash, (size_t) keylen, &showkeys,&showvalues,&z);
       long count = 0;
       MYREAL * values = (MYREAL*) mycalloc(leaves,sizeof(MYREAL));
       MYREAL total=0.0;
@@ -288,8 +295,16 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 	{
 	  if(showkeys[i][0]!='\0')
 	    {
-	      MYREAL value = extract_showkeys(showkeys,showvalues, (int) leaves, (int) ii->numstates, i);///(MYREAL) numreplicates;
-	      strncpy(showkeys2[i],showkeys[i],(size_t) ii->numstates);
+	      MYREAL value = extract_showkeys(showkeys,showvalues, (int) leaves, (int) keylen, i);///(MYREAL) numreplicates;
+	      strncpy(showkeys2[i],showkeys[i],(size_t) keylen);
+	      /* a state and its complement are the same phase (the copies are
+		 exchangeable) and were merged above; show the form starting with 0 */
+	      if(showkeys2[i][0]=='1')
+		{
+		  long k;
+		  for(k=0;k<keylen;k++)
+		    showkeys2[i][k] = (showkeys2[i][k]=='0') ? '1' : '0';
+		}
 	      values[count] = value;
 	      count++;
 	      total += value;
@@ -304,7 +319,7 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 	      count++;
 	      if(fraction)
 		{
-		  if((ii->numstates+7+ *bufsize) > lines)
+		  if((keylen+7+ *bufsize) > lines)
 		    {
 		      lines += HUNDRED - namelength;;
 		      increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
@@ -365,17 +380,15 @@ void print_haplotypes(char **buffer, long *allocbufsize, long *bufsize, world_fm
 	      // assumes order of names, and second occurrence in tree will
 	      // not be used, this seems like a hack but otherwise I nee to extract
 	      // or store the pop assignment in the name.
-	      size_t numchar = (size_t) strcspn(data->indnames[pop][ind][locus],":");
-	      strncpy(newname,data->indnames[pop][ind][locus], numchar);
-	      newname[numchar]='\0';
-	      size_t ll = (size_t) strlen(newname);
-	      if(!strncmp(oldname,newname,  ll))
+	      haplotype_base_name(data->indnames[pop][ind][locus], newname, SMALLBUFSIZE);
+	      if(strcmp(oldname,newname) == 0)
 		continue;
-	      else
-		strncpy(oldname,newname,ll);
+	      strcpy(oldname,newname);
 		       
 	      long id = find_inDB(data->indnames[pop][ind][locus], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
-	      if( id != -1)
+	      /* under MPI the master keeps every individual, also those the
+		 workers dropped (fewer than two heterozygous subloci) */
+	      if( id != -1 && world->haplotypes[locus][id].total1 > 0.0f)
 		{
 		  print_haplotypes2(buffer, allocbufsize, bufsize, world, locus, pop, id,TRUE);
 		}
@@ -405,21 +418,38 @@ void reset_haplotypes(world_fmt* world, long locus)
   world->data->numindividuals=0;
 }
 
+/// the individual part of a tip name: the text before ':' without
+/// surrounding blanks ("ARG34:1" -> "ARG34"). Names are compared exactly;
+/// substring matching merged ind1 and ind10.
+void haplotype_base_name(const char *raw, char *out, size_t outlen)
+{
+  size_t s = 0;
+  size_t n = strcspn(raw, ":");
+  while (n > 0 && isspace((unsigned char) raw[n - 1]))
+    n--;
+  while (s < n && isspace((unsigned char) raw[s]))
+    s++;
+  if (n - s >= outlen)
+    n = s + outlen - 1;
+  memcpy(out, raw + s, n - s);
+  out[n - s] = '\0';
+}
+
 /// looks up the individuals in a simple list for the haplotype_order_list
 long find_in_haplotypingorderDB(char * thisname, haplotyping_orderform_fmt *individuals, long numindividuals)
 {
-  // individuals points to (world->)data->individuals[region]
   long i;
+  char name[SMALLBUFSIZE];
+  char key[SMALLBUFSIZE];
   if(thisname[0]=='\0')
     return numindividuals;
 
+  haplotype_base_name(thisname, name, sizeof(name));
   for (i=0; i< numindividuals; i++)
     {
-      haplotyping_orderform_fmt *ii = &individuals[i];
-      if(strstr(thisname,ii->key)!=NULL)
-	{
-	  return i;
-	}
+      haplotype_base_name(individuals[i].key, key, sizeof(key));
+      if(strcmp(name, key) == 0)
+	return i;
     }
   return -1;
 }
@@ -428,33 +458,20 @@ long find_inDB(char * thisname, long region, individualDB_fmt *individuals, long
 {
   // individuals points to (world->)data->individuals[region]
   long i;
-  long len = (long) strlen(thisname);
+  char name[SMALLBUFSIZE];
+  char other[SMALLBUFSIZE];
 
   if(thisname[0]=='\0')
-    return -1; //numindividuals;
+    return -1;
 
+  haplotype_base_name(thisname, name, sizeof(name));
   for (i=0; i< numindividuals; i++)
     {
-      individualDB_fmt *ii = &individuals[i];
-      if(len > (long) strlen(ii->name))
-	{
-	  if(strstr(thisname,ii->name)!=NULL)
-	    {
-	      if(ii->region==region)
-		return i;
-	    }
-	}
-      else
-	{
-	  if(strstr(ii->name,thisname)!=NULL)
-	    {
-	      if(ii->region==region)
-		return i;
-	    }
-	}
+      haplotype_base_name(individuals[i].name, other, sizeof(other));
+      if(individuals[i].region==region && strcmp(name, other) == 0)
+	return i;
     }
   return -1;
-  //  return numindividuals;
 }
 
 
@@ -752,7 +769,9 @@ void check_individual_nodes(long region, world_fmt *world)
     }
 }
 
-/// and removing individuals from the database that are monomorphic
+/// and removing individuals from the database that have no phase to
+/// resolve: fewer than two heterozygous subloci (with one, a swap only
+/// exchanges the two tips of the individual in the genealogy)
 void cleanup_individual_nodes(long region, world_fmt *world)
 {
   (void) region;
@@ -762,7 +781,7 @@ void cleanup_individual_nodes(long region, world_fmt *world)
   const long last = world->data->numindividuals;
   while (i < last)
     {
-      if (ind[i].checksum == 0 || ind[i].numstates<2 || ind[i].targeted == 0)
+      if (ind[i].checksum < 2 || ind[i].numstates<2 || ind[i].targeted == 0)
 	{
 	  individualDB_fmt tmp = ind[i];
 	  world->data->numindividuals -= 1;
@@ -860,122 +879,114 @@ void debug_states(individualDB_fmt *w)
 }
 
 
-/// update haplotypes
+/// counts the current phase of an individual, one character per
+/// heterozygous sublocus: the homozygous ones never change, and with them in
+/// the key a phase and its complement (the same phase) were not merged
+static void add_phase_counter(individualDB_fmt *w)
+{
+  int *het = (int *) mycalloc(w->numstates > 0 ? w->numstates : 1, sizeof(int));
+  long i, k = 0;
+  for (i = 0; i < w->numstates; i++)
+    if (w->difference[i] != 0)
+      het[k++] = w->states1[i];
+  add_state_counter(&w->hash, &w->numhash, &w->total1, het, k, 1);
+  w->keylength = k;
+  myfree(het);
+}
+
+/// swaps the heterozygous subloci number first..last (counted among the
+/// individual's heterozygous ones) between its two copies: the tip data, or
+/// with record TRUE the phase record states1
+static void swap_het_subloci(individualDB_fmt *w, long first, long last, boolean record)
+{
+  long i, k = 0;
+  for (i = 0; i < w->numstates; i++)
+    {
+      if (w->difference[i] == 0)
+	continue;
+      if (k >= first && k <= last)
+	{
+	  if (record)
+	    {
+	      int tmp = w->states1[i];
+	      w->states1[i] = w->states1[i + w->numstates];
+	      w->states1[i + w->numstates] = tmp;
+	    }
+	  else
+	    {
+	      xarray_fmt one = w->nodep[0]->x[i];
+	      w->nodep[0]->x[i] = w->nodep[1]->x[i];
+	      w->nodep[1]->x[i] = one;
+	    }
+	}
+      k++;
+    }
+}
+
+/// update haplotypes: swaps one heterozygous sublocus between the two copies
+/// of an individual or, in half of the moves when it has more than two, all
+/// its heterozygous subloci from a random one onward (block flip). Single
+/// swaps had to pass through poorly fitting recombinant haplotypes, and
+/// individuals with many heterozygous subloci stayed in one phase. Both
+/// proposals are their own inverse and are chosen independently of the
+/// state, so the acceptance is the likelihood ratio.
 long swap_haplotypes(world_fmt *world)
 {
   long locus = world->locus;
-  long sublocus;
-  long sublocus2;
+  long first, last;
   const long sublociend   = world->sublocistarts[locus+1]-world->sublocistarts[locus];
   if (sublociend==1)
     return -1L; // no swapping of haplotype needed
+  /* no individual of this locus has two heterozygous subloci
+     (cleanup_individual_nodes() removed them all) */
+  if (!world->data->haplotyping || world->data->numindividuals < 1)
+    return -1L;
   long winnerid = RANDINT(0,world->data->numindividuals-1);
-  long count=0;
   individualDB_fmt *winner = &(world->data->individuals[winnerid]);
-  long rh = RANDINT(0, winner->checksum-1);
-  //fprintf(stderr,"rh=%li\n",rh);
-  count = 0;
-  long i=0;
+  const long nhet = winner->checksum;
 #ifdef DEBUG
   debug_states(winner);
 #endif
-  while(1)
+  if (nhet > 2 && RANDUM() < 0.5)
     {
-      if(winner->difference[i] != 0 )
-	count++;
-      if(count>rh)
-	break;
-      i++;
+      first = RANDINT(1, nhet-1);
+      last = nhet-1;
     }
-  sublocus = i;
-  sublocus2 = i + winner->numstates;
-  xarray_fmt one;
-  one = winner->nodep[0]->x[sublocus];
-  winner->nodep[0]->x[sublocus] = winner->nodep[1]->x[sublocus];
-  winner->nodep[1]->x[sublocus] = one;
+  else
+    {
+      first = last = RANDINT(0, nhet-1);
+    }
+  swap_het_subloci(winner, first, last, FALSE);
   // accept or reject move
   MYREAL oldlike = world->likelihood[world->G];
   set_tree_down_dirty (winner->nodep[0]);      
   set_tree_down_dirty (winner->nodep[1]);
-  //      set_tree_dirty(world->root);
   smooth (world->root->next, crawlback (world->root->next), world, locus);
   MYREAL newlike = treelikelihood(world);
   if (newlike==0.0)
     error("likelihood zeroed");
-  if (oldlike < newlike)
+  /* power posterior: the data likelihood is heated (fixed 2026-10-01);
+     without data (NODATA=YES) every phase is equally likely, as in the
+     other moves (the data likelihood was used here) */
+  if (world->options->prioralone || oldlike < newlike
+      || LOG(RANDUM()) < (newlike - oldlike) * (world->options->heating ? world->heat : 1.0))
     {
-      //accept
       world->likelihood[world->G] = newlike;
-      // original state:  0 0 0
-      //               :  1 1 1
-      // 000,001,010,100,011,101,110,111
-      ///111,110,101,011,100,010,001,000
-      // these are 2^n choices: say n=10 -> 1024,
-      // with many more it will be difficult to trace them all 
-      // tracing should be able to be turned off and on depending on need also should be able
-      // to write to  file
-      long tmp = winner->states1[sublocus];
-      winner->states1[sublocus] = winner->states1[sublocus2];
-      winner->states1[sublocus2] = (int) tmp;
-#ifdef DEBUG
-      // printf("S %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-      //	     winner->states1[0], winner->states1[1],
-      //	     winner->states1[2], winner->states1[2], winnerid, sublocus, world->heat);
-#endif      
+#ifdef MIGRATE_VERIFY_BEAGLE_ACCEPTED_TREE_CACHE
+      verify_beagle_haplotype_cache(world);
+#endif
+      swap_het_subloci(winner, first, last, TRUE);
     }
   else
     {
-      /* power posterior: the data likelihood is heated (fixed 2026-10-01) */
-      if(LOG(RANDUM()) < (newlike - oldlike) * (world->options->heating ? world->heat : 1.0))
-	{
-	  //accept
-	  world->likelihood[world->G] = newlike;
-	  long tmp = winner->states1[sublocus];
-	  winner->states1[sublocus] = winner->states1[sublocus2];
-	  winner->states1[sublocus2] = (int) tmp;
-#ifdef DEBUG
-	  //    printf("S %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-	  // winner->states1[0], winner->states1[1],
-	  // winner->states1[2], winner->states1[3], winnerid, sublocus, world->heat);
-#endif
-	}
-      else
-	{
-	  one = winner->nodep[0]->x[sublocus];
-	  winner->nodep[0]->x[sublocus] = winner->nodep[1]->x[sublocus];
-	  winner->nodep[1]->x[sublocus] = one;
-	  set_tree_down_dirty (winner->nodep[0]);      
-	  set_tree_down_dirty (winner->nodep[1]);
-#ifdef DEBUG
-	  //	  	  printf("F %f %f %i %i | %i %i | %li %li | %f\n",newlike,oldlike,
-	  // winner->states1[0], winner->states1[1],
-	  // winner->states1[2], winner->states1[3], winnerid, sublocus, world->heat);
-#endif
-	  smooth (world->root->next, crawlback (world->root->next), world, locus);
-	  newlike = treelikelihood(world);
-#ifdef DEBUGXX
-	  if(fabs(newlike-oldlike)> (double) FLT_EPSILON)
-	    {
-	      set_tree_dirty(world->root);
-	      smooth (world->root->next, crawlback (world->root->next), world, locus);
-	      newlike = treelikelihood(world);
-	      if(fabs(newlike-oldlike)> (double) FLT_EPSILON)
-		{
-		  warning("Haplotyping: newL=%f != oldL=%f\n", newlike, oldlike);
-		}
-	    }
-	  //	  else
-	  //  {
-	  //    printf("OK ");
-	  //  }
-#endif
-	} 
+      swap_het_subloci(winner, first, last, FALSE);
+      set_tree_down_dirty (winner->nodep[0]);      
+      set_tree_down_dirty (winner->nodep[1]);
+      smooth (world->root->next, crawlback (world->root->next), world, locus);
+      newlike = treelikelihood(world);
     }
   if(world->data->haplotyping_report)
-    {
-      add_state_counter(&winner->hash, &winner->numhash, &winner->total1, 
-			winner->states1, winner->numstates, 1);
-    }
+    add_phase_counter(winner);
   return -1L;
 }
   
@@ -988,6 +999,6 @@ void free_haplotypes(world_fmt *world, long locus)
     myfree(ii->states1);
   if(ii->states2!=NULL)  
     myfree(ii->states2);
-  free_hash(ii->hash,ii->numhash,(size_t) ii->numstates);
+  free_hash(ii->hash,ii->numhash,(size_t) (ii->keylength > 0 ? ii->keylength : ii->numstates));
   ii = NULL;
 }

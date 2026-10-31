@@ -48,5 +48,6 @@ void save_haplotypes(world_fmt* world, long locus);
 void reset_haplotypes(world_fmt* world, long locus);
 long set_haplotype_states(individualDB_fmt *winner, char *word);
 long find_inDB(char * thisname, long region, individualDB_fmt *individuals, long numindividuals);
+void haplotype_base_name(const char *raw, char *out, size_t outlen);
 void free_haplotypes(world_fmt *world, long locus);
 #endif

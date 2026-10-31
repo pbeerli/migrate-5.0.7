@@ -3915,12 +3915,11 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
   long ind;
   long pop;
   long bufsize=0;
-  double ratio=1.0;
+  long nelem=0;
   if(world->data->haplotyping_report)
     {
       long allocbufsize = LINESIZE;
       char *charbuf = (char *) calloc(allocbufsize, sizeof(char));
-      printf("%i: %li> PACK HAPLOTYPES===================================================\n",myID, locus);
       char * newname;
       char * oldname;
       oldname = (char *) calloc(LINESIZE,sizeof(char));
@@ -3932,7 +3931,7 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
 	}
       else
 	{
-	  warning("%i> found a filled haplotypes%li]\n",locus);
+	  warning("haplotype states for locus %li were already saved\n", locus + 1);
 	}
       for(pop=0;pop<numpop;pop++)
 	{
@@ -3940,31 +3939,31 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
 	    {
 	      // hooks into data->indnames
 	      //printf("%s\n",world->indnames[pop][ind][locus]);
-	      long numchar = strcspn(world->indnames[pop][ind][locus],":");
-	      strncpy(newname,world->indnames[pop][ind][locus], numchar);
-	      newname[numchar]='\0';
-	      long ll = strlen(newname);
-	      if(!strncmp(oldname,newname,ll))
+	      haplotype_base_name(world->indnames[pop][ind][locus], newname, LINESIZE);
+	      if(strcmp(oldname,newname) == 0)
 		continue;
-	      else
-		strncpy(oldname,newname,ll);
+	      strcpy(oldname,newname);
 	      //printf("%s   %s\n",oldname,newname);	      
 	      long id = find_inDB(world->indnames[pop][ind][locus], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
-	      printf("id=%li\n",id);
 	      if( id != -1)
 		{
 		  print_haplotypes2(&charbuf, &allocbufsize, &bufsize, world, locus, pop, id, FALSE);
-		  printf("%i>PACK:%s\n", myID, charbuf);
 		  z++;
 		}
 	    }
 	}
-      ratio = (float) sizeof(char)/(float) sizeof(MYREAL);
-      *buffer = (MYREAL *) realloc(*buffer, bufsize*ratio*sizeof(MYREAL)); 
+      /* the text travels as MYREALs: round up and send the closing '\0'
+	 (rounding down cut up to 7 characters, and the master read the
+	 rest from old buffer contents) */
+      nelem = (long) ((bufsize + 1 + (long) sizeof(MYREAL) - 1) / (long) sizeof(MYREAL));
+      *buffer = (MYREAL *) realloc(*buffer, (size_t) nelem * sizeof(MYREAL));
+      memset(*buffer, 0, (size_t) nelem * sizeof(MYREAL));
       memcpy(*buffer,charbuf,bufsize*sizeof(char));
       myfree(charbuf);
+      myfree(oldname);
+      myfree(newname);
     }
-  return bufsize * ratio;
+  return nelem;
 }
 
 ///
@@ -3980,7 +3979,6 @@ void unpack_haplotypes_buffer(MYREAL *buffer, world_fmt * world,
   //get number of individuals
   if(world->data->haplotyping_report)
     {
-      printf("%i: %li> UNPACK %s\n",myID,locus,charbuf);
       word = (char *) calloc(LINESIZE,sizeof(char));
       longword = (char *) calloc(LONGLINESIZE,sizeof(char));
       while(charbuf[readpos]!='\0')
@@ -3988,12 +3986,10 @@ void unpack_haplotypes_buffer(MYREAL *buffer, world_fmt * world,
 	  // find the id of the sample
 	  readpos+=read_word_delim(charbuf+readpos,word,":",FALSE);//population label       
 	  readpos+=read_word_delim(charbuf+readpos,word,"\t",FALSE); //read individual
-	  printf("hap %i> |%s|\n",myID, word);
 	  //winner
 	  long id = find_inDB(word, locus, world->haplotypes[locus], world->numhaplotypes[locus]);
 	  if( id != -1)
 	    {                 
-	      printf("hap %i> charbuf+%li:|%30.30s|\n",myID, readpos,charbuf+readpos);
 	      readpos+=read_word_delim(charbuf+readpos,longword,"\n",FALSE); //read individual
 	      individualDB_fmt *winner = &(world->haplotypes[locus][id]);
 	      long pos = nondestruct_trim(&longword);
@@ -4001,6 +3997,7 @@ void unpack_haplotypes_buffer(MYREAL *buffer, world_fmt * world,
 		{
 		  pos += read_word_delim(longword+pos,word,":",FALSE);
 		  winner->numstates = set_haplotype_states(winner,word);
+		  winner->keylength = winner->numstates;
 		  pos+=read_word_delim(longword+pos,word," ",TRUE);		  // read count
 		  long count = atol(word);
 		  add_state_counter(&winner->hash, &winner->numhash, &winner->total1, 

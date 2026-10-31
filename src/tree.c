@@ -1598,7 +1598,10 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 					ind, data->indnames[pop][ind]);
 			  world->data->sampledates[pop][locus][ind].id = treenode[z]->id;
 			}
-		      if(options->haplotyping)
+		      /* once per tip, not once per sublocus: linking every
+			 sublocus put the first copy twice into the
+			 individual's node list, so no sublocus ever differed */
+		      if(options->haplotyping && sublocus == sublocistart)
 			link_individual_node(data->indnames[pop][ind][locus],treenode[z], locus, world);		      
 		    }
 		  else
