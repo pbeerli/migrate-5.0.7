@@ -3997,6 +3997,7 @@ void unpack_haplotypes_buffer(MYREAL *buffer, world_fmt * world,
 		{
 		  pos += read_word_delim(longword+pos,word,":",FALSE);
 		  winner->numstates = set_haplotype_states(winner,word);
+		  winner->keylength = winner->numstates;
 		  pos+=read_word_delim(longword+pos,word," ",TRUE);		  // read count
 		  long count = atol(word);
 		  add_state_counter(&winner->hash, &winner->numhash, &winner->total1, 

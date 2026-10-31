@@ -457,6 +457,7 @@ typedef struct _individualDB
   float total1;
   float total2;
   long numstates;
+  long keylength; /* characters of a reported phase state: the heterozygous subloci */
   long targeted;
 } individualDB_fmt;
 

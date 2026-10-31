@@ -264,6 +264,7 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 {
   //long numreplicates = (world->options->replicatenum > 0 ? world->options->replicatenum : 1);
   individualDB_fmt * ii = &world->haplotypes[locus][ind];
+  const long keylen = ii->keylength > 0 ? ii->keylength : keylen;
   //  printf("%li>    %li  %li:%-10.10s\n", locus, ind, pop+1, ii->name);
   long namelength = *bufsize;
   int poplen = (world->numpop > 8 ? ((world->numpop > 98) ? 3 : 2) : 1);
@@ -280,13 +281,13 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
       char **showkeys, **showkeys2;
       long leaves=0;
       hash_leaves(ii->hash,ii->numhash, &leaves);
-      charvec2d(&showkeys,leaves,ii->numstates+1);
-      charvec2d(&showkeys2,leaves,ii->numstates+1);
+      charvec2d(&showkeys,leaves,keylen+1);
+      charvec2d(&showkeys2,leaves,keylen+1);
       int *showvalues = (int *) mycalloc(leaves,sizeof(int));
       long z=0;
       int i;
       long lines = *bufsize + HUNDRED - namelength;
-      show_hash(ii->hash,ii->numhash, (size_t) ii->numstates, &showkeys,&showvalues,&z);
+      show_hash(ii->hash,ii->numhash, (size_t) keylen, &showkeys,&showvalues,&z);
       long count = 0;
       MYREAL * values = (MYREAL*) mycalloc(leaves,sizeof(MYREAL));
       MYREAL total=0.0;
@@ -294,14 +295,14 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 	{
 	  if(showkeys[i][0]!='\0')
 	    {
-	      MYREAL value = extract_showkeys(showkeys,showvalues, (int) leaves, (int) ii->numstates, i);///(MYREAL) numreplicates;
-	      strncpy(showkeys2[i],showkeys[i],(size_t) ii->numstates);
+	      MYREAL value = extract_showkeys(showkeys,showvalues, (int) leaves, (int) keylen, i);///(MYREAL) numreplicates;
+	      strncpy(showkeys2[i],showkeys[i],(size_t) keylen);
 	      /* a state and its complement are the same phase (the copies are
 		 exchangeable) and were merged above; show the form starting with 0 */
 	      if(showkeys2[i][0]=='1')
 		{
 		  long k;
-		  for(k=0;k<ii->numstates;k++)
+		  for(k=0;k<keylen;k++)
 		    showkeys2[i][k] = (showkeys2[i][k]=='0') ? '1' : '0';
 		}
 	      values[count] = value;
@@ -318,7 +319,7 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 	      count++;
 	      if(fraction)
 		{
-		  if((ii->numstates+7+ *bufsize) > lines)
+		  if((keylen+7+ *bufsize) > lines)
 		    {
 		      lines += HUNDRED - namelength;;
 		      increase_buffer(buffer, allocbufsize, bufsize,LINESIZE);
@@ -878,6 +879,21 @@ void debug_states(individualDB_fmt *w)
 }
 
 
+/// counts the current phase of an individual, one character per
+/// heterozygous sublocus: the homozygous ones never change, and with them in
+/// the key a phase and its complement (the same phase) were not merged
+static void add_phase_counter(individualDB_fmt *w)
+{
+  int *het = (int *) mycalloc(w->numstates > 0 ? w->numstates : 1, sizeof(int));
+  long i, k = 0;
+  for (i = 0; i < w->numstates; i++)
+    if (w->difference[i] != 0)
+      het[k++] = w->states1[i];
+  add_state_counter(&w->hash, &w->numhash, &w->total1, het, k, 1);
+  w->keylength = k;
+  myfree(het);
+}
+
 /// update haplotypes
 long swap_haplotypes(world_fmt *world)
 {
@@ -994,10 +1010,7 @@ long swap_haplotypes(world_fmt *world)
 	} 
     }
   if(world->data->haplotyping_report)
-    {
-      add_state_counter(&winner->hash, &winner->numhash, &winner->total1, 
-			winner->states1, winner->numstates, 1);
-    }
+    add_phase_counter(winner);
   return -1L;
 }
   
@@ -1010,6 +1023,6 @@ void free_haplotypes(world_fmt *world, long locus)
     myfree(ii->states1);
   if(ii->states2!=NULL)  
     myfree(ii->states2);
-  free_hash(ii->hash,ii->numhash,(size_t) ii->numstates);
+  free_hash(ii->hash,ii->numhash,(size_t) (ii->keylength > 0 ? ii->keylength : ii->numstates));
   ii = NULL;
 }
