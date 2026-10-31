@@ -8462,6 +8462,8 @@ record_option_notes (world_fmt * world, option_fmt * options)
   if (nowindow != NULL && options->window_updatefreq > 0.0)
     record_warnings (world, "Window move turned off: it does not work with %s (updatefreq= window:%g ignored)",
                      nowindow, options->window_updatefreq);
+  if (options->haplotyping && !options->heating)
+    record_warnings (world, "Haplotyping without heating: the phase is tied to the genealogy and mixes poorly in a single chain; heating=YES (the default) is recommended");
   if (c[SCALERUPDATE] - c[SCALERUPDATE - 1] > 0.0 && options->scaler_updatefreq < 0.0)
     record_warnings (world, "Scaler move is on by default (effective frequency %.5f; updatefreq= scaler:VALUE not given)",
                      c[SCALERUPDATE] - c[SCALERUPDATE - 1]);
