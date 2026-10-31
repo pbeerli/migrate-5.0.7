@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+October 31   Migrate 6.1.75 Window move on by default (10% of all moves) for the plain
+             structured coalescent with free migration rates; its log-M step (window-delta)
+             starts at 0.3 (was 0.03) and is tuned in burn-in toward 40% acceptance.
+             Migration rates mix about 4x faster per CPU second.
+
 October 27   Migrate 6.1.74 Posterior table: modes, medians and HPD intervals no longer stick
              to 0 for posteriors narrow against the prior range. Window move off (with a
              warning) for one population or no estimated migration rate; subset list

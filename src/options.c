@@ -522,8 +522,8 @@ void init_options (option_fmt * options)
     options->tree_updatefreq = 0.2;
     options->scaler_updatefreq = -1.0; // unset: 0.1 for Mittag-Leffler runs, else off (set_updating_choices)
     options->scaler_delta = 0.2;      // multiplier bound b = 1.2
-    options->window_updatefreq = 0.0; // opt-in: the windowed joint local-M move is off by default
-    options->window_delta = 0.03;     // half-width of the uniform log-M step
+    options->window_updatefreq = -1.0; // unset: 0.10 for the plain structured coalescent with free M, else off (set_updating_choices)
+    options->window_delta = 0.3;      // half-width of the uniform log-M step (start value, tuned in burn-in)
     options->window_size = 4;         // branches jointly resampled per move
     options->parameter_updatefreq =0.2;
     options->haplotype_updatefreq = DEFAULT_HAPLOTYPE_UPDATEFREQ;
@@ -4666,9 +4666,12 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       or tied (t) divergence]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                     window   [proposes M by a local step AND jointly");
     print_parm_comment(&bufsize, buffer, allocbufsize, "                       redraws a small window of the migration history;");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       0 (off) by default; always off with one population or");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                       when no migration rate is estimated]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 turns the scaler off; a move left out of the line keeps its default");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       unset: 10% of all moves when all migration rates are free");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       (* or x) and there is no divergence, Mittag-Leffler,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       skyline=PARAM, tip dates, growth, assignment or");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       haplotyping; otherwise 0 (off); always off with one");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                       population or when no migration rate is estimated]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     scaler:0 or window:0 turns the move off; a move left out of the line keeps its default");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     (unset), shown as auto in the #default line: the run then decides as");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     described above; the outfile lists the frequency used");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     data moves      : haplotype");
@@ -4676,7 +4679,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "     the old positional form is still accepted:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     updatefreq= tree param haplotype timeparam assignment seqerror mlalpha(ignored) [scaler]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "scaler-delta=VALUE  multiplier bound for the scaler move is b = 1 + VALUE");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  window move: log M changes by a uniform step on (-VALUE,VALUE)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "window-delta=VALUE  window move: log M changes by a uniform step on (-VALUE,VALUE);");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                    start value, tuned in burn-in toward 40% acceptance (auto-tune=YES)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "window-size=VALUE   branches jointly resampled per window move");
     /* moves named in the parmfile are written as the active line, the
        defaults as a comment, so a rerun still knows which were defaults;
@@ -5744,7 +5748,7 @@ void print_update_frequencies (FILE * file, world_fmt * world)
 	     1.0 + world->options->scaler_delta);
   fprintf (file, "Window (local-M + windowed history)      %9.5f\n", p[WINDOWUPDATE]);
   if (p[WINDOWUPDATE] > 0.0)
-    fprintf (file, "   window log-M step / branches per move  %9.5f / %li\n",
+    fprintf (file, "   window log-M step (start) / branches    %9.5f / %li\n",
 	     world->options->window_delta, world->options->window_size);
   fprintf (file, "\n");
 }
@@ -6634,8 +6638,8 @@ numbercheck (option_fmt * options, char *var, char *value)
 	  options->window_delta = atof(tmp);
 	  if(options->window_delta <= 0.0)
 	    {
-	      warning("window-delta must be > 0; using 0.03\n");
-	      options->window_delta = 0.03;
+	      warning("window-delta must be > 0; using 0.3\n");
+	      options->window_delta = 0.3;
 	    }
 	}
       break;
@@ -8209,6 +8213,39 @@ static boolean options_use_mlalpha(option_fmt * options)
   return FALSE;
 }
 
+/// default share of the windowed local-M move when the user set none: 10% of
+/// all moves (1.7x the run time without it on a 2-population test with 20 tips per
+/// locus; it frees per-locus chains stuck in
+/// migration histories), but only for the case it was tested on: the plain structured
+/// coalescent with at least one free migration rate and no shared ones. A
+/// custom-migration string shorter than numpop^2 is filled with * (fillup_custm).
+static double window_default_weight(option_fmt * options, long numpop)
+{
+  long i, j, n, nfree = 0;
+  /* custm (matrix order): custm2 is still unset for the first world */
+  const char *c = options->custm;
+  if (numpop < 2 || c == NULL || (n = (long) strlen(c)) == 0)
+    return 0.0;
+  if (options->has_speciation || options_use_mlalpha(options) || options->skyline_param
+      || options->has_datefile || options->has_unassigned || options->haplotyping)
+    return 0.0;
+  for (i = 0; i < options->growpops_numalloc; i++)
+    if (options->growpops[i] > 0)
+      return 0.0;
+  for (i = 0; i < numpop; i++)
+    for (j = 0; j < numpop; j++)
+      {
+        const long k = i * numpop + j;
+        if (i == j)
+          continue;
+        if (k >= n || c[k] == '*' || c[k] == 'x')
+          nfree++;
+        else if (c[k] != '0')
+          return 0.0;
+      }
+  return nfree > 0 ? 1.0 : 0.0;
+}
+
 /// why the window move cannot run (it changes one estimated migration rate),
 /// or NULL when it can
 static const char *window_unsupported(option_fmt * options, long numpop)
@@ -8293,10 +8330,18 @@ void set_updating_choices(double *choices, option_fmt * options, int flag, long 
     choices[SCALERUPDATE]=0.0;
   if(window_unsupported(options, numpop) != NULL)
     choices[WINDOWUPDATE]=0.0;
-  else if(options->window_updatefreq>0.0)
-    choices[WINDOWUPDATE]=options->window_updatefreq;
+  else if(options->window_updatefreq<0.0)
+    {
+      // 10% of all moves: weight = 0.10/0.90 x the sum of the other weights
+      double others = 0.0;
+      long cj;
+      for (cj = 0; cj < NUMBER_OF_UPDATES; cj++)
+        if (cj != WINDOWUPDATE)
+          others += choices[cj];
+      choices[WINDOWUPDATE] = window_default_weight(options, numpop) * others * 0.10 / 0.90;
+    }
   else
-    choices[WINDOWUPDATE]=0.0;
+    choices[WINDOWUPDATE]=options->window_updatefreq;
   //if(options->tri_mlalpha==ESTIMATE)
   //  choices[MITTAGLEFFLERUPDATE] = options->mlalpha_updatefreq;
 

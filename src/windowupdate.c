@@ -1720,8 +1720,8 @@ extract_migr_events (node * up, long *out_n)
 // e.g. ~line 1794), not a real branch with any likelihood content. Such
 // branches are skipped for bridge redrawing (and excluded from every
 // Hastings-ratio term below) -- there is nothing there to redraw.
-long
-windowed_joint_update (world_fmt * world)
+static long
+windowed_joint_update_core (world_fmt * world)
 {
   const long window_size = world->options->window_size;
   const long d = world->numpop;
@@ -2113,4 +2113,43 @@ windowed_joint_update (world_fmt * world)
   myfree (window); myfree (touched);
 
   return success ? 1 : 0;
+}
+
+/* burn-in tuning of window-delta: the log-M step decides how fast the
+   migration-event counts, and with them M, move (8 loci of a 2-population
+   1000-locus test set, 2026-10-31: step 0.03 -> 0.3 cut the autocorrelation
+   time of the event counts 4-5x at the same cost; acceptance 58% -> 43%).
+   Every WINDOW_TUNE_BATCH attempts in burn-in the step grows by 10% when the
+   batch acceptance is above WINDOW_TARGET_ACCEPT and shrinks by 10% when it
+   is below. The step is fixed after burn-in, so the sampled chain stays a
+   plain Metropolis-Hastings chain. */
+#define WINDOW_TARGET_ACCEPT 0.40
+#define WINDOW_TUNE_BATCH 100
+#define WINDOW_DELTA_MIN 0.005
+#define WINDOW_DELTA_MAX 2.0
+
+long
+windowed_joint_update (world_fmt * world)
+{
+  const long success = windowed_joint_update_core (world);
+  if (world->in_burnin && world->options->has_autotune)
+    {
+      world->window_tune_trials += 1;
+      world->window_tune_accept += success;
+      if (world->window_tune_trials >= WINDOW_TUNE_BATCH)
+        {
+          const MYREAL ratio = (MYREAL) world->window_tune_accept
+                               / (MYREAL) world->window_tune_trials;
+          MYREAL delta = world->options->window_delta;
+          delta *= (ratio > WINDOW_TARGET_ACCEPT) ? 1.1 : 1.0 / 1.1;
+          if (delta < WINDOW_DELTA_MIN)
+            delta = WINDOW_DELTA_MIN;
+          if (delta > WINDOW_DELTA_MAX)
+            delta = WINDOW_DELTA_MAX;
+          world->options->window_delta = delta;
+          world->window_tune_trials = 0;
+          world->window_tune_accept = 0;
+        }
+    }
+  return success;
 }

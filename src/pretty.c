@@ -5359,7 +5359,7 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TH);
 	  pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_ROW);
 	  pretty_ua_begin_content(page);
-	  pdf_print_tableline(width2, "%s", "  window log-M step / branches per move");
+	  pdf_print_tableline(width2, "%s", "  window log-M step (start) / branches");
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TH */
 	  cell_elem = pretty_ua_push(HPDF_UA_ROLE_TD);
