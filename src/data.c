@@ -1980,19 +1980,15 @@ read_indname (FILE * file, data_fmt * data, long pop, long ind, long locus, long
 void read_data_line (FILE *infile, data_fmt *data, option_fmt * options, world_fmt * world, long pop, long ind, long region)
 {
   long i;
-  long locus=0;
   const long startlocus = data->regions[region].startlocus;
   const long endlocus   = data->regions[region].endlocus;
-
-  for(i=0;i<data->loci;i++)
-    {
-      if(startlocus==world->sublocistarts[i])
-	locus = i;
-      if(endlocus==world->sublocistarts[i])
-	break;
-    }
-  const long start = locus;
-  const long end   = i;
+  /* the region's loci are [startlocus, endlocus), in locus numbers; they
+     were looked up in sublocistarts[] (sublocus numbers), which stopped one
+     locus early for (s1000) (s300 s300) (s200 s10 s150) and put a second
+     region's names on locus 0 */
+  const long locus = startlocus;
+  const long start = startlocus;
+  const long end   = endlocus;
   char c;
   read_indname (infile, data, pop, ind, locus, options->nmlength);//region was locus here
   if(data->oldsyntax)

@@ -24,6 +24,7 @@ Copyright 2010 Peter Beerli, Tallahassee FL
  works and are not responsible for any damage you may cause or have.
  
 */
+#include <ctype.h>
 #include "migration.h"
 #include "random.h"
 #include "world.h"
@@ -290,6 +291,14 @@ void print_haplotypes2(char **buffer, long *allocbufsize, long *bufsize, world_f
 	    {
 	      MYREAL value = extract_showkeys(showkeys,showvalues, (int) leaves, (int) ii->numstates, i);///(MYREAL) numreplicates;
 	      strncpy(showkeys2[i],showkeys[i],(size_t) ii->numstates);
+	      /* a state and its complement are the same phase (the copies are
+		 exchangeable) and were merged above; show the form starting with 0 */
+	      if(showkeys2[i][0]=='1')
+		{
+		  long k;
+		  for(k=0;k<ii->numstates;k++)
+		    showkeys2[i][k] = (showkeys2[i][k]=='0') ? '1' : '0';
+		}
 	      values[count] = value;
 	      count++;
 	      total += value;
@@ -365,14 +374,10 @@ void print_haplotypes(char **buffer, long *allocbufsize, long *bufsize, world_fm
 	      // assumes order of names, and second occurrence in tree will
 	      // not be used, this seems like a hack but otherwise I nee to extract
 	      // or store the pop assignment in the name.
-	      size_t numchar = (size_t) strcspn(data->indnames[pop][ind][locus],":");
-	      strncpy(newname,data->indnames[pop][ind][locus], numchar);
-	      newname[numchar]='\0';
-	      size_t ll = (size_t) strlen(newname);
-	      if(!strncmp(oldname,newname,  ll))
+	      haplotype_base_name(data->indnames[pop][ind][locus], newname, SMALLBUFSIZE);
+	      if(strcmp(oldname,newname) == 0)
 		continue;
-	      else
-		strncpy(oldname,newname,ll);
+	      strcpy(oldname,newname);
 		       
 	      long id = find_inDB(data->indnames[pop][ind][locus], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
 	      if( id != -1)
@@ -405,21 +410,38 @@ void reset_haplotypes(world_fmt* world, long locus)
   world->data->numindividuals=0;
 }
 
+/// the individual part of a tip name: the text before ':' without
+/// surrounding blanks ("ARG34:1" -> "ARG34"). Names are compared exactly;
+/// substring matching merged ind1 and ind10.
+void haplotype_base_name(const char *raw, char *out, size_t outlen)
+{
+  size_t s = 0;
+  size_t n = strcspn(raw, ":");
+  while (n > 0 && isspace((unsigned char) raw[n - 1]))
+    n--;
+  while (s < n && isspace((unsigned char) raw[s]))
+    s++;
+  if (n - s >= outlen)
+    n = s + outlen - 1;
+  memcpy(out, raw + s, n - s);
+  out[n - s] = '\0';
+}
+
 /// looks up the individuals in a simple list for the haplotype_order_list
 long find_in_haplotypingorderDB(char * thisname, haplotyping_orderform_fmt *individuals, long numindividuals)
 {
-  // individuals points to (world->)data->individuals[region]
   long i;
+  char name[SMALLBUFSIZE];
+  char key[SMALLBUFSIZE];
   if(thisname[0]=='\0')
     return numindividuals;
 
+  haplotype_base_name(thisname, name, sizeof(name));
   for (i=0; i< numindividuals; i++)
     {
-      haplotyping_orderform_fmt *ii = &individuals[i];
-      if(strstr(thisname,ii->key)!=NULL)
-	{
-	  return i;
-	}
+      haplotype_base_name(individuals[i].key, key, sizeof(key));
+      if(strcmp(name, key) == 0)
+	return i;
     }
   return -1;
 }
@@ -428,33 +450,20 @@ long find_inDB(char * thisname, long region, individualDB_fmt *individuals, long
 {
   // individuals points to (world->)data->individuals[region]
   long i;
-  long len = (long) strlen(thisname);
+  char name[SMALLBUFSIZE];
+  char other[SMALLBUFSIZE];
 
   if(thisname[0]=='\0')
-    return -1; //numindividuals;
+    return -1;
 
+  haplotype_base_name(thisname, name, sizeof(name));
   for (i=0; i< numindividuals; i++)
     {
-      individualDB_fmt *ii = &individuals[i];
-      if(len > (long) strlen(ii->name))
-	{
-	  if(strstr(thisname,ii->name)!=NULL)
-	    {
-	      if(ii->region==region)
-		return i;
-	    }
-	}
-      else
-	{
-	  if(strstr(ii->name,thisname)!=NULL)
-	    {
-	      if(ii->region==region)
-		return i;
-	    }
-	}
+      haplotype_base_name(individuals[i].name, other, sizeof(other));
+      if(individuals[i].region==region && strcmp(name, other) == 0)
+	return i;
     }
   return -1;
-  //  return numindividuals;
 }
 
 
@@ -752,7 +761,9 @@ void check_individual_nodes(long region, world_fmt *world)
     }
 }
 
-/// and removing individuals from the database that are monomorphic
+/// and removing individuals from the database that have no phase to
+/// resolve: fewer than two heterozygous subloci (with one, a swap only
+/// exchanges the two tips of the individual in the genealogy)
 void cleanup_individual_nodes(long region, world_fmt *world)
 {
   (void) region;
@@ -762,7 +773,7 @@ void cleanup_individual_nodes(long region, world_fmt *world)
   const long last = world->data->numindividuals;
   while (i < last)
     {
-      if (ind[i].checksum == 0 || ind[i].numstates<2 || ind[i].targeted == 0)
+      if (ind[i].checksum < 2 || ind[i].numstates<2 || ind[i].targeted == 0)
 	{
 	  individualDB_fmt tmp = ind[i];
 	  world->data->numindividuals -= 1;
@@ -869,6 +880,10 @@ long swap_haplotypes(world_fmt *world)
   const long sublociend   = world->sublocistarts[locus+1]-world->sublocistarts[locus];
   if (sublociend==1)
     return -1L; // no swapping of haplotype needed
+  /* no individual of this locus has two heterozygous subloci
+     (cleanup_individual_nodes() removed them all) */
+  if (!world->data->haplotyping || world->data->numindividuals < 1)
+    return -1L;
   long winnerid = RANDINT(0,world->data->numindividuals-1);
   long count=0;
   individualDB_fmt *winner = &(world->data->individuals[winnerid]);
