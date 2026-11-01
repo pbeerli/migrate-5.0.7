@@ -392,6 +392,16 @@ void collect_ess_values(world_fmt *world)
 }
 
 
+///
+/// number of loci that contributed to the ESS archive (loci with data)
+long ess_loci(world_fmt *world)
+{
+  long locus, nl = 0;
+  for (locus = 0; locus < world->loci; locus++)
+    nl += !world->data->skiploci[locus];
+  return nl > 0 ? nl : 1;
+}
+
 //
 // print out the acceptance ratios for all the different Bayesian updates
 void
@@ -409,13 +419,15 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
   long npg = world->numparamcumvec[GROWTHPRIOR];
   long npa = world->numparam;
   bayes_fmt *bayes = world->bayes;
+  const MYREAL nl = (MYREAL) ess_loci(world);
   stemp = (char *) mycalloc(LINESIZE,sizeof(char));
   
   //species_fmt *s = NULL;
   long z=0;
   FPRINTF(file,"\n\n\nAutocorrelation for all parameters and the genealogies\n");
   FPRINTF(file,"-------------------------------------------------------------------\n\n");
-  FPRINTF(file,"Parameter           Autocorrelation           Effective Sample size\n");
+  FPRINTF(file,"Parameter           Autocorrelation   Effective sample size (ESS)\n");
+  FPRINTF(file,"%57s %15s\n", "Sum (*)", "Per locus (**)");
     // population sizes
     for(j0=0; j0 < npa; j0++)
     {
@@ -428,8 +440,8 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	{
 	  if (j<numpop) //theta
 	    {
-	      FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f\n", j+1, autocorr[j], effsample[j]);
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      FPRINTF(file,"Theta_%-3li              %8.3f         %17.3f %15.3f\n", j+1, autocorr[j], effsample[j], effsample[j] / nl);
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);	  
 	    }
 	  else if (j < numpop2) // migration rates
@@ -443,14 +455,14 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 		{
 		  mysnprintf(stemp,LINESIZE, "xN_%lim_%li->%li", topop+1, frompop+1, topop+1);
 		}
-	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f %15.3f\n", stemp, autocorr[j],effsample[j], effsample[j] / nl);
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);		
 	    }
 	  else if(bayes->mu && j==world->numpop2)
 	    {	      
-	      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f\n", j+1,autocorr[j],effsample[j]);
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      FPRINTF(file, "Rate of mutation rate (%li) %8.3f         %17.3f %15.3f\n", j+1,autocorr[j],effsample[j], effsample[j] / nl);
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
 	  else if (world->has_speciation && j < nps)
@@ -463,13 +475,13 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      if (j == s->paramindex_mu)
 		{
 		  mysnprintf(stemp,LINESIZE,"_%li->%li",1+from,1+to);
-		  FPRINTF(file, "D%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
+		  FPRINTF(file, "D%-12.12s          %8.3f         %17.3f %15.3f\n", stemp, autocorr[j],effsample[j], effsample[j] / nl);
 		}
 	      else
 		{
-		  FPRINTF(file, "S%-12.12s          %8.3f         %17.3f\n", stemp, autocorr[j], effsample[j]);
+		  FPRINTF(file, "S%-12.12s          %8.3f         %17.3f %15.3f\n", stemp, autocorr[j], effsample[j], effsample[j] / nl);
 		}
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Effective sample size of run seems too short! ",j+1);
 	    }
 	  else if(world->has_growth && j < npg)
@@ -479,8 +491,8 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      if (d < world->options->growpops_numalloc && world->options->growpops[d]==0)
 		d++;
 	      mysnprintf(stemp,LINESIZE,"Growth_%li",d+1);
-	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f %15.3f\n", stemp, autocorr[j],effsample[j], effsample[j] / nl);
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: Growth: Effective sample size of run seems too short! ",j+1);
 	    }
 	  else if(world->has_mlalpha && world->tri_mlalpha != FIXED)
@@ -490,19 +502,22 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 	      if (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0)
 		d++;
 	      mysnprintf(stemp,LINESIZE,"ML-alpha_%li",d+1);
-	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f\n", stemp, autocorr[j],effsample[j]);
-	      if(effsample[j]<ESSMINIMUM && file==world->outfile)
+	      FPRINTF(file, "%-12.12s           %8.3f         %17.3f %15.3f\n", stemp, autocorr[j],effsample[j], effsample[j] / nl);
+	      if(effsample[j] / nl < ESSMINIMUM && file==world->outfile)
 		record_warnings(world,"Param %li: ML-alpha: Effective sample size of run seems too short! ",j+1);
 	    }
 	}
     }
     // accepted trees
-    FPRINTF(file, "Genealogies            %8.3f         %17.3f\n", autocorr[npa],effsample[npa]);
-    if(effsample[npa]<ESSMINIMUM && file==world->outfile)
+    FPRINTF(file, "Genealogies            %8.3f         %17.3f %15.3f\n", autocorr[npa],effsample[npa], effsample[npa] / nl);
+    if(effsample[npa] / nl < ESSMINIMUM && file==world->outfile)
       record_warnings(world,"Genealogies %li: Effective sample size of run seems too short! ",npa);		      
-    if(world->loci>1 && file!=stdout)
+    if(file!=stdout)
       {
-	FPRINTF(file,"(*) averaged over loci.\n");
+	FPRINTF(file,"Autocorrelation: lag 1, averaged over loci and replicates. ESS: batch means of\n");
+	FPRINTF(file,"each chain, corrected for their own autocorrelation (Geyer). (*) summed over\n");
+	FPRINTF(file,"loci and replicates. (**) the sum divided by the number of loci (%li); the\n", (long) nl);
+	FPRINTF(file,"short-run warning uses this column.\n");
       }
     myfree(stemp);
 }
@@ -536,8 +551,104 @@ print_bayes_ess(FILE * file,  world_fmt *world, MYREAL *autocorr, MYREAL *effsam
 ///		     ];
 ///  r/s
 ///    ]
-/// The effective sample is calculated as the length the sample n * (1-r)/(1+r)
-/// 
+/// The effective sample size comes from batch means (at most ESS_NBATCH
+/// batches; when they are full, neighbours are merged and the batch length
+/// doubles): ESS = n var(x) / (batch length var(batch means) tau), with tau
+/// the integrated autocorrelation time of the batch means (Geyer's initial
+/// positive sequence), so that batches shorter than the chain's own
+/// correlation time do not inflate the ESS. The lag-1 form n (1-r)/(1+r)
+/// assumes the autocorrelation decays as r^k and overestimated slowly mixing
+/// chains up to 30-fold; it is used only for the first four samples.
+///
+#define ESS_NBATCH 128
+static double *ess_bmean = NULL; /* nn1 * ESS_NBATCH completed batch means */
+static double *ess_bcur = NULL;  /* nn1 running sums of the open batch */
+static double *ess_denom = NULL; /* nn1 batch length var(batch means) tau, set when a batch closes */
+static long ess_blen = 1;
+static long ess_bfill = 0;
+static long ess_nbatch = 0;
+
+static void ess_batch_reset(long nn1)
+{
+  memset(ess_bmean, 0, (size_t) (nn1 * ESS_NBATCH) * sizeof(double));
+  memset(ess_bcur, 0, (size_t) nn1 * sizeof(double));
+  memset(ess_denom, 0, (size_t) nn1 * sizeof(double));
+  ess_blen = 1;
+  ess_bfill = 0;
+  ess_nbatch = 0;
+}
+
+/// batch length var(batch means) tau of entry k, 0 if not yet available
+static double ess_batch_denom(long k)
+{
+  const double *m = ess_bmean + k * ESS_NBATCH;
+  const long nb = ess_nbatch;
+  double mean = 0.0, v = 0.0, tau = 1.0, pair, c;
+  long b, lag;
+  if (nb < 4)
+    return 0.0;
+  for (b = 0; b < nb; b++)
+    mean += m[b];
+  mean /= nb;
+  for (b = 0; b < nb; b++)
+    v += (m[b] - mean) * (m[b] - mean);
+  if (v <= 0.0)
+    return 0.0;
+  // Geyer: add autocorrelation pairs (lag, lag+1) while their sum is positive
+  for (lag = 1; lag + 1 < nb; lag += 2)
+    {
+      pair = 0.0;
+      for (c = 0.0, b = 0; b + lag < nb; b++)
+        c += (m[b] - mean) * (m[b + lag] - mean);
+      pair += c / v;
+      for (c = 0.0, b = 0; b + lag + 1 < nb; b++)
+        c += (m[b] - mean) * (m[b + lag + 1] - mean);
+      pair += c / v;
+      if (pair <= 0.0)
+        break;
+      tau += 2.0 * pair;
+    }
+  return ess_blen * (v / (nb - 1)) * tau;
+}
+
+/// closes the open batch after every sample has been added to ess_bcur
+static void ess_batch_advance(long nn1)
+{
+  long k, b;
+  if (++ess_bfill < ess_blen)
+    return;
+  for (k = 0; k < nn1; k++)
+    {
+      ess_bmean[k * ESS_NBATCH + ess_nbatch] = ess_bcur[k] / ess_blen;
+      ess_bcur[k] = 0.0;
+    }
+  ess_bfill = 0;
+  if (++ess_nbatch == ESS_NBATCH)
+    {
+      for (k = 0; k < nn1; k++)
+        {
+          double *m = ess_bmean + k * ESS_NBATCH;
+          for (b = 0; b < ESS_NBATCH / 2; b++)
+            m[b] = 0.5 * (m[2 * b] + m[2 * b + 1]);
+        }
+      ess_nbatch = ESS_NBATCH / 2;
+      ess_blen *= 2;
+    }
+  for (k = 0; k < nn1; k++)
+    ess_denom[k] = ess_batch_denom(k);
+}
+
+/// ESS of entry k with n samples and sum of squares S, or -1 while the
+/// batches cannot give one
+static double ess_batch_value(long k, long n, double S)
+{
+  double ess;
+  if (n < 2 || ess_denom[k] <= 0.0)
+    return -1.0;
+  ess = (S / (n - 1)) * n / ess_denom[k];
+  return ess < n ? ess : (double) n;
+}
+
 MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYREAL *autoc, MYREAL *effsample)
 {
   static double *mean;
@@ -574,6 +685,9 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
       r    = (double *) mycalloc(nn1,sizeof(double));
       xold = (double *) mycalloc(nn1,sizeof(double));
       xstart = (double *) mycalloc(nn1,sizeof(double));
+      ess_bmean = (double *) mycalloc(nn1 * ESS_NBATCH,sizeof(double));
+      ess_bcur = (double *) mycalloc(nn1,sizeof(double));
+      ess_denom = (double *) mycalloc(nn1,sizeof(double));
       done=TRUE;
     }
   // reset static variable for each chain
@@ -585,6 +699,7 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
       memset(r,0,(size_t) nn * sizeof(double));
       memset(xold,0,(size_t) nn * sizeof(double));
       memset(xstart,0,(size_t) nn * sizeof(double));
+      ess_batch_reset(nn + 1);
       return 0;
     }
   // syntax so that an init really works
@@ -624,6 +739,7 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
 	  r[j]      = 0.0;
 	  xstart[j] = x;
 	  xold[j] = x;
+	  ess_bcur[j] += x;
 	}
       //genealogy
       x = world->likelihood[world->G];
@@ -632,6 +748,8 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
       r[nn]      = 0.0;
       xstart[nn] = x;
       xold[nn] = x;
+      ess_bcur[nn] += x;
+      ess_batch_advance(nn + 1);
       v = 0.0;
       myfree(delta);
     }
@@ -662,6 +780,7 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
 	  v        += S[j];
 	  //printf("[%li] n=%li effsample=%g atoc=%g r=%g (%f) s=%g mean=%g\n", j, n,effsample[j],autoc[j],r[j], temp, S[j],mean[j]);
 	  xold[j] = x;
+	  ess_bcur[j] += x;
 	}
       x = world->likelihood[world->G];
       xo        = xold[nn];
@@ -678,7 +797,23 @@ MYREAL single_chain_var(world_fmt *world, unsigned long T, MYREAL *variance, MYR
       v        += S[nn];
       //printf("%i> [%li] n=%li effsample=%g atoc=%g r=%g (%f) s=%g mean=%g\n", myID, nn, n,effsample[nn],autoc[nn],r[nn], temp, S[nn],mean[nn]);
       xold[nn] = x;
-      
+      ess_bcur[nn] += x;
+      ess_batch_advance(nn + 1);
+      // batch-means ESS replaces the lag-1 value once batches are longer than 1
+      for(i=start; i <= nn; i++)
+	{
+	  double e;
+	  if(i < nn)
+	    {
+	      if(world->bayes->map[i][1] == INVALID)
+		continue;
+	      j = world->bayes->map[i][1];
+	    }
+	  else
+	    j = nn;
+	  if(S[j] > 0.0 && (e = ess_batch_value(j, n, S[j])) >= 0.0)
+	    effsample[j] = (MYREAL) e;
+	}
       myfree(delta);
     }
   //  printf("@single_chain_var() [%li]",(long) world->cold);
