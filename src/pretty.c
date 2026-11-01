@@ -41,6 +41,7 @@
 #include "bayes.h"
 #include "speciate.h"
 #include "world.h"
+#include "reporter.h"
 #include <hpdf.h>
 #include "pretty_ua.h"
 #include "pdf_fonts_embedded.h"
@@ -2926,6 +2927,7 @@ pdf_bayes_print_ess(world_fmt *world)
     stemp = stempo;
     long tc = world->numparamcumvec[SPLITSTDPRIOR];
     //long tcg = world->numparamcumvec[GROWTHPRIOR];
+    const MYREAL nl = (MYREAL) ess_loci(world);
     mysnprintf(title,LINESIZE,"MCMC-Autocorrelation and Effective MCMC Sample Size");
     pdf_new_page("");
     HPDF_Page_SetFontAndSize (page, helvob, 16.0);
@@ -2960,13 +2962,19 @@ pdf_bayes_print_ess(world_fmt *world)
     pretty_ua_push(HPDF_UA_ROLE_TH);
     pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
     pretty_ua_begin_content(page);
-    pdf_print_contents_at(250, page_height, "Autocorrelation");
+    pdf_print_contents_at(200, page_height, "Autocorrelation");
     pretty_ua_end_content(page);
     pretty_ua_pop(); /* TH */
     pretty_ua_push(HPDF_UA_ROLE_TH);
     pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
     pretty_ua_begin_content(page);
-    pdf_print_contents_at(450, page_height, "Effective Sampe Size");
+    pdf_print_contents_at(330, page_height, "ESS (sum)");
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TH */
+    pretty_ua_push(HPDF_UA_ROLE_TH);
+    pretty_ua_set_table_header_scope(HPDF_UA_SCOPE_COLUMN);
+    pretty_ua_begin_content(page);
+    pdf_print_contents_at(450, page_height, "ESS per locus");
     pretty_ua_end_content(page);
     pretty_ua_pop(); /* TH */
     pretty_ua_pop(); /* TR: header */
@@ -2991,14 +2999,19 @@ pdf_bayes_print_ess(world_fmt *world)
 	    pretty_ua_pop(); /* TD: symbol */
 	    pretty_ua_push(HPDF_UA_ROLE_TD);
 	    pretty_ua_begin_content(page);
-	    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+	    pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j]);
 	    pretty_ua_end_content(page);
 	    pretty_ua_pop(); /* TD: autocorrelation */
 	    pretty_ua_push(HPDF_UA_ROLE_TD);
 	    pretty_ua_begin_content(page);
-	    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+	    pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j]);
 	    pretty_ua_end_content(page);
-	    pretty_ua_pop(); /* TD: ESS */
+	    pretty_ua_pop(); /* TD: ESS sum */
+	    pretty_ua_push(HPDF_UA_ROLE_TD);
+	    pretty_ua_begin_content(page);
+	    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j] / nl);
+	    pretty_ua_end_content(page);
+	    pretty_ua_pop(); /* TD: ESS per locus */
 	    pretty_ua_pop(); /* TR */
 	    pdf_advance(&page_height);
 	  }
@@ -3020,14 +3033,19 @@ pdf_bayes_print_ess(world_fmt *world)
 		pretty_ua_pop(); /* TD: symbol */
 		pretty_ua_push(HPDF_UA_ROLE_TD);
 		pretty_ua_begin_content(page);
-		pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j]);
 		pretty_ua_end_content(page);
 		pretty_ua_pop(); /* TD: autocorrelation */
 		pretty_ua_push(HPDF_UA_ROLE_TD);
 		pretty_ua_begin_content(page);
-		pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+		pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j]);
 		pretty_ua_end_content(page);
-		pretty_ua_pop(); /* TD: ESS */
+		pretty_ua_pop(); /* TD: ESS sum */
+		pretty_ua_push(HPDF_UA_ROLE_TD);
+		pretty_ua_begin_content(page);
+		pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j] / nl);
+		pretty_ua_end_content(page);
+		pretty_ua_pop(); /* TD: ESS per locus */
 		pretty_ua_pop(); /* TR */
 		pdf_advance(&page_height);
 	      }
@@ -3046,14 +3064,19 @@ pdf_bayes_print_ess(world_fmt *world)
       pretty_ua_pop(); /* TD: symbol */
       pretty_ua_push(HPDF_UA_ROLE_TD);
       pretty_ua_begin_content(page);
-      pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+      pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j]);
       pretty_ua_end_content(page);
       pretty_ua_pop(); /* TD: autocorrelation */
       pretty_ua_push(HPDF_UA_ROLE_TD);
       pretty_ua_begin_content(page);
-      pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+      pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j]);
       pretty_ua_end_content(page);
-      pretty_ua_pop(); /* TD: ESS */
+      pretty_ua_pop(); /* TD: ESS sum */
+      pretty_ua_push(HPDF_UA_ROLE_TD);
+      pretty_ua_begin_content(page);
+      pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j] / nl);
+      pretty_ua_end_content(page);
+      pretty_ua_pop(); /* TD: ESS per locus */
       pretty_ua_pop(); /* TR */
       pdf_advance(&page_height);
     }
@@ -3082,14 +3105,19 @@ pdf_bayes_print_ess(world_fmt *world)
 		    pretty_ua_pop(); /* TD: symbol */
 		    pretty_ua_push(HPDF_UA_ROLE_TD);
 		    pretty_ua_begin_content(page);
-		    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		    pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j]);
 		    pretty_ua_end_content(page);
 		    pretty_ua_pop(); /* TD: autocorrelation */
 		    pretty_ua_push(HPDF_UA_ROLE_TD);
 		    pretty_ua_begin_content(page);
-		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+		    pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j]);
 		    pretty_ua_end_content(page);
-		    pretty_ua_pop(); /* TD: ESS */
+		    pretty_ua_pop(); /* TD: ESS sum */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
+		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j] / nl);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: ESS per locus */
 		    pretty_ua_pop(); /* TR */
 		    pdf_advance(&page_height);
 		  }
@@ -3100,14 +3128,19 @@ pdf_bayes_print_ess(world_fmt *world)
 		    pretty_ua_pop(); /* TD: symbol */
 		    pretty_ua_push(HPDF_UA_ROLE_TD);
 		    pretty_ua_begin_content(page);
-		    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j]);
+		    pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j]);
 		    pretty_ua_end_content(page);
 		    pretty_ua_pop(); /* TD: autocorrelation */
 		    pretty_ua_push(HPDF_UA_ROLE_TD);
 		    pretty_ua_begin_content(page);
-		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j]);
+		    pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j]);
 		    pretty_ua_end_content(page);
-		    pretty_ua_pop(); /* TD: ESS */
+		    pretty_ua_pop(); /* TD: ESS sum */
+		    pretty_ua_push(HPDF_UA_ROLE_TD);
+		    pretty_ua_begin_content(page);
+		    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j] / nl);
+		    pretty_ua_end_content(page);
+		    pretty_ua_pop(); /* TD: ESS per locus */
 		    pretty_ua_pop(); /* TR */
 		    pdf_advance(&page_height);
 		  }
@@ -3130,14 +3163,19 @@ pdf_bayes_print_ess(world_fmt *world)
 	  pretty_ua_pop(); /* TD: symbol */
 	  pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
-	  pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+	  pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j1]);
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TD: autocorrelation */
 	  pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
-	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+	  pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j1]);
 	  pretty_ua_end_content(page);
-	  pretty_ua_pop(); /* TD: ESS */
+	  pretty_ua_pop(); /* TD: ESS sum */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
+	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1] / nl);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: ESS per locus */
 	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
         }
@@ -3158,14 +3196,19 @@ pdf_bayes_print_ess(world_fmt *world)
 	  pretty_ua_pop(); /* TD: symbol */
 	  pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
-	  pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+	  pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j1]);
 	  pretty_ua_end_content(page);
 	  pretty_ua_pop(); /* TD: autocorrelation */
 	  pretty_ua_push(HPDF_UA_ROLE_TD);
 	  pretty_ua_begin_content(page);
-	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+	  pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j1]);
 	  pretty_ua_end_content(page);
-	  pretty_ua_pop(); /* TD: ESS */
+	  pretty_ua_pop(); /* TD: ESS sum */
+	  pretty_ua_push(HPDF_UA_ROLE_TD);
+	  pretty_ua_begin_content(page);
+	  pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1] / nl);
+	  pretty_ua_end_content(page);
+	  pretty_ua_pop(); /* TD: ESS per locus */
 	  pretty_ua_pop(); /* TR */
 	  pdf_advance(&page_height);
         }
@@ -3179,14 +3222,19 @@ pdf_bayes_print_ess(world_fmt *world)
     pretty_ua_pop(); /* TD: label */
     pretty_ua_push(HPDF_UA_ROLE_TD);
     pretty_ua_begin_content(page);
-    pdf_printf(250, page_height, 'L', "%5.5f",world->auto_archive[j1]);
+    pdf_printf(200, page_height, 'L', "%5.5f",world->auto_archive[j1]);
     pretty_ua_end_content(page);
     pretty_ua_pop(); /* TD: autocorrelation */
     pretty_ua_push(HPDF_UA_ROLE_TD);
     pretty_ua_begin_content(page);
-    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1]);
+    pdf_printf(330, page_height, 'L', "%10.2f", world->ess_archive[j1]);
     pretty_ua_end_content(page);
-    pretty_ua_pop(); /* TD: ESS */
+    pretty_ua_pop(); /* TD: ESS sum */
+    pretty_ua_push(HPDF_UA_ROLE_TD);
+    pretty_ua_begin_content(page);
+    pdf_printf(450, page_height, 'L', "%10.2f", world->ess_archive[j1] / nl);
+    pretty_ua_end_content(page);
+    pretty_ua_pop(); /* TD: ESS per locus */
     pretty_ua_pop(); /* TR: Genealogies */
     pdf_advance(&page_height);
     pretty_ua_pop(); /* TABLE */

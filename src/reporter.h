@@ -51,5 +51,6 @@ extern boolean max_ess(const MYREAL * ess, const  long n, const MYREAL minimum, 
 extern void print_bayes_ess(FILE *file, world_fmt *world, MYREAL *autocorr, MYREAL *effsample);
 extern void calculate_ess_frombayes(world_fmt *world, long T, MYREAL *params, long locus, MYREAL *autoc, MYREAL *effsample);
 extern void collect_ess_values(world_fmt *world);
+extern long ess_loci(world_fmt *world);
 extern void collect_acceptance(world_fmt *world);
 #endif
