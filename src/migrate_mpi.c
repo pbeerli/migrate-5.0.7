@@ -1974,8 +1974,10 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
       sscanf (input,  "%c %i %i %li %li\n",
 	      &s->datatype, &dataclass, &s->model, &s->numpatterns, &s->numsites);
       long numpp = s->numpatterns;
+      int model = s->model;
       init_mutationmodel_readsites2(s, s->datatype, s->numsites);
       s->numpatterns = numpp;
+      s->model = model; /* readsites2 resets it to JC69; workers ran every sequence model as JC69 */
       s->numstates = get_states(s, data, locus); // number of states in model: DNA=4, DNA+gap=5, msat>2
       init_sequences2 (world, s);
 #else
