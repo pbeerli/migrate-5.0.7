@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 1   Migrate 6.1.78 MPI workers computed every sequence likelihood under JC69 (since
+             2025-07, data-on-demand); TN93 in the infile without b used kappa2 as b.
+             skyline=PARAM: segment values no longer bounded by the prior range (biased
+             Theta and M low); the window move skips windows with too many virtual events.
+             Warning when haplotyping runs without heating.
 October 31   Migrate 6.1.77 Haplotyping: exact individual names (ind1 matched ind10),
              works under MPI (did not phase, crashed), phase states over heterozygous
              subloci only, block-flip move, NODATA ignored by the phase move; the last
