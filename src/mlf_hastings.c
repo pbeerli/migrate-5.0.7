@@ -620,36 +620,15 @@ long mlh_count_events_above(world_fmt *world, double t0)
   return n;
 }
 
-/* skyline=PARAM: the value of a free parameter in every segment
-   (parameter times multiplier) must lie within the parameter's prior range;
-   outside, the tree density is zero, so every move (Metropolis, slice
-   sampler, multiplier move, scaler) rejects such states */
-static boolean mlh_skyline_in_range(world_fmt *world)
-{
-  long k, s, i;
-  if (world->timeelements <= 2 || world->skymodel2 == NULL)
-    return TRUE;
-  for (k = 0; k < world->numpop2; k++)
-    {
-      /* every free entry, also one that shares its parameter (symmetric, mean) */
-      i = world->bayes->map[k][1];
-      if (world->skymodel2[k] != '*' || i == INVALID)
-        continue;
-      for (s = 1; s < world->timeelements - 1; s++)
-        {
-          const double v = world->param0[k] * world->timek[s * world->numpop2 + k];
-          if (v < world->bayes->minparam[i] || v > world->bayes->maxparam[i])
-            return FALSE;
-        }
-    }
-  return TRUE;
-}
+/* skyline=PARAM: until 7.0.101 / 6.1.77 the density was zero where a
+   segment value (parameter x multiplier) left the parameter's prior range;
+   that truncated the joint prior (without data Theta and M came out below
+   their prior means). The multipliers stay limited to exp(+-SKYLINE_HISTMAX)
+   by the multiplier move. */
 
 /* probg_treetimes() for Mittag-Leffler runs within mlh_supported() */
 double mlh_probg_treetimes(world_fmt *world)
 {
-  if (!mlh_skyline_in_range(world))
-    return (double) -HUGE;
   static mlh_list L;
   static double *a = NULL;
   static long aalloc = 0;
