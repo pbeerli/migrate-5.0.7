@@ -992,12 +992,6 @@ long skyline_param_summary(world_fmt *world, skyline_row_fmt **rows, double *tri
                       else if (y < log(world->skypa[k]) || y > log(world->skypb[k]))
                         lpy = -HUGE_VAL;
                       lpgrid[a * SKY2_NY + b] = lpx + lpy;
-                      /* the segment value (parameter x multiplier) must lie in
-                         the parameter's prior range, as in the sampler */
-                      if (pi >= 0 && (x + y > log(world->bayes->maxparam[pi])
-                                      || (world->bayes->minparam[pi] > 0.0
-                                          && x + y < log(world->bayes->minparam[pi]))))
-                        lpy = -HUGE_VAL;
                       v = world->sky2sum[e * SKY2_NX * SKY2_NY + a * SKY2_NY + b];
                       if (used > 1)
                         v -= (used - 1) * (lpx + lpy);

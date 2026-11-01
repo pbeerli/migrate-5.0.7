@@ -1114,9 +1114,8 @@ jc_sky_seg_term (const jc_layout *ly, const double *st, long e, long sg, double 
 }
 
 /* log prior of the multipliers (on log tau, as bayes_update_timeparam()),
-   -HUGE_VAL outside: |log tau| <= SKYLINE_HISTMAX, the log-uniform bounds,
-   and every segment value (parameter x tau) within the parameter's prior
-   range (mlh_skyline_in_range()) */
+   -HUGE_VAL outside: |log tau| <= SKYLINE_HISTMAX and the log-uniform
+   bounds, as in the sampler */
 static double
 jc_sky_logprior (const jc_layout *ly, const double *phi)
 {
@@ -1124,13 +1123,12 @@ jc_sky_logprior (const jc_layout *ly, const double *phi)
   long j, sg;
   for (j = 0; j < ly->nfree; j++)
     {
-      const double base = phi[ly->rep[ly->sky_k[j]]];
       double prev = 0.0;
       for (sg = 1; sg < ly->nseg; sg++)
         {
           const double tau = phi[JC_TAU (ly, j, sg)];
-          const double u = log (tau), v = base * tau;
-          if (!(tau > 0.0) || fabs (u) > SKYLINE_HISTMAX || v < ly->sky_lo[j] || v > ly->sky_hi[j])
+          const double u = log (tau);
+          if (!(tau > 0.0) || fabs (u) > SKYLINE_HISTMAX)
             return -HUGE_VAL;
           if (ly->sky_type[j] == SKYPRIOR_LOGUNIFORM)
             {

@@ -1862,6 +1862,37 @@ windowed_joint_update_core (world_fmt * world)
   touched_n = window_touched_branches (window, window_n, touched,
                                         3 * window_size);
 
+  /* refuse windows whose bridges would need more uniformization events
+     than the genealogy may hold migration events (MIGRATION_LIMIT, as in
+     acceptlike()): with Mittag-Leffler waiting times a branch can be
+     thousands of time units long, and a bridge then draws millions of
+     events. The test uses branch lengths the move does not change and the
+     largest rate of Q(M), Q(M') and Q(sqrt(M M')), so a move and its
+     reverse are refused alike. */
+  {
+    MYREAL *Qt = (MYREAL *) mycalloc (d * d, sizeof (MYREAL));
+    MYREAL mu, sumT = 0.0;
+    build_Q (world, -1, 0.0, Qt);
+    mu = uniformization_rate (Qt, d);
+    build_Q (world, which, Mnew, Qt);
+    mu = MAX (mu, uniformization_rate (Qt, d));
+    build_Q (world, which, sqrt (Mold * Mnew), Qt);
+    mu = MAX (mu, uniformization_rate (Qt, d));
+    myfree (Qt);
+    for (i = 0; i < touched_n; i++)
+      {
+        node *down = showtop (crawlback (touched[i]));
+        if (down->type != 'r')
+          sumT += down->tyme - touched[i]->tyme;
+      }
+    if (mu * sumT > (MYREAL) MIGRATION_LIMIT * d)
+      {
+        myfree (window);
+        myfree (touched);
+        return 0;
+      }
+  }
+
   if (debug)
     {
       long ii, jj;
