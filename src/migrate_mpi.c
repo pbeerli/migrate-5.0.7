@@ -3822,6 +3822,11 @@ long pack_ess_buffer(MYREAL **buffer, long start, world_fmt *world)
     }
   //genealogy
   (*buffer)[z++] = world->ess_archive[i];
+  // a worker sends after every locus or replicate: start empty so the
+  // master does not add the earlier ones again
+  memset(world->auto_archive, 0, (size_t) (npp + 1) * sizeof(MYREAL));
+  memset(world->ess_archive, 0, (size_t) (npp + 1) * sizeof(MYREAL));
+  world->archive_n = 1;
   return z;
 }
 
