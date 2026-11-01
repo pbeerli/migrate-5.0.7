@@ -11,6 +11,8 @@ extern void mlh_set_assignment(long oldpop);
 extern double mlh_probg_treetimes(world_fmt *world);
 extern double mlh_alpha(world_fmt *world, long pop);
 extern long mlh_count_events(world_fmt *world);
+extern long mlh_spells(world_fmt *world, double **buf, long *alloc);
+extern double mlh_spells_logp(world_fmt *world, const double *sp, long n);
 extern long mlh_count_events_above(world_fmt *world, double t0);
 extern double mlh_log_correction(world_fmt *world, proposal_fmt *proposal,
                                  timelist_fmt *R, boolean assign);

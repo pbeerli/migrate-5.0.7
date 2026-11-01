@@ -47,8 +47,13 @@
   and M without growth or xNm: per segment statistics, the multipliers are
   extra coordinates of the joint sampler, and Z(G) integrates each free
   entry's multipliers by a recursion on the log value, jc_sky_logR()).
-  Other models (Mittag-Leffler, growth with skyline segments) keep the
-  marginal-histogram product.
+  Mittag-Leffler alpha (joint_ml.c, docs/joint_mlalpha_design.md): a
+  genealogy keeps its spells instead of sums, p(G|phi) is the per-population
+  spell density of mlh_logp_perpop(), and Z(G) integrates each population's
+  Theta and immigration rates (reduced to their sum) at Gauss-Legendre
+  nodes of its alpha; up to three populations with '*'/'0' matrices and
+  uniform M priors. Other models (growth with skyline segments, ML with
+  other forces) keep the marginal-histogram product.
 
   Storage follows the posterior samples (bayes-allfile): by default the
   statistics stay in memory; in the low-memory file mode (has_bayesmdimfile)
@@ -72,6 +77,8 @@
 #include "sighandler.h"
 #include "joint_combine.h"
 #include "speciate.h"
+#include "joint_ml.h"
+#include "mlf_hastings.h"
 #ifdef MPI
 #include "migrate_mpi.h"
 extern const MPI_Datatype mpisizeof;
@@ -81,6 +88,7 @@ extern const MPI_Datatype mpisizeof;
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define JC_MAXSAMPLES 4000   /* per locus used in the combination for two populations
                                  (at 200 loci, 1000 gave 95% coverage of 0.4 for an M,
@@ -93,6 +101,8 @@ extern const MPI_Datatype mpisizeof;
 #define JC_DOUT (-1e30)      /* divergence term outside a row's window */
 #define JC_NS 17             /* divergence-time std grid (log-spaced cells) */
 #define JC_BURNIN 2000       /* sweeps */
+#define JC_BURNWARM 500      /* sweeps of a chain started from the main run's last state
+                                (error blocks, stepping stones) */
 #define JC_SWEEPS 50000      /* main run: at most this many sweeps ... */
 #define JC_PROPBUDGET 450000 /* ... within this many proposals (50000 sweeps of 9 parameters) */
 #define JC_MINSWEEPS 5000    /* ... and at least this many sweeps */
@@ -176,6 +186,12 @@ typedef struct
   int *sky_type;            /* per free entry: SKYPRIOR_RANDOMWALK or SKYPRIOR_LOGUNIFORM */
   double *sky_a, *sky_b;    /* per free entry: sigma, or min max of tau */
   double *sky_lo, *sky_hi;  /* per free entry: the prior range of its value (parameter x tau) */
+  /* Mittag-Leffler alpha: a genealogy's spells travel beside its row */
+  boolean ml;
+  long off_nsp;             /* per population: its number of spells */
+  long off_inh;             /* the inheritance scalar of the locus */
+  long *apar;               /* per population: its alpha parameter, or -1 (fixed) */
+  double *afix;             /* per population: its fixed alpha (1 without ML) */
 } jc_layout;
 
 /* phi index of tau_s (s >= 1) of free entry j */
@@ -213,6 +229,8 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->sky_b);
   myfree (ly->sky_lo);
   myfree (ly->sky_hi);
+  myfree (ly->apar);
+  myfree (ly->afix);
 }
 
 static void
@@ -397,6 +415,34 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
     }
   ly->ntau = ly->nfree * (ly->nseg - 1);
   ly->nphi = ly->np + ly->ntau;
+  /* Mittag-Leffler alpha: spell counts and the inheritance scalar */
+  ly->apar = (long *) mycalloc ((size_t) numpop, sizeof (long));
+  ly->afix = (double *) mycalloc ((size_t) numpop, sizeof (double));
+  for (pop = 0; pop < numpop; pop++)
+    {
+      ly->apar[pop] = -1;
+      ly->afix[pop] = 1.0;
+    }
+  if (world->has_mlalpha)
+    {
+      ly->ml = TRUE;
+      for (pop = 0; pop < numpop && pop < world->options->mlalphapops_numalloc; pop++)
+        {
+          const long gw = world->options->mlalphapops[pop];
+          if (gw <= 0)
+            continue;
+          ly->afix[pop] = world->mlalpha[gw - 1];
+          if (world->tri_mlalpha != FIXED)
+            {
+              const long r = world->bayes->map[npg + pop][1];
+              ly->apar[pop] = (r >= npg && r < ly->np) ? r : -1;
+            }
+        }
+      ly->off_nsp = ly->nrow;
+      ly->nrow += numpop;
+      ly->off_inh = ly->nrow;
+      ly->nrow += 1;
+    }
   ly->off_mu = ly->nrow;
   ly->nrow += 1;
   ly->off_rep = ly->nrow;   /* the replicate, last: the Monte Carlo error blocks */
@@ -413,6 +459,8 @@ jc_seg (const jc_layout *ly, double t)
   return s;
 }
 
+static double jc_ml_term (const jc_layout *ly, const double *st, const double *sp, long pop, const double *phi);
+
 /* ------------------------------------------------------------- support */
 
 static long jc_nactive (world_fmt *world);
@@ -424,13 +472,62 @@ jc_maxactive (void)
   return getenv ("MIGRATE_JC_MAXACTIVE") ? atol (getenv ("MIGRATE_JC_MAXACTIVE")) : JC_MAXACTIVE;
 }
 
+/* Mittag-Leffler alpha (joint_ml.c): up to three populations, each with its
+   own Theta and free ('*') or absent ('0') immigration routes with M
+   parameters, uniform M priors U(0, max) with one max per receiving
+   population; no growth, skyline segments or divergence */
+static boolean
+jc_ml_supported (world_fmt *world)
+{
+  const long numpop = world->numpop;
+  long i, e, from, to;
+  if (numpop > 3 || world->has_growth || world->timeelements > 2 || world->has_speciation
+      || world->bayes->mu)
+    return FALSE;
+  for (i = 0; i < world->numpop2; i++)
+    {
+      const char c = world->options->custm2[i];
+      if (i < numpop ? c != '*' : strchr ("*0", c) == NULL)
+        return FALSE;
+      if (c == '*' && world->bayes->map[i][1] != i)
+        return FALSE;
+      if (i >= numpop && c == '*')
+        {
+          if (!migration_is_M (world, i) || log_prior_1 == NULL
+              || log_prior_1[i] != (logprior1ptr) log_prior_uni1 || world->bayes->minparam[i] != 0.0)
+            return FALSE;
+          m2mm (i, numpop, &from, &to);
+          for (e = mstart (to, numpop); e < mend (to, numpop); e++)
+            if (world->options->custm2[e] == '*' && world->bayes->maxparam[e] != world->bayes->maxparam[i])
+              return FALSE;
+        }
+    }
+  if (world->tri_mlalpha != FIXED)
+    {
+      const long npg = world->numparamcumvec[GROWTHPRIOR];
+      for (i = 0; i < numpop && i < world->options->mlalphapops_numalloc; i++)
+        if (world->options->mlalphapops[i] > 0)
+          {
+            const long r = world->bayes->map[npg + i][1];
+            if (r < npg || r >= world->numparam || world->bayes->minparam[r] <= 0.0
+                || world->bayes->maxparam[r] > 1.0)
+              return FALSE;
+          }
+    }
+  if (jc_nactive (world) > jc_maxactive ())
+    return FALSE;
+  return TRUE;
+}
+
 /// TRUE when the model is one the joint combination handles
 boolean
 jc_supported (world_fmt *world)
 {
   long i;
-  if (!world->options->bayes_infer || world->has_mlalpha)
+  if (!world->options->bayes_infer)
     return FALSE;
+  if (world->has_mlalpha)
+    return jc_ml_supported (world);
   /* skyline=PARAM: free ('*') Theta and M multipliers without growth and
      without xNm parameters; divergence as the per-population density of
      mlf_hastings.c covers it (normal split times, untied splits) */
@@ -542,6 +639,15 @@ jc_filename (world_fmt *world, long locus, long rep, char *name)
   snprintf (name, LINESIZE, "%s.joint.%ld.%ld", jc_prefix (world), locus, rep);
 }
 
+/* wall clock (debug timing) */
+static double
+jc_now (void)
+{
+  struct timespec ts;
+  clock_gettime (CLOCK_MONOTONIC, &ts);
+  return (double) ts.tv_sec + 1e-9 * (double) ts.tv_nsec;
+}
+
 /* ------------------------------------------------------------- storage */
 
 /* free parameters of the joint combination (with the skyline multipliers);
@@ -598,6 +704,13 @@ typedef struct
   long stride;   /* keep every stride-th sample */
   long cap;
   double *rows;  /* n x nrow */
+  long *nspr;    /* per row: its number of spells (Mittag-Leffler) */
+  double *sp;    /* the spells of all rows, two doubles each */
+  long nsp, capsp;
+  double *zc;    /* log Z per stored row (NAN: not yet computed), kept across
+                    the chains of a combination (main, error blocks, stepping
+                    stones): it depends on neither phi nor the block */
+  long nzc;
 } jc_buffer;
 
 typedef struct
@@ -651,15 +764,27 @@ jc_get_store (world_fmt *world, long nrow)
 }
 
 static void
-jc_append (jc_store *js, long locus, const double *row)
+jc_append (jc_store *js, long locus, const double *row, const double *sp, long nsp)
 {
   jc_buffer *b = &js->b[locus];
   if (b->n >= b->cap)
     {
       b->cap = b->cap ? 2 * b->cap : 64;
       b->rows = (double *) myrealloc (b->rows, sizeof (double) * (size_t) (b->cap * js->nrow));
+      b->nspr = (long *) myrealloc (b->nspr, sizeof (long) * (size_t) b->cap);
     }
   memcpy (b->rows + b->n * js->nrow, row, sizeof (double) * (size_t) js->nrow);
+  b->nspr[b->n] = nsp;
+  if (nsp > 0)
+    {
+      if (b->nsp + nsp > b->capsp)
+        {
+          b->capsp = 2 * (b->nsp + nsp) + 1024;
+          b->sp = (double *) myrealloc (b->sp, sizeof (double) * (size_t) (2 * b->capsp));
+        }
+      memcpy (b->sp + 2 * b->nsp, sp, sizeof (double) * (size_t) (2 * nsp));
+      b->nsp += nsp;
+    }
   b->n++;
 }
 
@@ -792,6 +917,9 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
 void
 jc_record_sample (world_fmt *world)
 {
+  static double *spells = NULL;
+  static long spalloc = 0;
+  long nsp = 0;
   if (!jc_supported (world))
     return;
   jc_layout ly;
@@ -870,6 +998,64 @@ jc_record_sample (world_fmt *world)
   st[ly.off_mu] = world->options->mu_rates[world->locus];
   st[ly.off_rep] = (double) world->rep;
   const double inh = world->options->inheritance_scalars[world->locus];
+  if (ly.ml)
+    {   /* the spells, sorted by population */
+      nsp = mlh_spells (world, &spells, &spalloc);
+      for (pop = 0; pop < numpop; pop++)
+        st[ly.off_nsp + pop] = 0.0;
+      for (i = 0; i < nsp; i++)
+        st[ly.off_nsp + JML_POP (spells[2 * i], numpop)] += 1.0;
+      st[ly.off_inh] = inh;
+      if (getenv ("MIGRATE_JC_MLCHECK") != NULL)
+        {   /* the spells reproduce the sampler's p(G|params) */
+          static double worst = 0.0;
+          const double a = mlh_spells_logp (world, spells, nsp), b = mlh_probg_treetimes (world);
+          if (fabs (a - b) > worst)
+            {
+              worst = fabs (a - b);
+              fprintf (stderr, "JC_MLCHECK spells vs probg: worst |diff| %g (logp %g, %ld spells)\n", worst, b, nsp);
+            }
+          {   /* the joint's own term (its parameter mapping and function
+                 table) at the sampler's parameters */
+            static double worst2 = 0.0;
+            double *ps = (double *) mycalloc ((size_t) (2 * (nsp > 0 ? nsp : 1)), sizeof (double));
+            double *phi = (double *) mycalloc ((size_t) ly.nphi, sizeof (double));
+            double amin = 1.0, amax = 0.0, v = 0.0;
+            long q, off = 0;
+            memcpy (phi, world->param0, sizeof (double) * (size_t) ly.np);
+            for (pop = 0; pop < numpop; pop++)
+              if (ly.apar[pop] >= 0)
+                {
+                  phi[ly.apar[pop]] = mlh_alpha (world, pop);
+                  if (world->bayes->minparam[ly.apar[pop]] < amin) amin = world->bayes->minparam[ly.apar[pop]];
+                  if (world->bayes->maxparam[ly.apar[pop]] > amax) amax = world->bayes->maxparam[ly.apar[pop]];
+                }
+              else if (ly.afix[pop] < 1.0)
+                {
+                  if (ly.afix[pop] < amin) amin = ly.afix[pop];
+                  if (ly.afix[pop] > amax) amax = ly.afix[pop];
+                }
+            if (amin < 1.0)
+              jml_table_init (amin, amax);
+            for (pop = 0; pop < numpop; pop++)
+              {   /* prepare each population's spells (sorted, log dt) */
+                const long n = (long) st[ly.off_nsp + pop];
+                memcpy (ps + 2 * off, spells + 2 * off, sizeof (double) * (size_t) (2 * n));
+                jml_spells_prepare (ps + 2 * off, n, numpop);
+                off += n;
+              }
+            for (q = 0; q < numpop; q++)
+              v += jc_ml_term (&ly, st, ps, q, phi);
+            if (fabs (v - b) > worst2)
+              {
+                worst2 = fabs (v - b);
+                fprintf (stderr, "JC_MLCHECK joint term vs probg: worst |diff| %g (logp %g)\n", worst2, b);
+              }
+            myfree (ps);
+            myfree (phi);
+          }
+        }
+    }
   if (inh != 1.0)
     for (pop = 0; pop < numpop; pop++)
       {
@@ -912,6 +1098,8 @@ jc_record_sample (world_fmt *world)
         {
           for (i = 0; i < ly.nrow; i++)
             fprintf (jc_file, i ? " %.17g" : "%.17g", st[i]);
+          for (i = 0; i < 2 * nsp; i++)   /* Mittag-Leffler: the spells */
+            fprintf (jc_file, " %.17g", spells[i]);
           fprintf (jc_file, "\n");
           fflush (jc_file);
         }
@@ -924,10 +1112,24 @@ jc_record_sample (world_fmt *world)
         {
           b->seen = 0;
           jc_record_divergence (world, &ly, st);   /* only for kept rows */
-          jc_append (js, world->locus, st);
+          jc_append (js, world->locus, st, spells, nsp);
           if (b->n >= 2 * jc_maxsamples (world, js->nrow))
             {
               /* thin: keep every other row, record half as often */
+              long src = 0, dst = 0;
+              for (i = 0; i < b->n; i++)
+                {
+                  const long k = b->nspr[i];
+                  if (i % 2 == 0)
+                    {
+                      if (k > 0 && dst != src)
+                        memmove (b->sp + 2 * dst, b->sp + 2 * src, sizeof (double) * (size_t) (2 * k));
+                      b->nspr[i / 2] = k;
+                      dst += k;
+                    }
+                  src += k;
+                }
+              b->nsp = dst;
               for (i = 0; i < b->n / 2; i++)
                 memmove (b->rows + i * js->nrow, b->rows + 2 * i * js->nrow,
                          sizeof (double) * (size_t) js->nrow);
@@ -950,11 +1152,20 @@ jc_clear_locus (world_fmt *world, long locus)
     return;
   myfree (js->b[locus].rows);
   js->b[locus].rows = NULL;
+  myfree (js->b[locus].nspr);
+  js->b[locus].nspr = NULL;
+  myfree (js->b[locus].sp);
+  js->b[locus].sp = NULL;
+  js->b[locus].nsp = js->b[locus].capsp = 0;
+  myfree (js->b[locus].zc);
+  js->b[locus].zc = NULL;
+  js->b[locus].nzc = 0;
   js->b[locus].n = js->b[locus].cap = js->b[locus].seen = 0;
   js->b[locus].stride = 1;
 }
 
-/// MPI: pack this rank's statistics for one locus: {nrow, n, rows...}
+/// MPI: pack this rank's statistics for one locus: {nrow, n, rows...,
+/// total spells, spells per row..., spells...}
 long
 jc_pack_buffer (MYREAL **buffer, world_fmt *world, long locus, long maxrep, long numpop)
 {
@@ -963,12 +1174,19 @@ jc_pack_buffer (MYREAL **buffer, world_fmt *world, long locus, long maxrep, long
   jc_store *js = (jc_store *) world->jointstats;
   const long n = (js != NULL) ? js->b[locus].n : 0;
   const long nr = (js != NULL) ? js->nrow : 0;
-  const long size = 2 + n * nr;
+  const long tot = (js != NULL) ? js->b[locus].nsp : 0;
+  const long size = 2 + n * nr + 1 + n + 2 * tot;
+  long i;
   *buffer = (MYREAL *) myrealloc (*buffer, sizeof (MYREAL) * (size_t) (size + 1));
   (*buffer)[0] = (MYREAL) nr;
   (*buffer)[1] = (MYREAL) n;
   if (n > 0)
     memcpy (*buffer + 2, js->b[locus].rows, sizeof (MYREAL) * (size_t) (n * nr));
+  (*buffer)[2 + n * nr] = (MYREAL) tot;
+  for (i = 0; i < n; i++)
+    (*buffer)[3 + n * nr + i] = (MYREAL) js->b[locus].nspr[i];
+  if (tot > 0)
+    memcpy (*buffer + 3 + n * nr + n, js->b[locus].sp, sizeof (MYREAL) * (size_t) (2 * tot));
   return size;
 }
 
@@ -984,8 +1202,15 @@ jc_unpack_buffer (MYREAL *buffer, world_fmt *world, long locus, long maxrep, lon
   if (nr <= 0 || n <= 0 || locus < 0 || locus >= world->loci)
     return;
   jc_store *js = jc_get_store (world, nr);
+  const MYREAL *cnt = buffer + 3 + n * nr;
+  const MYREAL *sp = cnt + n;
+  long off = 0;
   for (i = 0; i < n; i++)
-    jc_append (js, locus, buffer + 2 + i * nr);
+    {
+      const long k = (long) cnt[i];
+      jc_append (js, locus, buffer + 2 + i * nr, sp + 2 * off, k);
+      off += k;
+    }
 }
 
 /* ------------------------------------------------------------- combine */
@@ -1000,6 +1225,11 @@ typedef struct
   double *logz;    /* n: log Z per sample */
   double *unit;    /* n x nunit: the terms of jc_full_term() per sample */
   long locus;      /* the locus number (seeds its bootstrap) */
+  double *sp;      /* Mittag-Leffler: the spells of the kept rows */
+  long *spo;       /* n: offset of each row's spells in sp */
+  long *src;       /* n: index of each row among all stored rows (log Z cache) */
+  long *ax, na;    /* the active rows (skipping negligible genealogies) */
+  double sin, m0;  /* the inactive rows: sum exp(cur - m0) at the last refresh */
 } jc_locus;
 
 static double
@@ -1719,9 +1949,38 @@ jc_row_in_part (const double *row, long nrow, long idx, long a, long len)
   return idx >= a && idx < a + len;
 }
 
+/* the spells of row st (Mittag-Leffler) */
 static long
-jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
+jc_row_nsp (const jc_layout *ly, const double *st)
 {
+  long pop, n = 0;
+  if (!ly->ml)
+    return 0;
+  for (pop = 0; pop < ly->numpop; pop++)
+    n += (long) st[ly->off_nsp + pop];
+  return n;
+}
+
+/* appends n spells to L (capacity in spells: *cap) */
+static void
+jc_locus_add_spells (jc_locus *L, long *nsp, long *cap, const double *sp, long n)
+{
+  if (*nsp + n > *cap)
+    {
+      *cap = 2 * (*nsp + n) + 1024;
+      L->sp = (double *) myrealloc (L->sp, sizeof (double) * (size_t) (2 * *cap));
+    }
+  if (n > 0)
+    memcpy (L->sp + 2 * *nsp, sp, sizeof (double) * (size_t) (2 * n));
+  *nsp += n;
+}
+
+static long
+jc_read_locus_files (world_fmt *world, const jc_layout *ly, long locus, jc_locus *L)
+{
+  const long nrow = ly->nrow;
+  long spn = 0, spcap = 0, spbuf = 0;
+  double *spl = NULL;
   const long reps = (world->options->replicate && world->options->replicatenum > 0)
     ? world->options->replicatenum : 1;
   long n = 0, r, i, row = 0, kept = 0, ra = 0, rlen = 0, mi = 0;
@@ -1736,6 +1995,9 @@ jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
           jc_part_range (n, &ra, &rlen);
           keep = n < jc_maxsamples (world, nrow) ? n : jc_maxsamples (world, nrow);   /* rows of the full combination */
           L->st = (double *) mycalloc ((size_t) (keep * nrow), sizeof (double));
+          L->src = (long *) mycalloc ((size_t) (keep + 1), sizeof (long));
+          if (ly->ml)
+            L->spo = (long *) mycalloc ((size_t) (keep + 1), sizeof (long));
         }
       row = 0;
       for (r = 0; r < reps; r++)
@@ -1743,21 +2005,43 @@ jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
           char name[LINESIZE];
           FILE *f;
           jc_filename (world, locus, r, name);
+          if (getenv ("MIGRATE_JC_READPREFIX") != NULL)   /* experiments: rows from elsewhere */
+            snprintf (name, LINESIZE, "%s.joint.%ld.%ld", getenv ("MIGRATE_JC_READPREFIX"), locus, r);
           if ((f = fopen (name, "r")) == NULL)
             continue;
           for (;;)
             {
+              long k;
               for (i = 0; i < nrow; i++)
                 if (fscanf (f, "%lf", &buf[i]) != 1)
                   break;
               if (i < nrow)
+                break;
+              k = jc_row_nsp (ly, buf);   /* Mittag-Leffler: the spells follow */
+              if (k > spbuf)
+                {
+                  spbuf = 2 * k + 256;
+                  spl = (double *) myrealloc (spl, sizeof (double) * (size_t) (2 * spbuf));
+                }
+              for (i = 0; i < 2 * k; i++)
+                if (fscanf (f, "%lf", &spl[i]) != 1)
+                  break;
+              if (i < 2 * k)
                 break;
               if (pass == 0)
                 n++;
               else if (mi < keep && row == (mi * n) / keep)
                 {   /* a row of the full combination; a block keeps its own */
                   if (jc_row_in_part (buf, nrow, row, ra, rlen))
-                    memcpy (L->st + (kept++) * nrow, buf, sizeof (double) * (size_t) nrow);
+                    {
+                      if (ly->ml)
+                        {
+                          L->spo[kept] = spn;
+                          jc_locus_add_spells (L, &spn, &spcap, spl, k);
+                        }
+                      L->src[kept] = row;
+                      memcpy (L->st + (kept++) * nrow, buf, sizeof (double) * (size_t) nrow);
+                    }
                   mi++;
                 }
               row++;
@@ -1766,6 +2050,7 @@ jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
         }
     }
   myfree (buf);
+  myfree (spl);
   if (kept == 0 && L->st != NULL)
     {
       myfree (L->st);
@@ -1774,16 +2059,21 @@ jc_read_locus_files (world_fmt *world, long locus, long nrow, jc_locus *L)
   L->total = n;
   L->n = kept;
   L->mu = world->options->mu_rates[locus];
+  if (ly->ml)
+    for (i = 0; i < kept; i++)
+      jml_spells_prepare (L->sp + 2 * L->spo[i], jc_row_nsp (ly, L->st + i * nrow), ly->numpop);
   return kept;
 }
 
 static long
-jc_read_locus (world_fmt *world, long locus, long nrow, jc_locus *L)
+jc_read_locus (world_fmt *world, const jc_layout *ly, long locus, jc_locus *L)
 {
   jc_store *js = (jc_store *) world->jointstats;
-  long i;
+  const long nrow = ly->nrow;
+  long i, spn = 0, spcap = 0;
+  long *cum = NULL;
   if (jc_file_mode (world))
-    return jc_read_locus_files (world, locus, nrow, L);
+    return jc_read_locus_files (world, ly, locus, L);
   if (js == NULL || js->nrow != nrow || js->b[locus].n == 0)
     return 0;
   const long n = js->b[locus].n;
@@ -1793,31 +2083,197 @@ jc_read_locus (world_fmt *world, long locus, long nrow, jc_locus *L)
   long ra, rlen, keep = 0;
   jc_part_range (n, &ra, &rlen);
   L->st = (double *) mycalloc ((size_t) (kfull * nrow), sizeof (double));
+  L->src = (long *) mycalloc ((size_t) (kfull + 1), sizeof (long));
+  if (ly->ml)
+    {   /* offsets of the buffer rows' spells */
+      cum = (long *) mycalloc ((size_t) (n + 1), sizeof (long));
+      for (i = 0; i < n; i++)
+        cum[i + 1] = cum[i] + js->b[locus].nspr[i];
+      L->spo = (long *) mycalloc ((size_t) (kfull + 1), sizeof (long));
+    }
   for (i = 0; i < kfull; i++)
     {
       const long row = (i * n) / kfull;
       if (jc_row_in_part (js->b[locus].rows + row * nrow, nrow, row, ra, rlen))
-        memcpy (L->st + (keep++) * nrow, js->b[locus].rows + row * nrow, sizeof (double) * (size_t) nrow);
+        {
+          if (ly->ml)
+            {
+              L->spo[keep] = spn;
+              jc_locus_add_spells (L, &spn, &spcap, js->b[locus].sp + 2 * cum[row], js->b[locus].nspr[row]);
+            }
+          L->src[keep] = row;
+          memcpy (L->st + (keep++) * nrow, js->b[locus].rows + row * nrow, sizeof (double) * (size_t) nrow);
+        }
     }
+  myfree (cum);
   if (keep < 1)
     {
       myfree (L->st);
       L->st = NULL;
+      myfree (L->spo);
+      L->spo = NULL;
+      myfree (L->sp);
+      L->sp = NULL;
       return 0;
     }
   L->n = keep;
   L->total = n;
   L->mu = world->options->mu_rates[locus];
+  if (ly->ml)
+    for (i = 0; i < keep; i++)
+      jml_spells_prepare (L->sp + 2 * L->spo[i], jc_row_nsp (ly, L->st + i * nrow), ly->numpop);
   return keep;
+}
+
+/* Mittag-Leffler: the table at one alpha, cached by value (a proposal
+   alternates between the current and the proposed alpha) */
+#define JC_MLCACHE 16
+static const jml_alpha *
+jc_ml_table (double alpha)
+{
+  static jml_alpha cache[JC_MLCACHE];
+  static boolean valid[JC_MLCACHE];
+  static long next = 0;
+  long i;
+  for (i = 0; i < JC_MLCACHE; i++)
+    if (valid[i] && cache[i].alpha == alpha)
+      return &cache[i];
+  i = next;
+  next = (next + 1) % JC_MLCACHE;
+  jml_alpha_set (&cache[i], alpha);
+  valid[i] = TRUE;
+  return &cache[i];
+}
+
+/* the spells of a kept row */
+#define JC_SP(Ll, s) ((Ll)->spo != NULL ? (Ll)->sp + 2 * (Ll)->spo[s] : NULL)
+
+/* Mittag-Leffler: log density of population pop's spells at phi */
+static double
+jc_ml_term (const jc_layout *ly, const double *st, const double *sp, long pop, const double *phi)
+{
+  double M[3] = {0.0, 0.0, 0.0};
+  long q, e, from, to, off = 0;
+  for (q = 0; q < pop; q++)
+    off += (long) st[ly->off_nsp + q];
+  for (e = mstart (pop, ly->numpop); e < mend (pop, ly->numpop); e++)
+    if (ly->rep[e] >= 0)
+      {
+        m2mm (e, ly->numpop, &from, &to);
+        M[from] = jc_value (ly, phi, e);
+      }
+  const double alpha = ly->apar[pop] >= 0 ? phi[ly->apar[pop]] : ly->afix[pop];
+  return jml_pop_logp (sp + 2 * off, (long) st[ly->off_nsp + pop], ly->numpop, st[ly->off_mu],
+                       st[ly->off_inh], jc_value (ly, phi, pop), M, jc_ml_table (alpha));
+}
+
+/* Mittag-Leffler: log Z(G) of a row. Populations with their own alpha
+   parameter, or sharing one, are integrated over it at Gauss-Legendre
+   nodes (the product of their inner integrals at each node); populations
+   with a fixed alpha need the inner integral only. I: per population the
+   inner integral's settings and warm start (kept from row to row). */
+typedef struct
+{
+  world_fmt *world;
+  long p;
+} jc_mlprior;
+
+static double
+jc_ml_logprior (void *ctx, double x)
+{
+  const jc_mlprior *c = (const jc_mlprior *) ctx;
+  return scaling_prior (c->world, c->p, x);
+}
+
+static double
+jc_ml_lognorm (world_fmt *world, const jc_layout *ly, const double *st, const double *sp, jml_inner *I)
+{
+  static jml_alpha *nodetab = NULL;   /* JML_NALPHA tables per alpha parameter */
+  static double *nodex = NULL, *nodew = NULL;
+  static long *nodep = NULL, nnodep = 0;
+  const long numpop = ly->numpop;
+  long pop, q, j, off[4];
+  boolean done[3] = {FALSE, FALSE, FALSE};
+  double lz = 0.0;
+  off[0] = 0;
+  for (pop = 0; pop < numpop; pop++)
+    off[pop + 1] = off[pop] + (long) st[ly->off_nsp + pop];
+  for (pop = 0; pop < numpop; pop++)
+    {
+      if (done[pop])
+        continue;
+      const long p = ly->apar[pop];
+      if (p < 0)
+        {
+          lz += jml_inner_log (sp + 2 * off[pop], off[pop + 1] - off[pop], numpop, pop, st[ly->off_mu],
+                               st[ly->off_inh], jc_ml_table (ly->afix[pop]), &I[pop]);
+          done[pop] = TRUE;
+          continue;
+        }
+      /* the node tables of parameter p (built once) */
+      long slot = -1;
+      for (q = 0; q < nnodep; q++)
+        if (nodep[q] == p)
+          slot = q;
+      if (slot < 0)
+        {
+          slot = nnodep++;
+          nodep = (long *) myrealloc (nodep, sizeof (long) * (size_t) nnodep);
+          nodex = (double *) myrealloc (nodex, sizeof (double) * (size_t) (nnodep * JML_NALPHA));
+          nodew = (double *) myrealloc (nodew, sizeof (double) * (size_t) (nnodep * JML_NALPHA));
+          nodetab = (jml_alpha *) myrealloc (nodetab, sizeof (jml_alpha) * (size_t) (nnodep * JML_NALPHA));
+          nodep[slot] = p;
+          jml_alpha_nodes (world->bayes->minparam[p], world->bayes->maxparam[p],
+                           nodex + slot * JML_NALPHA, nodew + slot * JML_NALPHA);
+          for (j = 0; j < JML_NALPHA; j++)
+            {
+              memset (&nodetab[slot * JML_NALPHA + j], 0, sizeof (jml_alpha));
+              jml_alpha_set (&nodetab[slot * JML_NALPHA + j], nodex[slot * JML_NALPHA + j]);
+            }
+        }
+      double vals[JML_NALPHA];
+      long order[JML_NALPHA];
+      for (j = 0; j < JML_NALPHA; j++)
+        order[j] = j;
+      for (j = 1; j < JML_NALPHA; j++)   /* from alpha near 1 down: warm starts */
+        for (q = j; q > 0 && nodex[slot * JML_NALPHA + order[q]] > nodex[slot * JML_NALPHA + order[q - 1]]; q--)
+          {
+            const long tmp = order[q];
+            order[q] = order[q - 1];
+            order[q - 1] = tmp;
+          }
+      for (j = 0; j < JML_NALPHA; j++)
+        {
+          const long k = slot * JML_NALPHA + order[j];
+          double v = log (nodew[k]) + scaling_prior (world, p, nodex[k]);
+          for (q = pop; q < numpop; q++)
+            if (ly->apar[q] == p)
+              v += jml_inner_log (sp + 2 * off[q], off[q + 1] - off[q], numpop, q, st[ly->off_mu],
+                                  st[ly->off_inh], &nodetab[k], &I[q]);
+          vals[j] = v;
+        }
+      for (q = pop; q < numpop; q++)
+        if (ly->apar[q] == p)
+          done[q] = TRUE;
+      lz += jc_logsumexp (vals, JML_NALPHA);
+    }
+  return lz;
 }
 
 /* log p(G|phi) up to terms that do not depend on any estimated parameter */
 static double
-jc_full_term (const jc_layout *ly, const boolean *active, const double *st, const double *phi, double mu)
+jc_full_term (const jc_layout *ly, const boolean *active, const double *st, const double *sp,
+              const double *phi, double mu)
 {
   double v = 0.0;
   long pop, e;
   long sg;
+  if (ly->ml)
+    {
+      for (pop = 0; pop < ly->numpop; pop++)
+        v += jc_ml_term (ly, st, sp, pop, phi);
+      return v;
+    }
   for (pop = 0; pop < ly->numpop; pop++)
     if (ly->rep[pop] >= 0 && active[ly->rep[pop]])
       {
@@ -1851,7 +2307,7 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
    and sums all units again in the same order, so the sum is the same
    number jc_full_term() gives (no old + new - old updates: a divergence
    term at JC_DOUT would swallow the others) */
-enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT };
+enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT, JC_U_ML };
 typedef struct
 {
   long n;
@@ -1889,6 +2345,22 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
 {
   long pop, e, sg, u;
   memset (U, 0, sizeof (*U));
+  if (ly->ml)   /* Mittag-Leffler: one term per population */
+    {
+      for (pop = 0; pop < ly->numpop; pop++)
+        jc_units_add (U, JC_U_ML, pop, 0);
+      U->ndep = (long *) mycalloc ((size_t) ly->nphi, sizeof (long));
+      U->dep = (long **) mycalloc ((size_t) ly->nphi, sizeof (long *));
+      for (u = 0; u < U->n; u++)
+        {
+          pop = U->idx[u];
+          jc_units_dep (U, ly->nphi, ly->rep[pop], u);
+          for (e = mstart (pop, ly->numpop); e < mend (pop, ly->numpop); e++)
+            jc_units_dep (U, ly->nphi, ly->rep[e], u);
+          jc_units_dep (U, ly->nphi, ly->apar[pop], u);
+        }
+      return;
+    }
   for (pop = 0; pop < ly->numpop; pop++)
     if (ly->rep[pop] >= 0 && active[ly->rep[pop]])
       {
@@ -1960,11 +2432,14 @@ jc_units_free (jc_units *U, long nphi)
 
 /* one unit: the same expression as in jc_full_term() */
 static double
-jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, const double *phi, double mu)
+jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, const double *sp,
+              const double *phi, double mu)
 {
   const long i = U->idx[u], sg = U->sg[u];
   switch (U->kind[u])
     {
+    case JC_U_ML:
+      return jc_ml_term (ly, st, sp, i, phi);
     case JC_U_POP:
       {
         const long s = ly->pop_slot[i];
@@ -1996,7 +2471,12 @@ typedef struct
   double *lterm, *newlterm, *newcur;
   jc_units U;
   double *newunit;   /* nl x maxn x (units of the pending parameter) */
-  long pending;      /* the parameter of the pending proposal */
+  long pending;      /* the parameter of the pending proposal (-2: a block proposal) */
+  boolean skip;      /* skip negligible genealogies between refreshes (allowed) */
+  boolean skipon;    /* ... now: only in the sampling phase of a chain at beta = 1 */
+  long rint;         /* proposals between refreshes (adapted) */
+  long nprop;        /* proposals since the last refresh */
+  double *newall;    /* block proposal: nl x maxn x nunit, every unit */
   long naccept;      /* accepted steps since the sums were last recomputed */
   long incr;         /* more terms than this: sums updated by differences */
   long tmin, tmax;
@@ -2010,12 +2490,17 @@ jc_local_free (jc_local *J)
   for (l = 0; l < J->nl; l++)
     {
       myfree (J->L[l].st);
+      myfree (J->L[l].sp);
+      myfree (J->L[l].spo);
+      myfree (J->L[l].src);
+      myfree (J->L[l].ax);
       myfree (J->L[l].cur);
       myfree (J->L[l].logz);
       myfree (J->L[l].unit);
     }
   myfree (J->L);
   myfree (J->newunit);
+  myfree (J->newall);
   jc_units_free (&J->U, J->ly.nphi);
   myfree (J->lterm);
   myfree (J->newlterm);
@@ -2038,6 +2523,9 @@ jc_active (world_fmt *world, const jc_layout *ly)
       active[ly->rep[p]] = world->bayes->maxparam[ly->rep[p]] > world->bayes->minparam[ly->rep[p]];
   for (s = 0; s < ly->nslot; s++)
     active[ly->slot_param[s]] = world->bayes->maxparam[ly->slot_param[s]] > world->bayes->minparam[ly->slot_param[s]];
+  for (s = 0; s < ly->numpop && ly->ml; s++)   /* Mittag-Leffler alpha */
+    if (ly->apar[s] >= 0)
+      active[ly->apar[s]] = world->bayes->maxparam[ly->apar[s]] > world->bayes->minparam[ly->apar[s]];
   for (s = 0; s < ly->nsplit; s++)
     {
       active[ly->split_pmu[s]] = world->bayes->maxparam[ly->split_pmu[s]] > world->bayes->minparam[ly->split_pmu[s]];
@@ -2058,6 +2546,68 @@ jc_phi_size (world_fmt *world)
   return n;
 }
 
+/* Skipping negligible genealogies (Mittag-Leffler joint, 2026-11-01): a
+   proposal evaluates only the rows whose log weight was within JC_SKIPT of
+   the locus' largest at the last refresh; the others enter with their stale
+   values as one sum. Every JC_SKIPR proposals all rows are recomputed at
+   the current state (the refresh). The skipped weights are below e^-40 of
+   the largest; MIGRATE_JC_DEBUG reports the largest change of a locus term
+   that a refresh finds. Experiments: MIGRATE_JC_SKIP=0/1. */
+#define JC_SKIPT 40.0
+#define JC_SKIPR 20          /* proposals between refreshes at first; adapted between */
+#define JC_SKIPRMIN 2        /* ... JC_SKIPRMIN and JC_SKIPRMAX: halved when a refresh */
+#define JC_SKIPRMAX 40       /* changes a locus term by more than 1e-3, longer after */
+                             /* changes below 1e-5 */
+
+static boolean
+jc_skip_mode (const jc_layout *ly)
+{
+  const char *e = getenv ("MIGRATE_JC_SKIP");
+  (void) ly;
+  /* off: with the ML M posteriors' heavy tails the chain sometimes moved far
+     within a few proposals, and refreshes found locus terms changed by up to
+     2.3 log units (2026-11-01); only as an experiment */
+  return e != NULL && atol (e) != 0;
+}
+
+/* log of sum exp(v[ax]) over the active rows plus the inactive sum */
+static double
+jc_lterm_active (const jc_locus *Ll, const double *v)
+{
+  double mx = Ll->sin > 0.0 ? Ll->m0 : -HUGE_VAL, s = 0.0;
+  long q;
+  for (q = 0; q < Ll->na; q++)
+    if (v[Ll->ax[q]] > mx)
+      mx = v[Ll->ax[q]];
+  if (mx == -HUGE_VAL)
+    return mx;
+  for (q = 0; q < Ll->na; q++)
+    s += exp (v[Ll->ax[q]] - mx);
+  if (Ll->sin > 0.0)
+    s += Ll->sin * exp (Ll->m0 - mx);
+  return mx + log (s);
+}
+
+/* the log Z cache entry of row sidx of locus L (NULL: none) */
+static double *
+jc_zcache (world_fmt *world, const jc_layout *ly, const jc_locus *L, long sidx)
+{
+  jc_store *js = jc_get_store (world, ly->nrow);
+  jc_buffer *b;
+  long i;
+  if (L->src == NULL || L->locus < 0 || L->locus >= js->loci)
+    return NULL;
+  b = &js->b[L->locus];
+  if (b->nzc < L->total)
+    {
+      b->zc = (double *) myrealloc (b->zc, sizeof (double) * (size_t) L->total);
+      for (i = b->nzc; i < L->total; i++)
+        b->zc[i] = NAN;
+      b->nzc = L->total;
+    }
+  return (L->src[sidx] >= 0 && L->src[sidx] < b->nzc) ? &b->zc[L->src[sidx]] : NULL;
+}
+
 /* builds the local object for the given loci at phi; returns the local sum
    of log f_l */
 static double
@@ -2076,7 +2626,7 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
       if (locus < 0 || locus >= world->loci || world->data->skiploci[locus])
         continue;
       J->L[J->nl].locus = locus;
-      if (jc_read_locus (world, locus, ly->nrow, &J->L[J->nl]) > 0)
+      if (jc_read_locus (world, ly, locus, &J->L[J->nl]) > 0)
         J->nl++;
     }
   if (J->nl == 0)
@@ -2115,6 +2665,38 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
       gpri[s * JC_NG + g] = scaling_prior (world, ly->slot_param[s], ly->ggrid[s * JC_NG + g]);
   jc_divquad dq;
   jc_divquad_make (world, ly, &dq);
+  /* Mittag-Leffler: the function table and the inner integrals' settings */
+  jml_inner mlI[3];
+  jc_mlprior mlctx[3];
+  memset (mlI, 0, sizeof (mlI));
+  if (ly->ml)
+    {
+      double amin = 1.0, amax = 0.0;
+      long pop, e, from, to;
+      for (pop = 0; pop < numpop; pop++)
+        {
+          const long ap = ly->apar[pop];
+          const double lo = ap >= 0 ? world->bayes->minparam[ap] : ly->afix[pop];
+          const double hi = ap >= 0 ? world->bayes->maxparam[ap] : ly->afix[pop];
+          if (lo < amin) amin = lo;
+          if (hi > amax) amax = hi;
+          mlctx[pop].world = world;
+          mlctx[pop].p = ly->rep[pop];
+          mlI[pop].tlo = world->bayes->minparam[ly->rep[pop]];
+          mlI[pop].thi = world->bayes->maxparam[ly->rep[pop]];
+          mlI[pop].logprior = jc_ml_logprior;
+          mlI[pop].ctx = &mlctx[pop];
+          for (e = mstart (pop, numpop); e < mend (pop, numpop); e++)
+            if (ly->rep[e] >= 0)
+              {
+                m2mm (e, numpop, &from, &to);
+                mlI[pop].mig_to[mlI[pop].r++] = from;
+                mlI[pop].mmax = world->bayes->maxparam[ly->rep[e]];
+              }
+        }
+      if (amin < 1.0)
+        jml_table_init (amin, amax);
+    }
   /* per-sample normalizers and current terms */
   double total = 0.0;
   J->lterm = (double *) mycalloc ((size_t) J->nl, sizeof (double));
@@ -2138,10 +2720,19 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
           const double *st = Ll->st + sidx * ly->nrow;
           double *un = Ll->unit + sidx * nu;
           double v = 0.0;
-          Ll->logz[sidx] = jc_log_normalizer (ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
+          double *zc = jc_zcache (world, ly, Ll, sidx);
+          if (zc != NULL && !isnan (*zc))
+            Ll->logz[sidx] = *zc;
+          else
+            {
+              Ll->logz[sidx] = ly->ml ? jc_ml_lognorm (world, ly, st, JC_SP (Ll, sidx), mlI)
+                : jc_log_normalizer (ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
+              if (zc != NULL)
+                *zc = Ll->logz[sidx];
+            }
           for (u = 0; u < nu; u++)
             {
-              un[u] = jc_unit_term (ly, &J->U, u, st, phi, st[ly->off_mu]);
+              un[u] = jc_unit_term (ly, &J->U, u, st, JC_SP (Ll, sidx), phi, st[ly->off_mu]);
               v += un[u];
             }
           Ll->cur[sidx] = v - Ll->logz[sidx];
@@ -2156,6 +2747,19 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
         J->tmax = Ll->total;
     }
   J->newcur = (double *) mycalloc ((size_t) (J->nl * J->maxn), sizeof (double));
+  /* skipping negligible genealogies: at first every row is active */
+  J->skip = jc_skip_mode (ly);
+  J->rint = JC_SKIPR;
+  for (l = 0; l < J->nl; l++)
+    {
+      long sidx;
+      J->L[l].ax = (long *) mycalloc ((size_t) (J->L[l].n + 1), sizeof (long));
+      for (sidx = 0; sidx < J->L[l].n; sidx++)
+        J->L[l].ax[sidx] = sidx;
+      J->L[l].na = J->L[l].n;
+      J->L[l].sin = 0.0;
+      J->L[l].m0 = 0.0;
+    }
   {
     long maxdep = 1;
     for (p = 0; p < ly->nphi; p++)
@@ -2175,10 +2779,99 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
     z0[ly->off_mu] = 1.0;
     J->lognz = jc_log_normalizer (ly, J->active, z0, 1.0, tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
     myfree (z0);
+    if (ly->ml)
+      {   /* the alpha priors at the nodes of jc_ml_lognorm() */
+        long q, j;
+        for (p = 0; p < ly->np; p++)
+          {
+            boolean used = FALSE;
+            for (q = 0; q < numpop; q++)
+              if (ly->apar[q] == p)
+                used = TRUE;
+            if (!used)
+              continue;
+            double x[JML_NALPHA], w[JML_NALPHA], v[JML_NALPHA];
+            jml_alpha_nodes (world->bayes->minparam[p], world->bayes->maxparam[p], x, w);
+            for (j = 0; j < JML_NALPHA; j++)
+              v[j] = log (w[j]) + scaling_prior (world, p, x[j]);
+            J->lognz += jc_logsumexp (v, JML_NALPHA);
+          }
+      }
   }
   myfree (tgrid); myfree (tpri); myfree (tgrid_s); myfree (tpri_s); myfree (gpri);
   jc_divquad_free (&dq);
   return total;
+}
+
+/* refresh: every row's terms at the current state phi, the active sets;
+   adapts the refresh interval to the largest change of a locus term */
+static void
+jc_local_refresh (jc_local *J, const double *phi)
+{
+  const long nu = J->U.n;
+  long l, sidx, u;
+  double change = 0.0;
+  for (l = 0; l < J->nl; l++)
+    {
+      jc_locus *Ll = &J->L[l];
+      double mx = -HUGE_VAL;
+      for (sidx = 0; sidx < Ll->n; sidx++)
+        {
+          const double *st = Ll->st + sidx * J->ly.nrow;
+          double *un = Ll->unit + sidx * nu, v = 0.0;
+          for (u = 0; u < nu; u++)
+            {
+              un[u] = jc_unit_term (&J->ly, &J->U, u, st, JC_SP (Ll, sidx), phi, st[J->ly.off_mu]);
+              v += un[u];
+            }
+          Ll->cur[sidx] = v - Ll->logz[sidx];
+          if (Ll->cur[sidx] > mx)
+            mx = Ll->cur[sidx];
+        }
+      const double exact = jc_logsumexp (Ll->cur, Ll->n);
+      if (isfinite (exact) && isfinite (J->lterm[l]) && fabs (exact - J->lterm[l]) > change)
+        change = fabs (exact - J->lterm[l]);
+      if (getenv ("MIGRATE_JC_DEBUG") != NULL && fabs (exact - J->lterm[l]) > 1e-3)
+        fprintf (stderr, "JCSKIP refresh: locus term changed by %g (active %ld of %ld, interval %ld)\n",
+                 fabs (exact - J->lterm[l]), Ll->na, Ll->n, J->rint);
+      J->lterm[l] = exact;
+      Ll->na = 0;
+      Ll->sin = 0.0;
+      Ll->m0 = mx;
+      for (sidx = 0; sidx < Ll->n; sidx++)
+        if (Ll->cur[sidx] >= mx - JC_SKIPT)
+          Ll->ax[Ll->na++] = sidx;
+        else if (Ll->cur[sidx] > -HUGE_VAL)
+          Ll->sin += exp (Ll->cur[sidx] - mx);
+    }
+  if (J->skipon)
+    {
+      if (change > 1e-3)
+        J->rint = J->rint / 2 > JC_SKIPRMIN ? J->rint / 2 : JC_SKIPRMIN;
+      else if (change < 1e-5)
+        J->rint = J->rint + 2 < JC_SKIPRMAX ? J->rint + 2 : JC_SKIPRMAX;
+    }
+}
+
+/* skipping on or off (the chain's sampling phase at beta = 1); either way
+   the rows are refreshed at phi first, and off makes every row active */
+static void
+jc_local_skip (jc_local *J, const double *phi, boolean on)
+{
+  long l, s;
+  if (!J->skip || J->nl == 0 || on == J->skipon)
+    return;
+  jc_local_refresh (J, phi);
+  J->nprop = 0;
+  J->skipon = on;
+  if (!on)
+    for (l = 0; l < J->nl; l++)
+      {
+        for (s = 0; s < J->L[l].n; s++)
+          J->L[l].ax[s] = s;
+        J->L[l].na = J->L[l].n;
+        J->L[l].sin = 0.0;
+      }
 }
 
 /* proposal phi[p] -> x: local change of sum log f_l (state kept pending) */
@@ -2186,6 +2879,16 @@ static double
 jc_local_propose (jc_local *J, double *phi, long p, double x)
 {
   double delta = 0.0;
+  if (J->nl == 0)   /* a worker without genealogies (its loci have none) */
+    {
+      J->pending = p;
+      return 0.0;
+    }
+  if (J->skipon && ++J->nprop >= J->rint)
+    {
+      jc_local_refresh (J, phi);
+      J->nprop = 0;
+    }
   const long nu = J->U.n;
   const long nd = (p >= 0 && p < J->ly.nphi) ? J->U.ndep[p] : 0;
   const long *dep = nd > 0 ? J->U.dep[p] : NULL;
@@ -2202,15 +2905,17 @@ jc_local_propose (jc_local *J, double *phi, long p, double x)
       double *nw = J->newunit + l * J->maxn * (nd > 0 ? nd : 1);
       jc_locus *Ll = &J->L[l];
       const double keep = phi[p];
+      long q;
       phi[p] = x;
-      for (sidx = 0; sidx < Ll->n; sidx++)
+      for (q = 0; q < Ll->na; q++)
         {
+          sidx = Ll->ax[q];
           const double *st = Ll->st + sidx * J->ly.nrow;
           const double *un = Ll->unit + sidx * nu;
           double *nws = nw + sidx * nd;
           double v = 0.0;
           for (k = 0; k < nd; k++)
-            nws[k] = jc_unit_term (&J->ly, &J->U, dep[k], st, phi, st[J->ly.off_mu]);
+            nws[k] = jc_unit_term (&J->ly, &J->U, dep[k], st, JC_SP (Ll, sidx), phi, st[J->ly.off_mu]);
           if (nu > J->incr)
             {   /* many terms: the difference, unless a term is (near) a
                    sentinel or minus infinity, where it would swallow the rest */
@@ -2231,10 +2936,51 @@ jc_local_propose (jc_local *J, double *phi, long p, double x)
           nc[sidx] = v - Ll->logz[sidx];
         }
       phi[p] = keep;
-      J->newlterm[l] = jc_logsumexp (nc, Ll->n);
+      J->newlterm[l] = jc_lterm_active (Ll, nc);
       delta += J->newlterm[l] - J->lterm[l];
     }
   myfree (map);
+  return delta;
+}
+
+/* block proposal: phi -> phin in every coordinate at once (all units are
+   recomputed); returns the local change of sum log f_l */
+static double
+jc_local_propose_block (jc_local *J, const double *phi, const double *phin)
+{
+  double delta = 0.0;
+  const long nu = J->U.n;
+  long l, sidx, u, q;
+  J->pending = -2;
+  if (J->nl == 0)
+    return 0.0;
+  if (J->skipon && ++J->nprop >= J->rint)
+    {
+      jc_local_refresh (J, phi);
+      J->nprop = 0;
+    }
+  if (J->newall == NULL)
+    J->newall = (double *) mycalloc ((size_t) (J->nl * J->maxn * (nu > 0 ? nu : 1)), sizeof (double));
+  for (l = 0; l < J->nl; l++)
+    {
+      jc_locus *Ll = &J->L[l];
+      double *nc = J->newcur + l * J->maxn;
+      double *nw = J->newall + l * J->maxn * nu;
+      for (q = 0; q < Ll->na; q++)
+        {
+          sidx = Ll->ax[q];
+          const double *st = Ll->st + sidx * J->ly.nrow;
+          double v = 0.0;
+          for (u = 0; u < nu; u++)
+            {
+              nw[sidx * nu + u] = jc_unit_term (&J->ly, &J->U, u, st, JC_SP (Ll, sidx), phin, st[J->ly.off_mu]);
+              v += nw[sidx * nu + u];
+            }
+          nc[sidx] = v - Ll->logz[sidx];
+        }
+      J->newlterm[l] = jc_lterm_active (Ll, nc);
+      delta += J->newlterm[l] - J->lterm[l];
+    }
   return delta;
 }
 
@@ -2242,6 +2988,30 @@ static void
 jc_local_accept (jc_local *J)
 {
   const long p = J->pending;
+  if (p == -2 && J->nl > 0)
+    {   /* a block proposal: every unit */
+      const long nu = J->U.n;
+      long l;
+      for (l = 0; l < J->nl; l++)
+        {
+          jc_locus *Ll = &J->L[l];
+          long q;
+          for (q = 0; q < Ll->na; q++)   /* the active rows (all without skipping) */
+            {
+              const long s = Ll->ax[q];
+              Ll->cur[s] = J->newcur[l * J->maxn + s];
+              memcpy (Ll->unit + s * nu, J->newall + (l * J->maxn + s) * nu, sizeof (double) * (size_t) nu);
+            }
+          J->lterm[l] = J->newlterm[l];
+        }
+      J->pending = -1;
+      return;
+    }
+  if (J->nl == 0)
+    {
+      J->pending = -1;
+      return;
+    }
   const long nu = J->U.n;
   const long nd = (p >= 0 && p < J->ly.nphi) ? J->U.ndep[p] : 0;
   long l, sidx, k;
@@ -2249,11 +3019,15 @@ jc_local_accept (jc_local *J)
     {
       jc_locus *Ll = &J->L[l];
       const double *nw = J->newunit + l * J->maxn * (nd > 0 ? nd : 1);
-      memcpy (Ll->cur, J->newcur + l * J->maxn, sizeof (double) * (size_t) Ll->n);
+      long q;
       J->lterm[l] = J->newlterm[l];
-      for (sidx = 0; sidx < Ll->n; sidx++)
-        for (k = 0; k < nd; k++)
-          Ll->unit[sidx * nu + J->U.dep[p][k]] = nw[sidx * nd + k];
+      for (q = 0; q < Ll->na; q++)   /* the active rows (all without skipping) */
+        {
+          sidx = Ll->ax[q];
+          Ll->cur[sidx] = J->newcur[l * J->maxn + sidx];
+          for (k = 0; k < nd; k++)
+            Ll->unit[sidx * nu + J->U.dep[p][k]] = nw[sidx * nd + k];
+        }
     }
   J->pending = -1;
   if (nu > J->incr && ++J->naccept >= JC_REFRESH)
@@ -2322,7 +3096,7 @@ jc_local_boot (jc_local *J, const double *pts, long K, long B, double *D)
         {
           const double *st = Ll->st + s * ly->nrow;
           for (k = 0; k < K; k++)
-            t[s * K + k] = jc_full_term (ly, J->active, st, pts + k * ly->nphi, st[ly->off_mu]) - Ll->logz[s];
+            t[s * K + k] = jc_full_term (ly, J->active, st, JC_SP (Ll, s), pts + k * ly->nphi, st[ly->off_mu]) - Ll->logz[s];
         }
       for (k = 0; k < K; k++)
         {
@@ -2367,6 +3141,8 @@ jc_local_boot (jc_local *J, const double *pts, long K, long B, double *D)
 #define JC_OP_STEP 1.0
 #define JC_OP_END 2.0
 #define JC_OP_BOOT 3.0
+#define JC_OP_BLOCK 4.0
+#define JC_OP_SKIP 5.0
 
 /* master and the locus workers that answer result requests */
 static long
@@ -2409,6 +3185,7 @@ jc_worker_service (world_fmt *world, long part)
   long *loci = (long *) mycalloc ((size_t) (locidone > 0 ? locidone : 1), sizeof (long));
   long i, pending_p = -1;
   double pending_x = 0.0;
+  double *pending_phi = (double *) mycalloc ((size_t) np, sizeof (double));
   jc_local J;
   for (i = 0; i < locidone; i++)
     loci[i] = world->who[i];
@@ -2435,6 +3212,11 @@ jc_worker_service (world_fmt *world, long part)
           jc_local_accept (&J);
           phi[pending_p] = pending_x;
         }
+      else if (pkt[1] > 0.5 && pending_p == -2)
+        {
+          jc_local_accept (&J);
+          memcpy (phi, pending_phi, sizeof (double) * (size_t) np);
+        }
       pending_p = -1;
       if (pkt[0] == JC_OP_END)
         break;
@@ -2450,12 +3232,26 @@ jc_worker_service (world_fmt *world, long part)
           myfree (D);
           continue;
         }
+      if (pkt[0] == JC_OP_SKIP)
+        {   /* skipping negligible genealogies on (pkt[2] = 1) or off */
+          jc_local_skip (&J, phi, pkt[2] > 0.5);
+          continue;
+        }
+      if (pkt[0] == JC_OP_BLOCK)
+        {   /* every coordinate at once */
+          MPI_Bcast (pending_phi, (int) np, MPI_DOUBLE, 0, comm);
+          pending_p = -2;
+          double d = jc_local_propose_block (&J, phi, pending_phi), dd = 0.0;
+          MPI_Reduce (&d, &dd, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
+          continue;
+        }
       pending_p = (long) pkt[2];
       pending_x = pkt[3];
       double d = jc_local_propose (&J, phi, pending_p, pending_x), dd = 0.0;
       MPI_Reduce (&d, &dd, 1, MPI_DOUBLE, MPI_SUM, 0, comm);
     }
   jc_local_free (&J);
+  myfree (pending_phi);
   myfree (phi);
   myfree (loci);
   MPI_Comm_free (&comm);
@@ -2551,6 +3347,47 @@ jc_eval_step (jc_eval *E, double *phi, boolean accept_prev, long p, double x)
   return jc_local_propose (&E->local, phi, p, x);
 }
 
+/* skipping on or off on the evaluator (a pending decision is settled first) */
+static void
+jc_eval_skip (jc_eval *E, const double *phi, boolean on)
+{
+#ifdef MPI
+  if (E->mpi)
+    {
+      double pkt[4] = { JC_OP_SKIP, E->accept_prev ? 1.0 : 0.0, on ? 1.0 : 0.0, 0.0 };
+      MPI_Bcast (pkt, 4, MPI_DOUBLE, 0, E->comm);
+      E->accept_prev = FALSE;
+      return;
+    }
+#endif
+  if (E->accept_prev)
+    jc_local_accept (&E->local);
+  E->accept_prev = FALSE;
+  jc_local_skip (&E->local, phi, on);
+}
+
+/* sends the previous decision and proposes phi -> phin in every coordinate;
+   returns the change of sum_l log f_l */
+static double
+jc_eval_block (jc_eval *E, boolean accept_prev, const double *phi, const double *phin, long nphi)
+{
+#ifdef MPI
+  if (E->mpi)
+    {
+      double pkt[4] = { JC_OP_BLOCK, accept_prev ? 1.0 : 0.0, 0.0, 0.0 }, d = 0.0, dd = 0.0;
+      MPI_Bcast (pkt, 4, MPI_DOUBLE, 0, E->comm);
+      MPI_Bcast ((void *) phin, (int) nphi, MPI_DOUBLE, 0, E->comm);
+      MPI_Reduce (&d, &dd, 1, MPI_DOUBLE, MPI_SUM, 0, E->comm);
+      return dd;
+    }
+#endif
+  (void) nphi;
+  (void) phi;
+  if (accept_prev)
+    jc_local_accept (&E->local);
+  return jc_local_propose_block (&E->local, phi, phin);
+}
+
 /* bootstrap guard on the evaluator: D (B x K, zeroed) gets the summed
    bootstrap changes at the K points pts (K x nphi); a pending proposal is
    settled first */
@@ -2605,18 +3442,215 @@ jc_cmp_double (const void *a, const void *b)
    f_l(phi)^beta on an evaluator that is set up; burn sweeps first (they
    tune step). Records phi (trace, nphi x sweeps) and sum_l log f_l (logftr)
    when given. Theta and M move multiplicatively, growth additively. */
+/* Block proposals (Mittag-Leffler joint, 2026-11-01): after a single-site
+   burn-in, a multivariate normal step in z (log of the positive parameters,
+   the others as they are) with the covariance of the burn-in's second half,
+   scaled towards 23% acceptance; the single-site sampler mixed slowly
+   (autocorrelation 25-70 sweeps on three ML loci). The covariance is kept
+   for the later chains of the run (stepping stones, error blocks). */
+static double *jc_bL = NULL;     /* Cholesky factor, d x d */
+static long jc_bd = 0;
+static double jc_bscale = 0.0;
+
+/* option joint-block (AUTO: Mittag-Leffler joints, where Theta and alpha
+   are correlated; on two-population Theta/M data blocks gained only about
+   10% ESS per second); experiments: MIGRATE_JC_BLOCK=0/1. Not with skyline
+   multipliers (their range rule is not in the block step). */
+static boolean
+jc_block_mode (world_fmt *world, const jc_layout *ly)
+{
+  const char *e = getenv ("MIGRATE_JC_BLOCK");
+  if (ly->nfree > 0)
+    return FALSE;
+  if (e != NULL)
+    return atol (e) != 0;
+  if (world->options->joint_block == JOINT_BLOCK_YES)
+    return TRUE;
+  if (world->options->joint_block == JOINT_BLOCK_NO)
+    return FALSE;
+  return ly->ml;
+}
+
+static double
+jc_gauss (void)
+{
+  double u1 = UNIF_RANDUM ();
+  while (u1 <= 1e-300)
+    u1 = UNIF_RANDUM ();
+  return sqrt (-2.0 * log (u1)) * cos (2.0 * PI * UNIF_RANDUM ());
+}
+
+/* covariance of the recorded z (n x d) -> jc_bL */
 static void
+jc_block_covariance (const double *z, long n, long d)
+{
+  double *m = (double *) mycalloc ((size_t) d, sizeof (double));
+  double *C = (double *) mycalloc ((size_t) (d * d), sizeof (double));
+  long i, j, k;
+  for (i = 0; i < n; i++)
+    for (j = 0; j < d; j++)
+      m[j] += z[i * d + j] / (double) n;
+  for (i = 0; i < n; i++)
+    for (j = 0; j < d; j++)
+      for (k = 0; k <= j; k++)
+        C[j * d + k] += (z[i * d + j] - m[j]) * (z[i * d + k] - m[k]) / (double) (n - 1);
+  for (j = 0; j < d; j++)
+    C[j * d + j] += 1e-10 + 1e-6 * C[j * d + j];
+  myfree (jc_bL);
+  jc_bL = (double *) mycalloc ((size_t) (d * d), sizeof (double));
+  for (j = 0; j < d; j++)   /* Cholesky */
+    for (k = 0; k <= j; k++)
+      {
+        double s = C[j * d + k];
+        for (i = 0; i < k; i++)
+          s -= jc_bL[j * d + i] * jc_bL[k * d + i];
+        if (j == k)
+          jc_bL[j * d + j] = sqrt (s > 1e-300 ? s : 1e-300);
+        else
+          jc_bL[j * d + k] = s / jc_bL[k * d + k];
+      }
+  jc_bd = d;
+  jc_bscale = 2.38 / sqrt ((double) d);
+  myfree (m);
+  myfree (C);
+}
+
+/* effective sample size of x[0..n) (initial positive sequence of
+   autocorrelation pairs). Not inlined: inlined into jc_chain() (Apple clang,
+   -O3 -flto=thin, 2026-11-01) the autocorrelation loop was dropped and every
+   ESS came out as n; the cause was not found. */
+static __attribute__ ((noinline)) double
+jc_ess (const double *x, long n)
+{
+  double m = 0.0, v = 0.0, s = 0.0;
+  long i, k;
+  for (i = 0; i < n; i++)
+    m += x[i] / (double) n;
+  for (i = 0; i < n; i++)
+    v += (x[i] - m) * (x[i] - m);
+  if (!(v > 0.0))
+    return (double) n;
+  for (k = 1; k + 1 < n / 2; k += 2)
+    {
+      double c1 = 0.0, c2 = 0.0;
+      for (i = 0; i + k + 1 < n; i++)
+        {
+          c1 += (x[i] - m) * (x[i + k] - m);
+          c2 += (x[i] - m) * (x[i + k + 1] - m);
+        }
+      if (c1 + c2 < 0.0)
+        break;
+      s += (c1 + c2) / v;
+    }
+  return (double) n / (1.0 + 2.0 * s);
+}
+
+/* the main run stops when every active coordinate has this ESS (option
+   joint-ess, default JOINT_ESS_DEFAULT; experiments: MIGRATE_JC_ESSSTOP;
+   checked every JC_ESSCHECK sweeps, at most the full run) */
+#define JC_ESSCHECK 5000
+static long
+jc_essstop (world_fmt *world)
+{
+  if (getenv ("MIGRATE_JC_ESSSTOP") != NULL)
+    return atol (getenv ("MIGRATE_JC_ESSSTOP"));
+  return world->options->joint_ess;
+}
+
+/* returns the sweeps of the main run (fewer than sweeps when the ESS stop
+   ended it; the trace is then compacted to that length) */
+static long
 jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval *E, double *phi,
           double *step, double beta, long burn, long sweeps, double *trace, double *logftr)
 {
+  const long essstop = (trace != NULL) ? jc_essstop (world) : 0;
+  long done = sweeps;
   const long np = ly->np, nphi = ly->nphi;
   const long npos = world->numparamcumvec[SPLITSTDPRIOR];
   long *acc = (long *) mycalloc ((size_t) nphi, sizeof (long));
   long *tri = (long *) mycalloc ((size_t) nphi, sizeof (long));
   long p, sweep;
   double skyprior = jc_sky_logprior (ly, phi);
+  /* block proposals: the active coordinates */
+  const boolean block = jc_block_mode (world, ly);
+  long d = 0, q, k, nrec = 0, bacc = 0, btri = 0, nb = 1;
+  long *ai = (long *) mycalloc ((size_t) nphi, sizeof (long));
+  double *zrec = NULL, *z = NULL, *zn = NULL, *phin = NULL, *eps = NULL;
+  for (p = 0; p < nphi; p++)
+    if (active[p])
+      ai[d++] = p;
+  if (block)
+    {
+      z = (double *) mycalloc ((size_t) (d + 1), sizeof (double));
+      zn = (double *) mycalloc ((size_t) (d + 1), sizeof (double));
+      eps = (double *) mycalloc ((size_t) (d + 1), sizeof (double));
+      phin = (double *) mycalloc ((size_t) nphi, sizeof (double));
+      if (jc_bL == NULL && burn >= 1000)
+        zrec = (double *) mycalloc ((size_t) ((burn - burn / 2) * d + 1), sizeof (double));
+      /* block steps per sweep: about the cost of a single-site sweep */
+      nb = ly->ml ? (d + ly->numpop - 1) / ly->numpop : 1;
+      if (nb < 1)
+        nb = 1;
+    }
+  boolean skipping = FALSE;
   for (sweep = 0; sweep < burn + sweeps; sweep++)
     {
+      if (sweep == burn && beta == 1.0 && sweeps > 0)
+        {   /* sampling at beta = 1: skip negligible genealogies (jc_local_skip) */
+          jc_eval_skip (E, phi, TRUE);
+          skipping = TRUE;
+        }
+      if (block && jc_bL != NULL && jc_bd == d)
+        {
+          long b;
+          for (b = 0; b < nb; b++)
+            {
+              boolean ok = TRUE;
+              double delta = 0.0;
+              for (q = 0; q < d; q++)
+                {
+                  const long pp = ai[q];
+                  z[q] = pp < npos ? log (phi[pp]) : phi[pp];
+                  eps[q] = jc_gauss ();
+                }
+              memcpy (phin, phi, sizeof (double) * (size_t) nphi);
+              for (q = 0; q < d && ok; q++)
+                {
+                  const long pp = ai[q];
+                  double s = 0.0;
+                  for (k = 0; k <= q; k++)
+                    s += jc_bL[q * d + k] * eps[k];
+                  zn[q] = z[q] + jc_bscale * s;
+                  phin[pp] = pp < npos ? exp (zn[q]) : zn[q];
+                  if (!(phin[pp] >= world->bayes->minparam[pp] && phin[pp] <= world->bayes->maxparam[pp])
+                      || (pp < npos && !(phin[pp] > 0.0)))
+                    ok = FALSE;
+                  else
+                    delta += scaling_prior (world, pp, phin[pp]) - scaling_prior (world, pp, phi[pp])
+                      + (pp < npos ? zn[q] - z[q] : 0.0);
+                }
+              btri++;
+              if (ok)
+                {
+                  const double dd = jc_eval_block (E, E->accept_prev, phi, phin, nphi);
+                  delta += beta * dd;
+                  E->accept_prev = log (UNIF_RANDUM ()) < delta;
+                  if (E->accept_prev)
+                    {
+                      bacc++;
+                      memcpy (phi, phin, sizeof (double) * (size_t) nphi);
+                      E->logF += dd;
+                    }
+                }
+              if (sweep < burn && btri % 50 == 0)
+                {
+                  const double rate = (double) bacc / (double) btri;
+                  jc_bscale *= rate > 0.234 ? 1.2 : 0.8;
+                  bacc = btri = 0;
+                }
+            }
+        }
+      else
       for (p = 0; p < nphi; p++)
         {
           if (!active[p])
@@ -2660,6 +3694,18 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
               acc[p] = tri[p] = 0;
             }
         }
+      if (zrec != NULL && sweep >= burn / 2 && sweep < burn)
+        {   /* the second half of the burn-in: covariance of the block proposal */
+          for (q = 0; q < d; q++)
+            zrec[nrec * d + q] = ai[q] < npos ? log (phi[ai[q]]) : phi[ai[q]];
+          nrec++;
+          if (sweep == burn - 1)
+            {
+              jc_block_covariance (zrec, nrec, d);
+              myfree (zrec);
+              zrec = NULL;
+            }
+        }
       if (sweep >= burn)
         {
           if (trace != NULL)
@@ -2667,10 +3713,44 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
               trace[p * sweeps + (sweep - burn)] = phi[p];
           if (logftr != NULL)
             logftr[sweep - burn] = E->logF;
+          if (essstop > 0 && (sweep - burn + 1) % JC_ESSCHECK == 0 && sweep + 1 < burn + sweeps)
+            {   /* ESS stop: every active coordinate */
+              const long n = sweep - burn + 1;
+              double emin = HUGE_VAL;
+              for (p = 0; p < nphi; p++)
+                if (active[p])
+                  {
+                    const double e = jc_ess (trace + p * sweeps, n);
+                    if (e < emin)
+                      emin = e;
+                  }
+              if (getenv ("MIGRATE_JC_DEBUG") != NULL)
+                fprintf (stderr, "JCESS after %ld sweeps: min ESS %.0f (target %ld)\n", n, emin, essstop);
+              if (emin >= (double) essstop)
+                {
+                  done = n;
+                  break;
+                }
+            }
         }
     }
+  if (skipping)
+    jc_eval_skip (E, phi, FALSE);
+  if (block && getenv ("MIGRATE_JC_DEBUG") != NULL)
+    fprintf (stderr, "JCBLOCK chain beta %g burn %ld sweeps %ld: d %ld, %ld block steps per sweep, scale %g\n",
+             beta, burn, sweeps, d, nb, jc_bscale);
+  if (trace != NULL && done < sweeps)
+    for (p = 0; p < nphi; p++)   /* compact to stride done */
+      memmove (trace + p * done, trace + p * sweeps, sizeof (double) * (size_t) done);
   myfree (acc);
   myfree (tri);
+  myfree (ai);
+  myfree (zrec);
+  myfree (z);
+  myfree (zn);
+  myfree (eps);
+  myfree (phin);
+  return done;
 }
 
 /* initial step sizes */
@@ -2795,15 +3875,17 @@ jc_boot_errors (jc_store *js, const double *D)
    k-th block of every locus); trace is nphi x sweeps */
 static boolean
 jc_run (world_fmt *world, const jc_layout *ly, const boolean *active, const double *phi0,
-        long part, long sweeps, double *trace, long *nl, long *tmin, long *tmax, double *rows,
-        double *bootD)
+        long part, long burn, long sweeps, double *trace, long *nl, long *tmin, long *tmax, double *rows,
+        double *bootD, long *used, double *phiend)
 {
   const long nphi = ly->nphi;
   double *phi = (double *) mycalloc ((size_t) nphi, sizeof (double));
   long p, l;
   jc_eval E;
   memcpy (phi, phi0, sizeof (double) * (size_t) nphi);
+  const double rt0 = jc_now ();
   jc_eval_start (world, &E, phi, part);
+  const double rt1 = jc_now ();
   *nl = E.nl;
   *rows = E.rows;
   *tmin = E.tmin;
@@ -2815,7 +3897,27 @@ jc_run (world_fmt *world, const jc_layout *ly, const boolean *active, const doub
       return FALSE;
     }
   double *step = jc_steps (world, ly);
-  jc_chain (world, ly, active, &E, phi, step, 1.0, JC_BURNIN, sweeps, trace, NULL);
+  sweeps = jc_chain (world, ly, active, &E, phi, step, 1.0, burn, sweeps, trace, NULL);
+  if (getenv ("MIGRATE_JC_DEBUG") != NULL)
+    fprintf (stderr, "JCTIME run part %ld: setup %.1f s, chain %.1f s (%ld + %ld sweeps)\n",
+             part, rt1 - rt0, jc_now () - rt1, burn, sweeps);
+  if (used != NULL)
+    *used = sweeps;
+  if (phiend != NULL)
+    memcpy (phiend, phi, sizeof (double) * (size_t) nphi);
+  if (part == 0 && getenv ("MIGRATE_JC_TRACE") != NULL)
+    {   /* experiments: the main trace, one sweep per line */
+      FILE *tf = fopen (getenv ("MIGRATE_JC_TRACE"), "w");
+      long sw;
+      for (sw = 0; tf != NULL && sw < sweeps; sw++)
+        {
+          for (p = 0; p < nphi; p++)
+            fprintf (tf, p ? " %.10g" : "%.10g", trace[p * sweeps + sw]);
+          fprintf (tf, "\n");
+        }
+      if (tf != NULL)
+        fclose (tf);
+    }
   if (bootD != NULL)
     {   /* bootstrap guard at JC_BOOTK evenly spaced points of the trace */
       double *pts = (double *) mycalloc ((size_t) (JC_BOOTK * nphi), sizeof (double));
@@ -2846,7 +3948,7 @@ jc_run (world_fmt *world, const jc_layout *ly, const boolean *active, const doub
               for (sidx = 0; sidx < J->L[l].n; sidx++)
                 {
                   const double *st = J->L[l].st + sidx * ly->nrow;
-                  w[sidx] = jc_full_term (&J->ly, J->active, st, x, st[J->ly.off_mu]) - J->L[l].logz[sidx];
+                  w[sidx] = jc_full_term (&J->ly, J->active, st, JC_SP (&J->L[l], sidx), x, st[J->ly.off_mu]) - J->L[l].logz[sidx];
                   if (w[sidx] > mx)
                     mx = w[sidx];
                 }
@@ -2900,7 +4002,7 @@ jc_ss (world_fmt *world, const jc_layout *ly, const boolean *active, const doubl
       return FALSE;
     }
   double *step = jc_steps (world, ly);
-  jc_chain (world, ly, active, &E, phi, step, 1.0, JC_BURNIN, 0, NULL, NULL);
+  jc_chain (world, ly, active, &E, phi, step, 1.0, JC_BURNWARM, 0, NULL, NULL);   /* phi0: the main run's last state */
   for (k = nr - 1; k >= 0; k--)
     {
       const double b0 = pow ((double) k / nr, 4.0);
@@ -2949,6 +4051,9 @@ jc_combine (world_fmt *world)
     return FALSE;
   if (js != NULL && js->done)
     return TRUE;
+  myfree (jc_bL);   /* block proposals: a new covariance for this run */
+  jc_bL = NULL;
+  jc_bd = 0;
   jc_layout_make (world, &ly);
   const long np = ly.np, nphi = ly.nphi;
   /* positive parameters (Theta, M, divergence) get multiplicative moves,
@@ -3015,6 +4120,8 @@ jc_combine (world_fmt *world)
       js->nsweeps = JC_SWEEPS;
     if (js->nsweeps < JC_MINSWEEPS)
       js->nsweeps = JC_MINSWEEPS;
+    if (getenv ("MIGRATE_JC_SWEEPS") != NULL)   /* experiments */
+      js->nsweeps = atol (getenv ("MIGRATE_JC_SWEEPS"));
   }
   js->trace = (double *) mycalloc ((size_t) (nphi * js->nsweeps), sizeof (double));
   js->active = active;
@@ -3027,13 +4134,19 @@ jc_combine (world_fmt *world)
   long nl, tmin, tmax;
   double rows_all, rows_blk = 0.0, rb;
   double *bootD = (double *) mycalloc ((size_t) (JC_BOOTB * JC_BOOTK), sizeof (double));
-  if (!jc_run (world, &ly, active, phi, 0, js->nsweeps, js->trace, &nl, &tmin, &tmax, &rows_all, bootD))
+  long used = js->nsweeps;
+  const double jt0 = jc_now ();
+  double *phiw = (double *) mycalloc ((size_t) nphi, sizeof (double));   /* the main run's last state */
+  if (!jc_run (world, &ly, active, phi, 0, JC_BURNIN, js->nsweeps, js->trace, &nl, &tmin, &tmax, &rows_all, bootD, &used, phiw))
     {
       myfree (phi);
+      myfree (phiw);
       myfree (bootD);
       jc_layout_free (&ly);
       return FALSE;
     }
+  js->nsweeps = used;   /* the ESS stop may end the main run early (trace compacted) */
+  const double jt1 = jc_now ();
   jc_boot_errors (js, bootD);
   myfree (bootD);
   /* Monte Carlo error: the same combination on each block of every locus'
@@ -3054,7 +4167,7 @@ jc_combine (world_fmt *world)
     js->byrep = (world->options->replicate ? world->options->replicatenum : 1) >= 2;
     for (part = 1; part <= nb && js->has_mcerr; part++)
       {
-        if (!jc_run (world, &ly, active, phi, part, hs, th, &n1, &t1, &t2, &rb, NULL) || n1 < 2)
+        if (!jc_run (world, &ly, active, phiw, part, JC_BURNWARM, hs, th, &n1, &t1, &t2, &rb, NULL, NULL, NULL) || n1 < 2)
           {
             js->has_mcerr = FALSE;
             break;
@@ -3086,7 +4199,11 @@ jc_combine (world_fmt *world)
     myfree (srt);
   }
   /* the joint marginal likelihood (its scaling factor) */
-  js->has_logc = jc_ss (world, &ly, active, phi, &js->logc, &js->logc_err);
+  const double jt2 = jc_now ();
+  js->has_logc = jc_ss (world, &ly, active, phiw, &js->logc, &js->logc_err);
+  if (getenv ("MIGRATE_JC_DEBUG") != NULL)
+    fprintf (stderr, "JCTIME main+boot %.1f s, error blocks %.1f s, stepping stones %.1f s\n",
+             jt1 - jt0, jt2 - jt1, jc_now () - jt2);
   if (getenv ("MIGRATE_JC_DIAG") != NULL && js->has_logc)
     fprintf (stderr, "JCDIAG logC %.4f err %.4f\n", js->logc, js->logc_err);
   if (js->has_logc && js->has_boot)   /* plus the genealogy-sampling error */
@@ -3124,6 +4241,7 @@ jc_combine (world_fmt *world)
   js->tmax = tmax;
   js->done = TRUE;
   myfree (phi);
+  myfree (phiw);
   jc_layout_free (&ly);
   return TRUE;
 }

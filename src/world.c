@@ -398,6 +398,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->gelman = options->gelman;
     wopt->gelmanpairs = options->gelmanpairs;
     wopt->lcepsilon = options->lcepsilon;
+    wopt->joint_ess = options->joint_ess;
+    wopt->joint_block = options->joint_block;
     wopt->simulation = options->simulation;
     wopt->datatype = options->datatype;
     if(wopt->bayes_infer)

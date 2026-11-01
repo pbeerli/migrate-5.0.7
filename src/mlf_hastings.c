@@ -585,6 +585,99 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
   return logp;
 }
 
+/* ---- spells of the current genealogy for the joint combination
+   (joint_ml.c): the same traversal as mlh_logp_perpop() without growth and
+   skyline segments. Each spell is two doubles: an integer code
+   ((k * numpop + pop) * (numpop + 2) + kind), kind 0 censored, 1
+   coalescence, 2 + j migration of a lineage of pop to j (backwards), and
+   its length dt. Spells are sorted by population (stable). ---- */
+long mlh_spells(world_fmt *world, double **buf, long *alloc)
+{
+  static mlh_list L;
+  const long numpop = world->numpop;
+  const double np2 = (double) (numpop + 2);
+  double *a = (double *) mycalloc((size_t) numpop, sizeof(double));
+  long i, pop, x, n = 0, q, pass;
+  double *tmp;
+  mlh_from_tl(&L, world->treetimes, -1.0, numpop);
+  for (pop = 0; pop < numpop; pop++)
+    a[pop] = (L.n > 0) ? L.ev[0].age : 0.0;
+  tmp = (double *) mycalloc((size_t) (4 * (L.n + 1) * (numpop + 1)), sizeof(double));
+  for (i = 0; i < L.n; i++)
+    {
+      const mlh_event *e = &L.ev[i];
+      const long *kb = L.k + i * numpop;
+      const long *ka = (i + 1 < L.n) ? L.k + (i + 1) * numpop : NULL;
+      x = -1;
+      if (e->type == 'c' || e->type == 'm')
+        {
+          const long kind = (e->type == 'c') ? 1 : 2 + e->above;
+          x = e->below;
+          tmp[2 * n] = ((double) kb[x] * numpop + x) * np2 + kind;
+          tmp[2 * n + 1] = e->age - a[x];
+          n++;
+          a[x] = e->age;
+        }
+      for (pop = 0; pop < numpop; pop++)
+        {
+          if (pop == x || (ka != NULL && ka[pop] == kb[pop]) || (ka == NULL && kb[pop] == 0))
+            continue;
+          if (ka != NULL && kb[pop] > 0)   /* censored */
+            {
+              tmp[2 * n] = ((double) kb[pop] * numpop + pop) * np2;
+              tmp[2 * n + 1] = e->age - a[pop];
+              n++;
+            }
+          a[pop] = e->age;
+        }
+    }
+  if (*alloc < 2 * n)
+    {
+      *alloc = 2 * n + 64;
+      *buf = (double *) myrealloc(*buf, (size_t) *alloc * sizeof(double));
+    }
+  q = 0;
+  for (pass = 0; pass < numpop; pass++)
+    for (i = 0; i < n; i++)
+      if (((long) (tmp[2 * i] / np2)) % numpop == pass)
+        {
+          (*buf)[2 * q] = tmp[2 * i];
+          (*buf)[2 * q + 1] = tmp[2 * i + 1];
+          q++;
+        }
+  myfree(tmp);
+  myfree(a);
+  return n;
+}
+
+/* log p(G|params) from the spells with the run's own Mittag-Leffler
+   functions: equals mlh_probg_treetimes() (a check of the spells) */
+double mlh_spells_logp(world_fmt *world, const double *sp, long n)
+{
+  const long numpop = world->numpop;
+  const long np2 = numpop + 2;
+  double logp = 0.0;
+  long i;
+  for (i = 0; i < n; i++)
+    {
+      const long code = (long) sp[2 * i];
+      const long kind = code % np2;
+      const long pop = (code / np2) % numpop;
+      const long k = (code / np2) / numpop;
+      const double dt = sp[2 * i + 1];
+      const double alpha = mlh_alpha(world, pop);
+      const double lam = mlh_lambda(world, pop, k);
+      if (kind == 0)
+        logp += mlh_logS(lam, alpha, dt);
+      else
+        {
+          const double rate = (kind == 1) ? mlh_pairrate(world, pop) : mlh_migrate(world, kind - 2, pop);
+          logp += mlh_logf(lam, alpha, dt) - log(lam) + log(rate);
+        }
+    }
+  return logp;
+}
+
 /* spell starts of all populations at time s, from a timelist whose events
    at or below s are those of the tree (R or G); pop 'atpop' has an event at
    s itself (the origin) */
