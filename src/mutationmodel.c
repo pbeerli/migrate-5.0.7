@@ -1093,8 +1093,10 @@ void read_mutationmodel_comments(char *input, data_fmt * data, world_fmt *world)
 	  s->model = TN;
 	  readpos += read_word_delim(input+readpos, word, " ", TRUE);
 	  double kappa1 = atof(word);
+	  word[0] = '\0'; /* read_word_delim() leaves word unchanged at the end of the line */
 	  readpos += read_word_delim(input+readpos, word, " ", TRUE);
 	  double kappa2 = atof(word);
+	  word[0] = '\0'; /* without this a missing b took kappa2's value */
 	  readpos += read_word_delim(input+readpos, word, " ", TRUE);
 	  double tv = atof(word);
 	  /* ar ay [b] as documented above: purine and pyrimidine transition
