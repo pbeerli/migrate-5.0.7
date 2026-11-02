@@ -1,296 +1,166 @@
-#Migrate 6.1.2
-Released September 2026
+# Migrate 6.1.79
 
-##Quick installation guide for the source code
+Released November 2026
 
-### from Github 
-- Fastest way is the clone the gitub repository
-
-		git clone https://github.com/pbeerli/migrate-5.0.7.git 
- 
-- in the top directory do:
-  if you get the package from the github repository
-  you will need
-
-  	 	autoreconf -i
-
-  If this fails: To install autoreconf, you need to install the Autotools build system. On Ubuntu use
-
-  		sudo apt-get install autoconf automake.
-
-  On macOS, you can use Homebrew with
-  		brew install autoconf automake
-  After installation, redo the 
-  
-  		autoreconf -i
-
-  Once that works use
-  
-  		./configure
-
-  or
-
-  		./configure --enable-debug
-
-  and then do
-
-  		make
-
-  this should create the binary and
-  if you have **openmpi** installed (check how to download for your system):
-  it should also create the parallel version migrate-n-mpi.
-  If this fails with errors (for example missing an include file)
-
-  try this:
-  
-  		git submodule update --init --recursive
-  		cp ./lib/haru/win32/include/hpdf_config.h ./lib/haru/include/
-  		./configure
-  		make
-  if this fails let me know.
-
-  If you want the binaries in an executable path you may want to do 
-  		sudo make install
-  This will move the binaries to */usr/local/bin*,
-  if you do not have access to that use
-
-  	./configure --prefix=/pathtoyourhomedirectory
-  	make
-  	make install
-  This will create a *bin* directory in your homedirectory, you still will need to check whether the *bin* directory is in the search PATH.
-  
-  
-### from my website
-  - Download from my website: https://peterbeerli.com/migrate-html5/download_version4; Unpack the compressed distribution file. The binary distribution will have the executable *migrate-n* and *migrate-n-mpi* in the *src*, but little guarantee can be given that they work, I will need to write some detailed instructions for the parallel version because that will need additional software installed (openmpi). For UNIX and Mac use the source code distribution and compile for your machine, for windows, I will need to write compile instructions. 
-  
+Migrate estimates effective population sizes, migration rates, divergence
+times and related parameters of n populations from genetic data. It uses
+coalescent theory and integrates over genealogies and mutation histories
+with Markov chain Monte Carlo (Bayesian inference). Results are written to a
+text outfile and to a PDF report with tables, posterior histograms and
+skyline plots; the PDF is tagged for accessibility (PDF/UA-1).
 
 Content
 -------
-- Overview
-- Analyses summary
-- Computer systems
-- History of MIGRATE
-- Distribution
-- Installation
-- Documentation
-- Example folder
-- Troubleshoothing
-- Disclaimer
+- Quick installation (source code)
+- Data types
+- Models and analyses
+- Running the examples
+- Parallel runs (MPI)
+- Converting data
+- History, documentation, guidance
+- Contact
+- License
 
 
-Migrate estimates population parameters, effective population sizes
-migration rates and divergence times of n populations, using genetic data.  
-It uses a coalescent theory approach taking into account history of 
-mutations and uncertainty of the genealogy. 
+Quick installation (source code)
+--------------------------------
+Requirements: a C compiler, autoconf, automake and pkg-config; optional
+OpenMPI (for migrate-n-mpi). zlib and libharu (PDF output) are bundled and
+used when no system version is found.
 
-The estimates of the parameter values are achieved by Bayesian inference (BI).
-The output is presented in an TEXT file _and_ in a PDF file. The PDF file
-contains all currently main tables, posterior histograms (BI) and 
-skylineplots are supported in the PDF.
+    git clone https://github.com/pbeerli/migrate-5.0.7.git
+    cd migrate-5.0.7
+    autoreconf -i
+    ./configure            # or ./configure --enable-debug
+    make
 
-If you fail to see all plots in the outfile PDF, consider to use a 
-non-adobe PDF reader. Recent Adobe Reader fails on some output files 
-reporting empty histograms; other PDF-readers such as Preview.app on 
-mac or Nitro PDF reader are fine.
+This creates src/migrate-n and, when mpicc is found, src/migrate-n-mpi.
 
+Installing the build tools:
 
- 
-Currently the following data types are supported:
--DNA sequence data
- - finite sites model: Tamura-Nei and all models that can be 
-   expressed as a subset of Tamura-Nei
- - finite sites model + rate variation among sites: TN + Gamma
+    sudo apt-get install autoconf automake pkg-config   # Ubuntu/Debian
+    brew install autoconf automake pkg-config           # macOS (Homebrew)
 
--SNP data (single nucleotide polymorphism)
- - SNP are derived from sampled sequences and are completely linked
-   except that we know that the sites are variable, with resequencing project data
-   I suggest NOT to use SNPS but the full sequences, the Bayes factor methods allows
-   to break down into independent loci easily. 
+To put the binaries on your search path:
 
--Microsatellite data 
- - Brownian motion model: a continuous approximation to the stepwise mutation model.
- - stepwise mutation model (if you want to finish your work in this century do not use this))
+    sudo make install          # into /usr/local/bin
 
--Electrophoretic marker data (infinite allele model).
+or, without administrator rights:
+
+    ./configure --prefix=$HOME
+    make
+    make install               # into $HOME/bin; make sure it is on your PATH
+
+If the build fails, please contact me (see below).
 
 
-Analyses
---------
-[+ working and described
- - experimental and needs further description]
-
-+ Estimation of population sizes and migration rates of a migration matrix
-  model, or arbitrarily subsets of a migration matrix model, or an n-island
-  model. Allowing for a geographic distance matrix so that geographic effects 
-  can be removed out of the analysis, Estimation of mutation-scaled divergence
-  time among populations.
-+ Marginal likelihood calculation to assist calculation of Bayes Factor (BI)
-- Allows a variable mutation rate AMONG loci estimated from the data.
-- For sequences: allows a variable substitution rate among sites.
-+ For microsatellites: allows the definition of repeatnumber and use of fragment length as input
-+ Facilitates analyses of multimodal search space distributions with heating
-  scheme and/or multi-run analyses.
-- Histogram of events over time 
-- Plot of expected parameters through time (skyline plots) for all parameters. 
-- Dated samples
-+ Relabeling and merging of populations
-+ Random subset of individuals per population
-- Assignment of indiviudals to populations (population number needs to be known)
-- Haplotype assignment (for small numbers of different haplotypes) and integration over all
-  potential haplotype
+Data types
+----------
+- DNA sequences: finite-sites models from JC69 to Tamura-Nei (JC69, K2P,
+  F81, F84, HKY, TN93), with gamma-distributed rate variation among sites
+  and optional estimation of sequencing error.
+- SNP data (linked SNPs derived from sequences; for resequencing data the
+  full sequences are usually the better choice).
+- Microsatellites: Brownian motion approximation or stepwise mutation
+  model (the stepwise model is slow); repeat numbers or fragment lengths.
+- Electrophoretic/allelic data (infinite allele model).
+- Unphased diploid data: haplotype phases can be integrated over
+  (haplotyping; use heating).
 
 
-Computer systems
-----------------
-You can fetch Migrate from the website http://popgen.sc.fsu.edu
-or http://peterbeerli.com/migrate-html5
-as source code or binary executables. Currently I supply binaries for
-
-- Macintosh:    migrate-n
-- Windows: migrate-n.exe 
-
-The source code should compile on all platforms (windows may be tricky)
-[see top]
-
-The file is compressed as tar.gz or as zip file.
- 	
-The documentation contains information about
-how to compile and use a parallelized version of migrate 
-so that it can run concurrently on computer clusters
-(using MPI [preferrably OpenMPI]).
-
-
-History about bug fixes and new features
-----------------------------------------
-read the HISTORY file.
-
-Distribution
-------------
-Migrate can be fetched from the www-site 
-http://popgen.sc.fsu.edu/ 
-or https://peterbeerli.com/migrate-html5/index.html
-
-Installation
-------------
-(a) Binaries
-Unpack the compressed archive, open the directory migrate-5.x
-- Mac: from the binary distribution copy migrate-n to /usr/local/bin
-  and then use the Terminal.app 
-- Windows: the preferred way to use migrate-n.exe is through the commandline 
-  environment.
-- UNIX: I suggest to use the source distribution to make the best use of your system, then place
-  the binary in /usr/local/bin or some other directory that is searched and then call migrate-n from
-  the commandline.
+Models and analyses
+-------------------
+- Structured coalescent: mutation-scaled population sizes (Theta) and
+  immigration rates (M) for a full or custom migration matrix (fixed,
+  symmetric or tied parameters), n-island models and geographic distance.
+- Population divergence (split times) with or without migration.
+- Population growth.
+- Fractional (Mittag-Leffler) coalescent: one alpha per population for
+  environmentally heterogeneous reproduction; time scale chosen with
+  mittag-leffler-scale=SITE|LOCUS|INVARIANT.
+- Skyline plots of parameters through time; skyline=PARAM estimates
+  piecewise-constant multipliers of Theta and M.
+- Dated samples (tip dates) with a mutation rate per generation and
+  generations per year.
+- Rate variation among loci, inheritance scalars (e.g. mtDNA, X, Y).
+- Assignment of individuals to populations.
+- Multi-locus combination: 'All' (product of per-locus posteriors) and
+  'Joint' (joint combination with Monte Carlo error).
+- Marginal likelihoods for Bayes factor model comparison (thermodynamic
+  integration with Bezier correction, stepping stone, harmonic mean); use
+  static heating (heating=YES:1:LINEAR:N or POWER:N) for model comparison.
+- Convergence diagnostics: effective sample sizes and Gelman-Rubin
+  statistic across replicates.
+- Relabeling/merging of populations and random subsets of individuals.
 
 
+Running the examples
+--------------------
+The example directory contains data sets with matching parmfiles
+(twoswisstowns, assign, gap, hapmap, msat, snp). For example:
+
+    cd example
+    ../src/migrate-n parmfile.twoswisstowns -nomenu
+
+Without -nomenu migrate starts with an interactive menu. Start with a small
+data set and a simple model before running large analyses (see GUIDANCE).
 
 
+Parallel runs (MPI)
+-------------------
+migrate-n-mpi distributes loci (and replicates) over MPI processes:
+
+    mpirun -np 11 migrate-n-mpi parmfile -nomenu
+
+One process is the master; more workers than loci times replicates are not
+used. On clusters, compile with the cluster's mpicc
+(./configure MPICC=/path/to/mpicc).
 
 
-Compiling the Source
----------------------
-Download the program and read the documentation and try the program
-on a small [!] data set.
- 
-For UNIX systems
-the binary can go to standard directories (e.g. /usr/local/bin),
-the rudimentary man page can go to the /usr/local/man/man1.
-
-(b) Source (UNIX and MACs)
-1. unpack the distribution file
-2. cd migrate-VERSION/src
-3. type "./configure"
-   This will create the Makefile 
-   [./configure --help for more options]
- 	
-4. type "make" (please report errors, there will be some warnings depending on your system).
-
-   The result of the compilation should be an executable 
-   "migrate-n" a parallel executable migrate-n-mpi in the src directory
-   [it is called "migrate-n" because
-   on some computer system there is a system program called "migrate"]
-
-5. sudo make install 
-   This will install the programs and (outdated) man-page into usr/local/bin, 
-   /usr/local/man/man1
-   [you need to be root or administrator to do this; this step is NOT necessary, 
-   to use the program, but it would be convenient for all users
-   of your system]
-   if this does not work: 
-   move migrate-n to /usr/local/bin or $HOME/bin or some 
-   other convenient place.
-
-6. change directory to "example"
-   run "migrate-n parmfile.testbayes", 
-   on my mac this takes a few minutes.
-   If this test fails, please let me know!
+Converting data
+---------------
+The contribution directory has conversion scripts, among them
+vcf2mig.py (VCF to migrate format; see python vcf2mig.py --help),
+structure2mig.py, mig2snp.py, fasta2genotype.py and stacks2migrate.py.
 
 
-Documentation
--------------
-You need to download it separately from
-http://popgen.sc.fsu.edu/Downloads.html
-
-It is a PDF file and called  migratedoc.pdf.
-The pdf file can be viewed and printed using Acrobat 
-or any other PDF viewer. New versions of Acrobat have issues reading the 
-PDF output file from migrate, if you see unfinished graphs in your output PDF
-use another viewer (for example NITRO PDF). On macs use Preview.app (it is anyway better than Acrobat Reader).
+History, documentation, guidance
+--------------------------------
+- HISTORY lists bug fixes and new features by version.
+- GUIDANCE gives advice when migrate does not deliver the answers you
+  expect.
+- The manual (migratedoc.pdf) and tutorials are available from
+  https://peterbeerli.com/migrate-html5/index.html
 
 
-Examples
---------
-In the directory "example" you can find some example data sets.
-You might wan to try the two parmfiles.testml and parmfile.testbayes
-Use the Terminal.app (on macosx), or xterm (Linux), or cmd (Windows),
-change directory to the example directory and then execute
-for mac and unix: ../migrate-n parmfile.testbayes
-for windows: ..\migrate-n parmfile.testbayes
-or the ml version.
-
-Guidance
---------
-Look at the file GUIDANCE for some help when migrate is not delivering the answers you think it should deliver.
-
-Fan-mail, complaints, questions and error-reports
--------------------------------------------------
+Contact
+-------
 Peter Beerli
 beerli@fsu.edu
-or
-migrate-support@googlegroups.com
+or migrate-support@googlegroups.com
 
 
-Disclaimers
------------
+License
+-------
 Copyright 1997-2026 Peter Beerli
- 
-** MIT OPENSOURCE LICENSE*****************************************************************
-*  Permission is hereby granted, free of charge, to any person obtaining a copy
-*  of this software and associated documentation files (the "Software"), to deal
-*  in the Software without restriction, including without limitation the rights
-*  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-*  of the Software, and to permit persons to whom the Software is furnished to do
-*  so, subject to the following conditions:
-* 
-*  The above copyright notice and this permission notice shall be included in all copies
-*  or substantial portions of the Software.
-* 
-*  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-*  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-*  PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-*  HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
-*  CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
-*  OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-* 
 
-Last update:
-December 27  2025
+MIT open source license:
 
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in all copies
+or substantial portions of the Software.
 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-
-
-
-
-
+Last update: November 2, 2026
