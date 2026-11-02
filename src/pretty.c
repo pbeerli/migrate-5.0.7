@@ -5200,6 +5200,13 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
       default:
 	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
       }
+    if (options->tri_mlalpha != NO)
+      {   /* the clock's time scale, mittag-leffler-scale */
+	size_t l = strlen(mytext6);
+	mysnprintf(mytext6 + l, LINESIZE - l, ", time scale %s",
+		   options->mlscale == ML_SCALE_LOCUS ? "locus"
+		   : (options->mlscale == ML_SCALE_SITE ? "site" : "invariant"));
+      }
     pdf_printf_right_next(left_margin, &page_height,"%s",mytext6);
     //pdf_advance(&page_height);
 

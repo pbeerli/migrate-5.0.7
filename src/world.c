@@ -400,6 +400,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->lcepsilon = options->lcepsilon;
     wopt->joint_ess = options->joint_ess;
     wopt->joint_block = options->joint_block;
+    wopt->mlscale = options->mlscale;
+    wopt->totalsites = options->totalsites;
     wopt->simulation = options->simulation;
     wopt->datatype = options->datatype;
     if(wopt->bayes_infer)

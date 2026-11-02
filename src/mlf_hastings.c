@@ -190,6 +190,73 @@ static double mlh_growth(world_fmt *world, long pop)
   return (fabs(g) > EPSILON) ? g : 0.0;
 }
 
+/* ---- time scale of the ML clocks (mittag-leffler-scale) ----
+   SITE: survival E_a(-lambda t^a), t in substitutions per site;
+   LOCUS: E_a(-lambda c^(a-1) t^a), c the sites of the locus (the clock runs
+   in locus time c t at rate lambda / c);
+   INVARIANT: E_a(-(lambda t)^a), lambda keeps its units on any time scale.
+   Every clock is E_a(-mlh_rate(lambda) t^a); the competing events of a
+   clock still split by rate / lambda. */
+
+/* sites of a locus: the sum over its subloci; SNP data with the total
+   number of sites given (freqs-from-data [S]) use S */
+double mlh_locus_sites(world_fmt *world, long locus)
+{
+  long s, n = 0;
+  if (world->options->totalsites > 0 && strchr(SNPTYPES, world->options->datatype))
+    return (double) world->options->totalsites;
+  for (s = world->sublocistarts[locus]; s < world->sublocistarts[locus + 1]; s++)
+    n += world->mutationmodels[s].numsites;
+  return n > 0 ? (double) n : 1.0;
+}
+
+/* log c for LOCUS (0 otherwise), cached per locus */
+static double mlh_logc(world_fmt *world)
+{
+  static double *lc = NULL;
+  static long nlc = 0;
+  const long locus = world->locus;
+  if (world->options->mlscale != ML_SCALE_LOCUS)
+    return 0.0;
+  if (locus >= nlc)
+    {
+      long i, n = world->loci + 1;
+      lc = (double *) myrealloc(lc, sizeof(double) * (size_t) n);
+      for (i = nlc; i < n; i++)
+        lc[i] = -1.0;   /* not set (log c >= 0) */
+      nlc = n;
+    }
+  if (lc[locus] < 0.0)
+    lc[locus] = log(mlh_locus_sites(world, locus));
+  return lc[locus];
+}
+
+double mlh_rate(world_fmt *world, double lambda, double alpha)
+{
+  if (alpha >= 1.0 || lambda <= 0.0)
+    return lambda;
+  switch (world->options->mlscale)
+    {
+    case ML_SCALE_LOCUS:
+      return lambda * exp((alpha - 1.0) * mlh_logc(world));
+    case ML_SCALE_INVARIANT:
+      return pow(lambda, alpha);
+    default:
+      return lambda;
+    }
+}
+
+/* growth: a clock with rate lambda0 exp(g t) becomes one with rate
+   *lam0 exp(*g t) (for INVARIANT (lambda0 exp(g t))^a) */
+void mlh_rate_growth(world_fmt *world, double *lam0, double *g, double alpha)
+{
+  if (alpha >= 1.0)
+    return;
+  if (world->options->mlscale == ML_SCALE_INVARIANT)
+    *g *= alpha;
+  *lam0 = mlh_rate(world, *lam0, alpha);
+}
+
 /* ---- divergence (normal split-time hazard, independent of alpha) ----
    a lineage in a derived population pop moves to its ancestral population
    at a time with a truncated-normal distribution; conditioned on survival
@@ -312,6 +379,17 @@ static double mlh_u_growth(double A, double B, double g, double alpha,
   return 0.5 * h * u;
 }
 
+/* u = int mlh_rate(A exp(g s) + B)^(1/alpha) ds over [a, b] */
+static double mlh_u_scaled(world_fmt *world, double A, double B, double g, double alpha,
+                           double a, double b)
+{
+  if (alpha >= 1.0 || world->options->mlscale == ML_SCALE_SITE)
+    return mlh_u_growth(A, B, g, alpha, a, b);
+  if (world->options->mlscale == ML_SCALE_INVARIANT)
+    return mlh_u_growth(A, B, g, 1.0, a, b);
+  return exp((alpha - 1.0) / alpha * mlh_logc(world)) * mlh_u_growth(A, B, g, alpha, a, b);
+}
+
 /* skyline=PARAM segment containing time t (0 without segments); the
    multipliers of segment s are timek[s * numpop2 + parameter] */
 static long mlh_seg(world_fmt *world, double t)
@@ -385,8 +463,8 @@ static double mlh_logS_mig_s(world_fmt *world, long pop, double dt, long seg)
     {
       if (world->options->custm2[i] == '0')
         continue;
-      logs += mlh_logS(world->data->geo[i] * migration_M(world, i, pop)
-                       * world->timek[seg * world->numpop2 + i] / mu, alpha, dt);
+      logs += mlh_logS(mlh_rate(world, world->data->geo[i] * migration_M(world, i, pop)
+                                * world->timek[seg * world->numpop2 + i] / mu, alpha), alpha, dt);
     }
   return logs;
 }
@@ -472,7 +550,7 @@ static double mlh_u_spell(world_fmt *world, long pop, long kp, double a, double 
       double y = (s == last) ? b : world->times[s + 1];
       double A = (kp > 1) ? kp * (kp - 1) * mlh_pairrate_s(world, pop, s) / 2.0 : 0.0;
       double B = (kp > 0) ? kp * mlh_migtotal_s(world, pop, s) : 0.0;
-      u += mlh_u_growth(A, B, g, alpha, x, y);
+      u += mlh_u_scaled(world, A, B, g, alpha, x, y);
     }
   return u;
 }
@@ -502,7 +580,8 @@ static double mlh_logp_perpop_sky(world_fmt *world, const mlh_list *L, double *a
           lam_end = A * exp(g * e->age) + B;
           rate = (e->type == 'c') ? mlh_pairrate_s(world, x, s) * exp(g * e->age)
             : mlh_migrate_s(world, e->above, x, s);
-          logp += mlh_logf_u(mlh_u_spell(world, x, kb[x], a[x], e->age), lam_end, alpha)
+          logp += mlh_logf_u(mlh_u_spell(world, x, kb[x], a[x], e->age),
+                             mlh_rate(world, lam_end, alpha), alpha)
             - log(lam_end) + log(rate);
           a[x] = e->age;
         }
@@ -553,14 +632,18 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
               double lam_end = A * exp(g * e->age) + B;
               if (e->type == 'c')
                 rate *= exp(g * e->age);
-              logp += mlh_logf_u(mlh_u_growth(A, B, g, alpha, a[x], e->age), lam_end, alpha)
+              logp += mlh_logf_u(mlh_u_scaled(world, A, B, g, alpha, a[x], e->age),
+                                 mlh_rate(world, lam_end, alpha), alpha)
                 - log(lam_end) + log(rate);
             }
           else if (alpha >= 1.0)
             logp += log(rate) - lam * dt;
           else
-            logp += (alpha - 1.0) * log(dt)
-              + creal(mittag_leffler(alpha, alpha, -lam * pow(dt, alpha))) + log(rate);
+            {           /* f(dt) rate / lam, f the density of the scaled clock */
+              const double lams = mlh_rate(world, lam, alpha);
+              logp += (alpha - 1.0) * log(dt) + log(lams / lam)
+                + creal(mittag_leffler(alpha, alpha, -lams * pow(dt, alpha))) + log(rate);
+            }
           a[x] = e->age;
         }
       for (pop = 0; pop < numpop; pop++)
@@ -571,13 +654,13 @@ static double mlh_logp_perpop(world_fmt *world, const mlh_list *L, double *a)
             {
               const double g = mlh_growth(world, pop);
               if (g != 0.0 && kb[pop] > 1)
-                logp += mlh_logS_u(mlh_u_growth(kb[pop] * (kb[pop] - 1) * mlh_pairrate(world, pop) / 2.0,
+                logp += mlh_logS_u(mlh_u_scaled(world, kb[pop] * (kb[pop] - 1) * mlh_pairrate(world, pop) / 2.0,
                                                 kb[pop] * mlh_migtotal(world, pop), g,
                                                 mlh_alpha(world, pop), a[pop], e->age),
                                    mlh_alpha(world, pop));
               else
-                logp += mlh_logS(mlh_lambda(world, pop, kb[pop]), mlh_alpha(world, pop),
-                                 e->age - a[pop]);
+                logp += mlh_logS(mlh_rate(world, mlh_lambda(world, pop, kb[pop]), mlh_alpha(world, pop)),
+                                 mlh_alpha(world, pop), e->age - a[pop]);
             }
           a[pop] = e->age;
         }
@@ -668,11 +751,11 @@ double mlh_spells_logp(world_fmt *world, const double *sp, long n)
       const double alpha = mlh_alpha(world, pop);
       const double lam = mlh_lambda(world, pop, k);
       if (kind == 0)
-        logp += mlh_logS(lam, alpha, dt);
+        logp += mlh_logS(mlh_rate(world, lam, alpha), alpha, dt);
       else
         {
           const double rate = (kind == 1) ? mlh_pairrate(world, pop) : mlh_migrate(world, kind - 2, pop);
-          logp += mlh_logf(lam, alpha, dt) - log(lam) + log(rate);
+          logp += mlh_logf(mlh_rate(world, lam, alpha), alpha, dt) - log(lam) + log(rate);
         }
     }
   return logp;
@@ -843,24 +926,24 @@ static double mlh_clocks_s(world_fmt *world, long pop, long kcoal, long which,
   double logq;
   if (g != 0.0 && lc > 0.0)
     {                   /* coalescence rate lc exp(g t) (proposal: time_to_coalescence) */
-      double u = mlh_u_growth(lc, 0.0, g, alpha, t0, t0 + dt);
+      double u = mlh_u_scaled(world, lc, 0.0, g, alpha, t0, t0 + dt);
       if (which == -1)
-        logq = mlh_logf_u(u, lc * exp(g * (t0 + dt)), alpha);
+        logq = mlh_logf_u(u, mlh_rate(world, lc * exp(g * (t0 + dt)), alpha), alpha);
       else
         logq = mlh_logS_u(u, alpha);
     }
   else if (which == -1)
-    logq = mlh_logf(lc, alpha, dt);
+    logq = mlh_logf(mlh_rate(world, lc, alpha), alpha, dt);
   else
-    logq = mlh_logS(lc, alpha, dt);
+    logq = mlh_logS(mlh_rate(world, lc, alpha), alpha, dt);
   if (which >= 0)
     {
       double lm = mlh_migrate_s(world, which, pop, seg);
       if (alpha >= 1.0)
         logq += log(lm) - mlh_migtotal_s(world, pop, seg) * dt;
       else
-        logq += mlh_logS_mig_s(world, pop, dt, seg) - mlh_logS(lm, alpha, dt)
-          + mlh_logf(lm, alpha, dt);
+        logq += mlh_logS_mig_s(world, pop, dt, seg) - mlh_logS(mlh_rate(world, lm, alpha), alpha, dt)
+          + mlh_logf(mlh_rate(world, lm, alpha), alpha, dt);
     }
   else
     logq += mlh_logS_mig_s(world, pop, dt, seg);

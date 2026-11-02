@@ -35,9 +35,10 @@ extern double jml_logf (const jml_alpha *A, double lu);
 extern void jml_spells_prepare (double *sp, long n, long numpop);
 
 /* log p(spells of one population | theta, M[j] (a lineage moving to j),
-   alpha), the prepared spells sp[0..2n) of that population */
+   alpha), the prepared spells sp[0..2n) of that population; scale, lc: the
+   clock's time scale (mittag-leffler-scale; lc log sites of the locus) */
 extern double jml_pop_logp (const double *sp, long n, long numpop, double mu, double inh,
-                            double theta, const double *M, const jml_alpha *A);
+                            double theta, const double *M, const jml_alpha *A, int scale, double lc);
 
 /* one population's inner integral at fixed alpha over Theta (prior given by
    logprior on [tlo, thi]) and its r free immigration rates, each U(0, mmax)
@@ -55,7 +56,7 @@ typedef struct
 } jml_inner;
 
 extern double jml_inner_log (const double *sp, long n, long numpop, long pop, double mu,
-                             double inh, const jml_alpha *A, jml_inner *I);
+                             double inh, const jml_alpha *A, int scale, double lc, jml_inner *I);
 
 /* Gauss-Legendre nodes for the alpha integral */
 #define JML_NALPHA 24

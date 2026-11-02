@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/}
-#define NUMNUMBER 76
+#define NUMNUMBER 77
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -559,6 +559,7 @@ void init_options (option_fmt * options)
     options->lcepsilon = LONGCHAINEPSILON;
     options->joint_ess = JOINT_ESS_DEFAULT;
     options->joint_block = JOINT_BLOCK_AUTO;
+    options->mlscale = ML_SCALE_INVARIANT;
     options->gelman = FALSE; 
     options->gelmanpairs = FALSE;
     options->pluschain = PLUSCHAIN;
@@ -1056,6 +1057,13 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
       case ESTIMATE:
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=Estimate");
 	break;
+      }
+    if (options->tri_mlalpha != NO)
+      {   /* the clock's time scale, mittag-leffler-scale */
+	size_t l = strlen(mytext6);
+	mysnprintf(mytext6 + l, LINESIZE - l, ", time scale %s",
+		   options->mlscale == ML_SCALE_LOCUS ? "locus"
+		   : (options->mlscale == ML_SCALE_SITE ? "site" : "invariant"));
       }
     fprintf (file, "    - Population size estimation: Theta [%s]\n",mytext6);
 
@@ -6256,6 +6264,24 @@ numbercheck (option_fmt * options, char *var, char *value)
             break;
           default:
             options->joint_block = JOINT_BLOCK_AUTO;
+            break;
+          }
+        break;
+    case 76:   /*mittag-leffler-scale=<SITE|LOCUS|INVARIANT>: time scale of the
+                 Mittag-Leffler clocks (docs/joint_mlalpha_design.md section 9) */
+        switch (uppercase (value[0]))
+          {
+          case 'L':
+            options->mlscale = ML_SCALE_LOCUS;
+            break;
+          case 'I':
+            options->mlscale = ML_SCALE_INVARIANT;
+            break;
+          case 'S':
+            options->mlscale = ML_SCALE_SITE;
+            break;
+          default:
+            options->mlscale = ML_SCALE_INVARIANT;
             break;
           }
         break;

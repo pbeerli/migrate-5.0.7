@@ -190,6 +190,8 @@ typedef struct
   boolean ml;
   long off_nsp;             /* per population: its number of spells */
   long off_inh;             /* the inheritance scalar of the locus */
+  long off_lc;              /* ML: log sites of the locus (mittag-leffler-scale=LOCUS) */
+  int mlscale;              /* ML: mittag-leffler-scale */
   long *apar;               /* per population: its alpha parameter, or -1 (fixed) */
   double *afix;             /* per population: its fixed alpha (1 without ML) */
 } jc_layout;
@@ -442,6 +444,9 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->nrow += numpop;
       ly->off_inh = ly->nrow;
       ly->nrow += 1;
+      ly->off_lc = ly->nrow;
+      ly->nrow += 1;
+      ly->mlscale = world->options->mlscale;
     }
   ly->off_mu = ly->nrow;
   ly->nrow += 1;
@@ -1006,6 +1011,7 @@ jc_record_sample (world_fmt *world)
       for (i = 0; i < nsp; i++)
         st[ly.off_nsp + JML_POP (spells[2 * i], numpop)] += 1.0;
       st[ly.off_inh] = inh;
+      st[ly.off_lc] = log (mlh_locus_sites (world, world->locus));
       if (getenv ("MIGRATE_JC_MLCHECK") != NULL)
         {   /* the spells reproduce the sampler's p(G|params) */
           static double worst = 0.0;
@@ -2164,7 +2170,8 @@ jc_ml_term (const jc_layout *ly, const double *st, const double *sp, long pop, c
       }
   const double alpha = ly->apar[pop] >= 0 ? phi[ly->apar[pop]] : ly->afix[pop];
   return jml_pop_logp (sp + 2 * off, (long) st[ly->off_nsp + pop], ly->numpop, st[ly->off_mu],
-                       st[ly->off_inh], jc_value (ly, phi, pop), M, jc_ml_table (alpha));
+                       st[ly->off_inh], jc_value (ly, phi, pop), M, jc_ml_table (alpha),
+                       ly->mlscale, st[ly->off_lc]);
 }
 
 /* Mittag-Leffler: log Z(G) of a row. Populations with their own alpha
@@ -2206,7 +2213,7 @@ jc_ml_lognorm (world_fmt *world, const jc_layout *ly, const double *st, const do
       if (p < 0)
         {
           lz += jml_inner_log (sp + 2 * off[pop], off[pop + 1] - off[pop], numpop, pop, st[ly->off_mu],
-                               st[ly->off_inh], jc_ml_table (ly->afix[pop]), &I[pop]);
+                               st[ly->off_inh], jc_ml_table (ly->afix[pop]), ly->mlscale, st[ly->off_lc], &I[pop]);
           done[pop] = TRUE;
           continue;
         }
@@ -2249,7 +2256,7 @@ jc_ml_lognorm (world_fmt *world, const jc_layout *ly, const double *st, const do
           for (q = pop; q < numpop; q++)
             if (ly->apar[q] == p)
               v += jml_inner_log (sp + 2 * off[q], off[q + 1] - off[q], numpop, q, st[ly->off_mu],
-                                  st[ly->off_inh], &nodetab[k], &I[q]);
+                                  st[ly->off_inh], &nodetab[k], ly->mlscale, st[ly->off_lc], &I[q]);
           vals[j] = v;
         }
       for (q = pop; q < numpop; q++)

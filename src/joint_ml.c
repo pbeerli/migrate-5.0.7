@@ -341,14 +341,15 @@ jml_logf (const jml_alpha *A, double lu)
 /// log density of one population's spells; M[j]: rate of a lineage of the
 /// population moving to j (0 when there is no route). The spells carry log dt
 /// (jml_spells_prepare()) and are sorted by k, so that log lambda is computed
-/// once per k.
+/// once per k. scale, lc: the clock's time scale (mittag-leffler-scale, log c
+/// the log sites of the locus for ML_SCALE_LOCUS), as mlh_rate().
 double
 jml_pop_logp (const double *sp, long n, long numpop, double mu, double inh,
-              double theta, const double *M, const jml_alpha *A)
+              double theta, const double *M, const jml_alpha *A, int scale, double lc)
 {
   double mtot = 0.0, v = 0.0, lrate[3 + 2];
   long i, j, lastk = -1;
-  double lam = 0.0, ll = 0.0;
+  double lam = 0.0, ll = 0.0, lls = 0.0;
   if (!(theta > 0.0))
     return -HUGE_VAL;
   for (j = 0; j < numpop; j++)
@@ -370,6 +371,8 @@ jml_pop_logp (const double *sp, long n, long numpop, double mu, double inh,
           const double k = (double) kk;
           lam = k * (k - 1.0) * cpair + k * mrate;
           ll = lam > 0.0 ? log (lam) : -HUGE_VAL;
+          /* log of the scaled clock rate */
+          lls = scale == ML_SCALE_INVARIANT ? a * ll : (scale == ML_SCALE_LOCUS ? ll + (a - 1.0) * lc : ll);
           lastk = kk;
         }
       if (kind >= 2 && lrate[kind] == -HUGE_VAL)
@@ -384,11 +387,11 @@ jml_pop_logp (const double *sp, long n, long numpop, double mu, double inh,
         v += (kind > 0 ? lrate[kind] : 0.0) - lam * exp (ldt);
       else
         {
-          const double lu = ll * ia + ldt;
+          const double lu = lls * ia + ldt;
           if (kind == 0)
             v += jml_logS (A, lu);
           else
-            v += jml_logf (A, lu) + ll * ia - ll + lrate[kind];
+            v += jml_logf (A, lu) + lls * ia - ll + lrate[kind];
         }
     }
   return v;
@@ -517,6 +520,8 @@ typedef struct
   const double *sp;
   long n, numpop, pop;
   double mu, inh;
+  int scale;
+  double lc;
   const jml_alpha *A;
   jml_inner *I;
   long m[2];
@@ -548,13 +553,13 @@ jml_h (jml_ctx *c, const double *y)
     }
   if (v == -HUGE_VAL)
     return v;
-  return v + jml_pop_logp (c->spr, c->n, c->numpop, c->mu, c->inh, th, c->M, c->A);
+  return v + jml_pop_logp (c->spr, c->n, c->numpop, c->mu, c->inh, th, c->M, c->A, c->scale, c->lc);
 }
 
 /// log of one population's inner integral at fixed alpha
 double
 jml_inner_log (const double *sp, long n, long numpop, long pop, double mu,
-               double inh, const jml_alpha *A, jml_inner *I)
+               double inh, const jml_alpha *A, int scale, double lc, jml_inner *I)
 {
   jml_ctx c;
   const long d = I->r > 0 ? 2 : 1;
@@ -586,6 +591,8 @@ jml_inner_log (const double *sp, long n, long numpop, long pop, double mu,
   c.pop = pop;
   c.mu = mu;
   c.inh = inh;
+  c.scale = scale;
+  c.lc = lc;
   c.A = A;
   c.I = I;
   c.M = (double *) mycalloc ((size_t) numpop, sizeof (double));
