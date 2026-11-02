@@ -80,6 +80,7 @@ extern void construct_param_hist(world_fmt *world, long locus, long npa, long pa
 extern logpriorratioptr * log_prior_ratio;
 extern logpriorptr * log_prior;
 extern logprior1ptr * log_prior_1;
+extern MYREAL log_prior_uni1(world_fmt *world, long numparam, MYREAL val);
 extern profuncptr * propose_new;
 extern hastratioptr * hastings_ratio;
 

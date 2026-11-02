@@ -655,6 +655,8 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	  // spamming stderr. Found while auditing this tree against
 	  // migrate-codex-7, which never had it (already commented out).
 	  //fprintf(stderr,"%i> -(t1-t0)^a=-(%f)^%f=%f\n",myID,t1-t0,mlalpha,deltatime);
+	  if (mlalpha < 1.0 && world->options->mlscale != ML_SCALE_SITE)
+	    error("mittag-leffler-scale=LOCUS or INVARIANT needs the per-population Mittag-Leffler density, which this divergence distribution does not have\n");
 	}
       /* an interval ending at a tip has its waiting terms but no event:
          with dated tips these intervals have length (skipping them, as

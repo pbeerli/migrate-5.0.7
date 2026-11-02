@@ -296,6 +296,13 @@ void print_parm_mlalpha(long *bufsize, char **buffer, long *allocbufsize, option
       print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-alpha=YES:ESTIMATE");
       break;
     }
+  print_parm_comment(bufsize, buffer, allocbufsize, "  Time scale of the Mittag-Leffler clocks: SITE E_a(-lambda t^a) with t per site,");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  LOCUS E_a(-lambda c^(a-1) t^a) with c the sites of the locus, INVARIANT E_a(-(lambda t)^a)");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  Syntax mittag-leffler-scale=<SITE|LOCUS|INVARIANT>");
+  print_parm_mutable(bufsize, buffer, allocbufsize, "#default: mittag-leffler-scale=INVARIANT");
+  print_parm_mutable(bufsize, buffer, allocbufsize, "mittag-leffler-scale=%s",
+                     options->mlscale == ML_SCALE_LOCUS ? "LOCUS"
+                     : (options->mlscale == ML_SCALE_INVARIANT ? "INVARIANT" : "SITE"));
   print_parm_br(bufsize, buffer, allocbufsize);
   print_parm_smalldelimiter(bufsize, buffer, allocbufsize);	
   print_parm_br(bufsize, buffer, allocbufsize);

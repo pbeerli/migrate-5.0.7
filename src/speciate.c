@@ -1357,10 +1357,15 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 	  //a) Log[RandomReal[]]
 	  denom = (double) lines /(rate*timethetarate);
 	  //interval = interval_mittag_leffler(r, mlalpha, denom,priormin,priormax);
+	  /* the clock on the time scale of mittag-leffler-scale (mlh_rate()) */
 	  if(world->has_growth && growpops[pop]!=0 && fabs(growth[growpops[pop]-1])>EPSILON)
-	    interval = propose_new_mlftime_growthrate(denom, mlalpha, growth[growpops[pop]-1], age);
+	    {
+	      double lam0 = denom, gs = growth[growpops[pop]-1];
+	      mlh_rate_growth(world, &lam0, &gs, mlalpha);
+	      interval = propose_new_mlftime_growthrate(lam0, mlalpha, gs, age);
+	    }
 	  else
-	    interval = propose_new_mlftime(denom, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
+	    interval = propose_new_mlftime(mlh_rate(world, denom, mlalpha), mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 	}
       else
 	{
@@ -1479,7 +1484,7 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 		{
 		  mlalpha = mlalphas[mlalphapops[tox]-1];
 		  //DEBUG N^a 		  
-		  interval = propose_new_mlftime(mm, mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
+		  interval = propose_new_mlftime(mlh_rate(world, mm, mlalpha), mlalpha, UNIF_RANDUM(), UNIF_RANDUM());
 		  //interval = interval_mittag_leffler(UNIF_RANDUM(), mlalpha, mm, priormin, priormax);
 		}
 	      else

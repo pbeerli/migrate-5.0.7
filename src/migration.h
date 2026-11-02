@@ -1033,6 +1033,9 @@ typedef struct _option
   long lincrement;
   long lsteps;
   MYREAL lcepsilon;
+  long joint_ess;  // joint combination: main run stops at this ESS (0: fixed length)
+  int joint_block; // joint combination: block proposals, JOINT_BLOCK_AUTO/YES/NO
+  int mlscale;     // mittag-leffler-scale: ML_SCALE_SITE/LOCUS/INVARIANT
   boolean gelman;
   boolean gelmanpairs;
   long pluschain;  //how many chains are allowed , currently HARDCODED
@@ -1336,6 +1339,10 @@ typedef struct _worldoption
     boolean gelman;
   boolean gelmanpairs;
     MYREAL lcepsilon;
+    long joint_ess;
+    int joint_block;
+    int mlscale;
+    long totalsites;   /* SNP data: sites of a locus with the invariant ones */
     boolean simulation;
     char datatype;
     long lsteps;

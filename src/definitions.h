@@ -454,6 +454,13 @@ typedef int boolean;
 #define LONGCHAINEPSILON  10e100 /* an unreasonable big number,
 so that the given number of
 long chains is used */
+#define JOINT_ESS_DEFAULT 1000    /* joint-ess: ESS at which the joint combination's main run stops */
+#define JOINT_BLOCK_AUTO 0        /* joint-block: on for Mittag-Leffler joints only */
+#define JOINT_BLOCK_YES 1
+#define JOINT_BLOCK_NO 2
+#define ML_SCALE_SITE 0           /* mittag-leffler-scale: clock E_a(-lambda t^a), t per site */
+#define ML_SCALE_LOCUS 1          /* E_a(-lambda c^(a-1) t^a), c the sites of the locus */
+#define ML_SCALE_INVARIANT 2      /* E_a(-(lambda t)^a) */
 #define CHAINVARIANCEDELTA 0.01 /*difference of variances of parts of a chain [see burnin_autostop]*/
 #define ESSMINIMUM 20  /*effective sample size minimum for burnin, see burnin_autostop (autotune.c)*/
 #define GELMAN_MYSTIC_VALUE 1.2

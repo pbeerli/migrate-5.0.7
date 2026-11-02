@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/}
-#define NUMNUMBER 74
+#define NUMNUMBER 77
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -557,6 +557,9 @@ void init_options (option_fmt * options)
     //
     // obscure options to accept more different trees
     options->lcepsilon = LONGCHAINEPSILON;
+    options->joint_ess = JOINT_ESS_DEFAULT;
+    options->joint_block = JOINT_BLOCK_AUTO;
+    options->mlscale = ML_SCALE_INVARIANT;
     options->gelman = FALSE; 
     options->gelmanpairs = FALSE;
     options->pluschain = PLUSCHAIN;
@@ -1055,6 +1058,13 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=Estimate");
 	break;
       }
+    if (options->tri_mlalpha != NO)
+      {   /* the clock's time scale, mittag-leffler-scale */
+	size_t l = strlen(mytext6);
+	mysnprintf(mytext6 + l, LINESIZE - l, ", time scale %s",
+		   options->mlscale == ML_SCALE_LOCUS ? "locus"
+		   : (options->mlscale == ML_SCALE_SITE ? "site" : "invariant"));
+      }
     fprintf (file, "    - Population size estimation: Theta [%s]\n",mytext6);
 
     if(world->has_growth)
@@ -1466,6 +1476,8 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
             fprintf (file, "   Parameter-likelihood epsilon:        %20.5f\n",
                      options->lcepsilon);
         }
+        if (options->joint_ess > 0)
+            fprintf (file, "   Joint combination stops at ESS:      %20li\n", options->joint_ess);
     fprintf (file, "\nPrint options:\n");
       fprintf (file, "   Data file: %46.46s\n", options->infilename);
       fprintf (file, "   Parameter file: %41.41s\n", options->parmfilename);
@@ -4754,6 +4766,23 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
       print_parm_mutable(&bufsize, buffer, allocbufsize, "bayes-all-posteriors=YES /*this can results in very many (param*loci) plots */");
     else
       print_parm_mutable(&bufsize, buffer, allocbufsize, "bayes-all-posteriors=NO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Joint multi-locus combination: its main run stops once every");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   parameter has this effective sample size (checked every 5000 sweeps)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: joint-ess=<VALUE | NO>   (NO: the full run; old name long-chain-epsilon)");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: joint-ess=%d", JOINT_ESS_DEFAULT);
+    if (options->joint_ess > 0)
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-ess=%li", options->joint_ess);
+    else
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-ess=NO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Joint multi-locus combination: block proposals (all parameters at once,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   with the covariance of the burn-in) instead of one parameter at a time");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: joint-block=<AUTO | YES | NO>   (AUTO: Mittag-Leffler only)");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: joint-block=AUTO");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-block=%s",
+                       options->joint_block == JOINT_BLOCK_YES ? "YES"
+                       : (options->joint_block == JOINT_BLOCK_NO ? "NO" : "AUTO"));
     print_parm_proposal(&bufsize, buffer, allocbufsize, options);
     //
     print_parm_prior(&bufsize, buffer, allocbufsize, options);  //<-- print priors into buffer
@@ -6212,10 +6241,49 @@ numbercheck (option_fmt * options, char *var, char *value)
     case 23:   /*title */
         strncpy (options->title, value, 80);
         break;
-    case 24:   /*long-chain-epsilon */
-        options->lcepsilon = atof (value);
-        if (options->lcepsilon <= 0)
-            options->lcepsilon = LONGCHAINEPSILON;
+    case 24:   /*long-chain-epsilon: since 6.1.79 an alias of joint-ess (its
+                 maximum-likelihood meaning, extra long chains while the
+                 parameter likelihood exceeded the value, is set in the menu) */
+    case 74:   /*joint-ess=<value|NO>: the joint combination's main run stops
+                 once every parameter has this effective sample size (checked
+                 every 5000 sweeps, at most the full run); NO or 0: full run */
+        if (uppercase (value[0]) == 'N')
+            options->joint_ess = 0;
+        else
+            options->joint_ess = atol (value) > 0 ? atol (value) : 0;
+        break;
+    case 75:   /*joint-block=<AUTO|YES|NO>: block proposals in the joint
+                 combination's sampler (AUTO: Mittag-Leffler joints only) */
+        switch (uppercase (value[0]))
+          {
+          case 'Y':
+            options->joint_block = JOINT_BLOCK_YES;
+            break;
+          case 'N':
+            options->joint_block = JOINT_BLOCK_NO;
+            break;
+          default:
+            options->joint_block = JOINT_BLOCK_AUTO;
+            break;
+          }
+        break;
+    case 76:   /*mittag-leffler-scale=<SITE|LOCUS|INVARIANT>: time scale of the
+                 Mittag-Leffler clocks (docs/joint_mlalpha_design.md section 9) */
+        switch (uppercase (value[0]))
+          {
+          case 'L':
+            options->mlscale = ML_SCALE_LOCUS;
+            break;
+          case 'I':
+            options->mlscale = ML_SCALE_INVARIANT;
+            break;
+          case 'S':
+            options->mlscale = ML_SCALE_SITE;
+            break;
+          default:
+            options->mlscale = ML_SCALE_INVARIANT;
+            break;
+          }
         break;
     case 25:   /* print-tree options */
         switch (uppercase (value[0]))
