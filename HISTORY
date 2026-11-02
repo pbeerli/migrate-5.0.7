@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 2   Migrate 6.1.79 Mittag-Leffler: alpha estimated in the joint combination; new
+             mittag-leffler-scale=SITE|LOCUS|INVARIANT, default INVARIANT (ML results differ
+             from earlier versions, SITE gives the old clock). ESS table: batch-means ESS
+             (old lag-1 values were up to ~20x too high), sum and per locus; MPI no longer
+             double counts. joint-ess default now also shortens non-ML joint runs.
 November 1   Migrate 6.1.78 MPI workers computed every sequence likelihood under JC69 (since
              2025-07, data-on-demand); TN93 in the infile without b used kappa2 as b.
              skyline=PARAM: segment values no longer bounded by the prior range (biased
