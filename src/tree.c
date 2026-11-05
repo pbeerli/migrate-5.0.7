@@ -2341,6 +2341,12 @@ my_random_tree (world_fmt * world, long tips)
   datelist[i].age = (double)HUGE;
   qsort(datelist,(size_t) (tips+1), sizeof(vtlist),agecmp);
   starttime = datelist[0].age;
+  /* the clock starts at the youngest tip: with random-subset the dates are
+     relative to the youngest individual of the whole data file, so the
+     youngest sampled tip can be older than 0, and events simulated from 0
+     ended up younger than their lineage's own nodes (negative lineage
+     counts in the timelist) */
+  age = starttime;
   simtips = 0;
   for (i=0; i<tips;i++)
     {
@@ -2420,6 +2426,7 @@ my_random_tree (world_fmt * world, long tips)
 	  break;
 	case 'm':
 	  origin = add_migration(world,origin,'m',from, to,shortt);
+	  origin->tyme = age;   /* as for 'd': the event is at the current age, not at the lineage's last node + shortt */
 	  lineages[origin->actualpop] -= 1;
 	  lineages[origin->pop] += 1;
 	  nodelist[shorti] = origin;
