@@ -12,6 +12,8 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 5   Migrate 6.1.80 Random start tree with tip dates (datefile): the clock now starts at
+             the youngest tip; with random-subset the start tree failed ("FAILED" lineages).
 November 2   Migrate 6.1.79 Mittag-Leffler: alpha estimated in the joint combination; new
              mittag-leffler-scale=SITE|LOCUS|INVARIANT, default INVARIANT (ML results differ
              from earlier versions, SITE gives the old clock). ESS table: batch-means ESS
