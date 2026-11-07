@@ -1,4 +1,6 @@
-# Migrate 6.1.79
+<img src="migrate_logo.png" alt="Migrate logo: two populations, red and blue, with a genealogy connecting their samples" width="120">
+
+# Migrate 6.1.80
 
 Released November 2026
 
@@ -9,11 +11,16 @@ with Markov chain Monte Carlo (Bayesian inference). Results are written to a
 text outfile and to a PDF report with tables, posterior histograms and
 skyline plots; the PDF is tagged for accessibility (PDF/UA-1).
 
+Migrate 6.1 is the production line. Migrate 7 (repository migrate-7-codex)
+is the modernized development line with the same input files, parmfile
+options and models; bug fixes are applied to both.
+
 Content
 -------
 - Quick installation (source code)
 - Data types
 - Models and analyses
+- Output files
 - Running the examples
 - Parallel runs (MPI)
 - Converting data
@@ -77,21 +84,36 @@ Models and analyses
 - Population growth.
 - Fractional (Mittag-Leffler) coalescent: one alpha per population for
   environmentally heterogeneous reproduction; time scale chosen with
-  mittag-leffler-scale=SITE|LOCUS|INVARIANT.
+  mittag-leffler-scale=SITE|LOCUS|INVARIANT (default INVARIANT).
 - Skyline plots of parameters through time; skyline=PARAM estimates
   piecewise-constant multipliers of Theta and M.
 - Dated samples (tip dates) with a mutation rate per generation and
   generations per year.
 - Rate variation among loci, inheritance scalars (e.g. mtDNA, X, Y).
+- Priors per parameter: uniform, log-uniform, exponential, gamma, normal,
+  beta, multiplier, and windowed versions of exponential, gamma, normal
+  and beta.
 - Assignment of individuals to populations.
 - Multi-locus combination: 'All' (product of per-locus posteriors) and
   'Joint' (joint combination with Monte Carlo error).
 - Marginal likelihoods for Bayes factor model comparison (thermodynamic
   integration with Bezier correction, stepping stone, harmonic mean); use
   static heating (heating=YES:1:LINEAR:N or POWER:N) for model comparison.
-- Convergence diagnostics: effective sample sizes and Gelman-Rubin
-  statistic across replicates.
+- Convergence diagnostics: effective sample sizes (batch means) and the
+  Gelman-Rubin statistic across replicates.
 - Relabeling/merging of populations and random subsets of individuals.
+
+
+Output files
+------------
+- outfile: text report with all tables.
+- outfile.pdf: the same report with posterior histograms and skyline plots,
+  tagged PDF (PDF/UA-1).
+- Optional files, set in the parmfile: bayes-file and bayes-allfile
+  (posterior samples), mig-histogram (migration-event histograms, and with
+  skyline the skyline file), print-tree (genealogies) and logfile.
+- Input: parmfile (all options; the menu can save it), infile (data),
+  and optionally tipdate-file and distfile.
 
 
 Running the examples
@@ -113,8 +135,8 @@ migrate-n-mpi distributes loci (and replicates) over MPI processes:
     mpirun -np 11 migrate-n-mpi parmfile -nomenu
 
 One process is the master; more workers than loci times replicates are not
-used. On clusters, compile with the cluster's mpicc
-(./configure MPICC=/path/to/mpicc).
+used. The largest loci are sent out first. On clusters, compile with the
+cluster's mpicc (./configure MPICC=/path/to/mpicc).
 
 
 Converting data
@@ -163,4 +185,4 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTIO
 CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Last update: November 2, 2026
+Last update: November 7, 2026
