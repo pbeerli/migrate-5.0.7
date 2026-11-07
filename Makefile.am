@@ -24,6 +24,7 @@ EXTRA_DIST = \
   HISTORY \
   GUIDANCE \
   README.md \
+  migrate_logo.png \
   example/*
 
 DISTCLEANFILES = \
