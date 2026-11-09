@@ -1034,10 +1034,11 @@ typedef struct _option
   long lsteps;
   MYREAL lcepsilon;
   long joint_ess;  // joint combination: main run stops at this ESS (0: fixed length)
+  MYREAL joint_samples; // joint combination: genealogies used per locus (0: AUTO, <=1: fraction of the recorded ones, >1: number)
+  int divergence_order; // divergence-order: TRUE (TREE) keeps a split younger than the split that created its ancestor
   int joint_block; // joint combination: block proposals, JOINT_BLOCK_AUTO/YES/NO
   int mlscale;     // mittag-leffler-scale: ML_SCALE_SITE/LOCUS/INVARIANT
   boolean gelman;
-  boolean gelmanpairs;
   long pluschain;  //how many chains are allowed , currently HARDCODED
   boolean replicate;
   long replicatenum;
@@ -1337,9 +1338,10 @@ typedef struct _worldoption
   boolean tersepdf; // prints only summaries and not per locus information
     boolean replicate;
     boolean gelman;
-  boolean gelmanpairs;
     MYREAL lcepsilon;
     long joint_ess;
+    MYREAL joint_samples;
+    int divergence_order;
     int joint_block;
     int mlscale;
     long totalsites;   /* SNP data: sites of a locus with the invariant ones */

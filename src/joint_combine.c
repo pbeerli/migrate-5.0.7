@@ -169,6 +169,10 @@ typedef struct
   long *split_pmu, *split_psig; /* per split: parameter indices (psig -1: fixed) */
   long *split_ns;           /* per split: std grid points (1 when fixed) */
   long *split_rep;          /* per split: first split of its tied group (t/T), else itself */
+  long *split_par;          /* per group (its first split): the group of the split that
+                               created its ancestor population, -1 if none or unordered
+                               (divergence-order=TREE: the mean split time is at most
+                               that of the parent) */
   double *split_sfix;       /* per split: the fixed std */
   long *off_D;              /* per split: offset of the D(mu, sigma) grid */
   double *mgrid, *sgrid;    /* per split: JC_NM means, JC_NS stds */
@@ -216,6 +220,7 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->split_psig);
   myfree (ly->split_ns);
   myfree (ly->split_rep);
+  myfree (ly->split_par);
   myfree (ly->split_sfix);
   myfree (ly->off_D);
   myfree (ly->mgrid);
@@ -314,6 +319,7 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
   ly->split_psig = (long *) mycalloc ((size_t) (nsm + 1), sizeof (long));
   ly->split_ns = (long *) mycalloc ((size_t) (nsm + 1), sizeof (long));
   ly->split_rep = (long *) mycalloc ((size_t) (nsm + 1), sizeof (long));
+  ly->split_par = (long *) mycalloc ((size_t) (nsm + 1), sizeof (long));
   ly->split_sfix = (double *) mycalloc ((size_t) (nsm + 1), sizeof (double));
   ly->off_D = (long *) mycalloc ((size_t) (nsm + 1), sizeof (long));
   ly->mgrid = (double *) mycalloc ((size_t) ((nsm + 1) * JC_NM), sizeof (double));
@@ -376,6 +382,22 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->off_D[k] = ly->nrow;           /* centre, split-event count, grid */
       ly->nrow += 2 + JC_NM * ly->split_ns[k];
       ly->nsplit++;
+    }
+  /* divergence-order=TREE: the group of a split whose ancestor population was
+     itself created by a split (parent group: that split's group) */
+  for (s = 0; s < ly->nsplit; s++)
+    {
+      ly->split_par[s] = -1;
+      if (!world->options->divergence_order || ly->split_rep[s] != s)
+        continue;
+      const long from = world->species_model[ly->split_model[s]].from;
+      long q;
+      for (q = 0; q < ly->nsplit; q++)
+        if (world->species_model[ly->split_model[q]].to == from && ly->split_rep[q] != s)
+          {
+            ly->split_par[s] = ly->split_rep[q];
+            break;
+          }
     }
   /* skyline=PARAM segments */
   ly->nseg = world->timeelements > 2 ? world->timeelements - 1 : 1;
@@ -488,6 +510,10 @@ jc_ml_supported (world_fmt *world)
   long i, e, from, to;
   if (numpop > 3 || world->has_growth || world->timeelements > 2 || world->has_speciation
       || world->bayes->mu)
+    return FALSE;
+  /* migration out of a daughter (forward in time) waits only up to the
+     split time, which couples its M with D in Z(G): not handled */
+  if (species_mig_gated_model (world))
     return FALSE;
   for (i = 0; i < world->numpop2; i++)
     {
@@ -683,13 +709,23 @@ jc_nactive (world_fmt *world)
    parameters, i.e. 4000 (numpop-1)^2 for a full migration matrix (more
    parameters need more genealogies: three populations at 4000 left most M
    rows with a reweighting ESS below 100), fewer for wide rows (the
-   divergence grids) so that a worker's memory stays bounded */
+   divergence grids) so that a worker's memory stays bounded; the option
+   joint-samples replaces both with a fraction of the recorded genealogies
+   or a number */
 static long
 jc_maxsamples (world_fmt *world, long nrow)
 {
   long m = (long) (1000000 / (nrow > 0 ? nrow : 1));
   const double r = sqrt ((double) jc_nactive (world)) - 1.0;
   long cap = (long) (JC_MAXSAMPLES * (r > 1.0 ? r * r : 1.0));
+  const double js = world->options->joint_samples;
+  if (js > 0.0)   /* joint-samples: the user's number, no memory bound */
+    {
+      const long reps = (world->options->replicate && world->options->replicatenum > 1)
+                        ? world->options->replicatenum : 1;
+      cap = (long) (js > 1.0 ? js : js * (double) world->options->lsteps * (double) reps);
+      m = cap;
+    }
   if (getenv ("MIGRATE_JC_MAXSAMPLES") != NULL)   /* experiments */
     {
       cap = atol (getenv ("MIGRATE_JC_MAXSAMPLES"));
@@ -1478,6 +1514,23 @@ jc_logtrapz (const double *v, const double *x, long n)
   return r;
 }
 
+/* divergence-order=TREE: TRUE when no group is older than its parent group
+   (phi[p] read as x, when p >= 0) */
+static boolean
+jc_order_ok (const jc_layout *ly, const double *phi, long p, double x)
+{
+  long k;
+  for (k = 0; k < ly->nsplit; k++)
+    if (ly->split_par[k] >= 0)
+      {
+        const long pc = ly->split_pmu[k], pp = ly->split_pmu[ly->split_par[k]];
+        const double vc = pc == p ? x : phi[pc], vp = pp == p ? x : phi[pp];
+        if (vc > vp)
+          return FALSE;
+      }
+  return TRUE;
+}
+
 /* divergence normalizer: integrates exactly the interpolant jc_div_term()
    that the sampler uses, over the whole prior range. In std: JC_DREF points
    per log cell (and the strip below the grid); in the mean, at each of
@@ -1606,6 +1659,167 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
   return jc_logtrapz (v, x, n);
 }
 
+/* ordered splits (divergence-order=TREE): the mean of group k on one grid
+   for all stds, over the union of the windows of every member and std row
+   (fine) and the rest of the prior range (coarse); H[g] = log prior(mu)
+   + log int prior(sigma) e^{D(mu, sigma)} dsigma */
+#define JC_DORD (2 * JC_DMU)
+static long
+jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, long k,
+                   double *x, double *H)
+{
+  const long pm = ly->split_pmu[k];
+  const double lo = ly->mlo[k], hi = ly->mhi[k];
+  double L = hi, U = lo;
+  long m, j, n = 0, g, b;
+  const long nout = 31;
+  for (m = 0; m < ly->nsplit; m++)
+    if (ly->split_rep[m] == k)
+      for (j = 0; j < ly->split_ns[m]; j++)
+        {
+          double Lj, Uj;
+          jc_row_window (ly, st, m, j, &Lj, &Uj);
+          if (Lj < L)
+            L = Lj;
+          if (Uj > U)
+            U = Uj;
+        }
+  if (L > U)
+    {
+      L = lo;
+      U = hi;
+    }
+  if (L > lo)
+    for (g = 0; g < nout; g++)
+      x[n++] = lo + (L - lo) * (double) g / nout;
+  for (g = 0; g < JC_DORD; g++)
+    x[n++] = L + (U - L) * (double) g / (JC_DORD - 1);
+  if (U < hi)
+    for (g = 1; g <= nout; g++)
+      x[n++] = U + (hi - U) * (double) g / nout;
+  double *row = (double *) mycalloc ((size_t) q->ns, sizeof (double));
+  for (g = 0; g < n; g++)
+    {
+      if (x[g] < lo)
+        x[g] = lo;
+      if (x[g] > hi)
+        x[g] = hi;
+      const double pr = scaling_prior (q->world, pm, x[g]);
+      if (ly->split_psig[k] < 0)
+        {
+          H[g] = pr;
+          for (m = 0; m < ly->nsplit; m++)
+            if (ly->split_rep[m] == k)
+              H[g] += jc_div_term (ly, st, m, x[g], ly->split_sfix[k]);
+          continue;
+        }
+      for (b = 0; b < q->ns; b++)
+        {
+          if (!(q->sw[k * q->ns + b] > 0.0))
+            {
+              row[b] = -HUGE_VAL;
+              continue;
+            }
+          double v = q->ps_s[k * q->ns + b] + log (q->sw[k * q->ns + b]);
+          for (m = 0; m < ly->nsplit; m++)
+            if (ly->split_rep[m] == k)
+              v += jc_div_term (ly, st, m, x[g], q->sv[k * q->ns + b]);
+          row[b] = v;
+        }
+      H[g] = pr + jc_logsumexp (row, q->ns);
+    }
+  myfree (row);
+  return n;
+}
+
+/* log int_{x[0]}^{a} e^{F} on the grid x (trapezoid, the last cell up to a
+   interpolated linearly in e^F) */
+static double
+jc_log_cum_at (const double *x, const double *F, const double *cum, long n, double a)
+{
+  long i;
+  if (a <= x[0])
+    return -HUGE_VAL;
+  if (a >= x[n - 1])
+    return cum[n - 1];
+  for (i = 0; i + 1 < n && x[i + 1] <= a; i++)
+    ;
+  const double t = (x[i + 1] > x[i]) ? (a - x[i]) / (x[i + 1] - x[i]) : 0.0;
+  const double mx = F[i] > F[i + 1] ? F[i] : F[i + 1];
+  if (mx == -HUGE_VAL)
+    return cum[i];
+  const double fi = exp (F[i] - mx), fa = fi + (exp (F[i + 1] - mx) - fi) * t;
+  const double part = 0.5 * (fi + fa) * (a - x[i]);
+  if (!(part > 0.0))
+    return cum[i];
+  const double lp = mx + log (part);
+  const double m2 = cum[i] > lp ? cum[i] : lp;
+  return m2 == -HUGE_VAL ? m2 : m2 + log (exp (cum[i] - m2) + exp (lp - m2));
+}
+
+/* the ordered groups: from the tips to the root, F_k(mu) = H_k(mu) + sum over
+   the child groups c of log int_{lo_c}^{mu} e^{F_c}; a root adds log int e^{F}.
+   Returns the sum over the ordered trees; done[k] marks every group used. */
+static double
+jc_div_order_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q, boolean *done)
+{
+  const long ns = ly->nsplit, nmax = JC_DORD + 64;
+  double *x = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
+  double *F = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
+  double *cum = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
+  long *n = (long *) mycalloc ((size_t) ns, sizeof (long));
+  boolean *inorder = (boolean *) mycalloc ((size_t) ns, sizeof (boolean));
+  boolean *ready = (boolean *) mycalloc ((size_t) ns, sizeof (boolean));
+  double lz = 0.0;
+  long k, c, g, left;
+  for (k = 0; k < ns; k++)
+    if (ly->split_rep[k] == k && ly->split_par[k] >= 0)
+      inorder[k] = inorder[ly->split_par[k]] = TRUE;
+  for (k = 0; k < ns; k++)
+    if (inorder[k])
+      n[k] = jc_div_order_grid (q, ly, st, k, x + k * nmax, F + k * nmax);
+  do
+    {
+      left = 0;
+      for (k = 0; k < ns; k++)
+        {
+          if (!inorder[k] || ready[k])
+            continue;
+          boolean wait = FALSE;
+          for (c = 0; c < ns; c++)
+            if (inorder[c] && ly->split_par[c] == k && !ready[c])
+              wait = TRUE;
+          if (wait)
+            {
+              left++;
+              continue;
+            }
+          double *xk = x + k * nmax, *Fk = F + k * nmax, *ck = cum + k * nmax;
+          for (c = 0; c < ns; c++)
+            if (inorder[c] && ly->split_par[c] == k)
+              for (g = 0; g < n[k]; g++)
+                Fk[g] += jc_log_cum_at (x + c * nmax, F + c * nmax, cum + c * nmax, n[c], xk[g]);
+          ck[0] = -HUGE_VAL;
+          for (g = 1; g < n[k]; g++)
+            {   /* cumulative trapezoid: log of the integral up to xk[g] */
+              const double a = Fk[g - 1], bb = Fk[g], w = xk[g] - xk[g - 1];
+              const double mx = a > bb ? a : bb;
+              const double cell = (mx == -HUGE_VAL || !(w > 0.0)) ? -HUGE_VAL
+                : mx + log (0.5 * (exp (a - mx) + exp (bb - mx)) * w);
+              const double m2 = ck[g - 1] > cell ? ck[g - 1] : cell;
+              ck[g] = m2 == -HUGE_VAL ? m2 : m2 + log (exp (ck[g - 1] - m2) + exp (cell - m2));
+            }
+          ready[k] = TRUE;
+          done[k] = TRUE;
+          if (ly->split_par[k] < 0)
+            lz += jc_logtrapz (Fk, xk, n[k]);
+        }
+    }
+  while (left > 0);
+  myfree (x); myfree (F); myfree (cum); myfree (n); myfree (inorder); myfree (ready);
+  return lz;
+}
+
 /* log of int int prior(mu) prior(sigma) e^{D(mu, sigma)} for every split */
 static double
 jc_div_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q)
@@ -1613,9 +1827,11 @@ jc_div_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q)
   double lz = 0.0;
   long k, b;
   double *row = (double *) mycalloc ((size_t) q->ns, sizeof (double));
+  boolean *done = (boolean *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (boolean));
+  lz += jc_div_order_normalizer (ly, st, q, done);
   for (k = 0; k < ly->nsplit; k++)
     {
-      if (ly->split_rep[k] != k)   /* integrated with its group's first split */
+      if (ly->split_rep[k] != k || done[k])   /* integrated with its group's first split, or ordered */
         continue;
       if (ly->split_psig[k] < 0)
         {
@@ -1630,6 +1846,7 @@ jc_div_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q)
       lz += jc_logsumexp (row, q->ns);
     }
   myfree (row);
+  myfree (done);
   return lz;
 }
 
@@ -2577,6 +2794,19 @@ jc_skip_mode (const jc_layout *ly)
   return e != NULL && atol (e) != 0;
 }
 
+/* floor of a locus term log f_l: a locus whose every genealogy is impossible
+   at phi (divergence terms at JC_DOUT, or minus infinity) has log f_l near
+   -1e30; the chains add differences of these terms to a running sum (logF),
+   and a visit there and back left round-off of 1e15 and more in it (the
+   prior rungs of jc_ss, 2026-11-08: joint scaling factor 3e10 for d-only
+   models). exp(JC_LTERM_FLOOR) is still zero. */
+#define JC_LTERM_FLOOR (-1e8)
+static double
+jc_lterm_floor (double x)
+{
+  return (x > JC_LTERM_FLOOR) ? x : JC_LTERM_FLOOR;
+}
+
 /* log of sum exp(v[ax]) over the active rows plus the inactive sum */
 static double
 jc_lterm_active (const jc_locus *Ll, const double *v)
@@ -2587,12 +2817,12 @@ jc_lterm_active (const jc_locus *Ll, const double *v)
     if (v[Ll->ax[q]] > mx)
       mx = v[Ll->ax[q]];
   if (mx == -HUGE_VAL)
-    return mx;
+    return JC_LTERM_FLOOR;
   for (q = 0; q < Ll->na; q++)
     s += exp (v[Ll->ax[q]] - mx);
   if (Ll->sin > 0.0)
     s += Ll->sin * exp (Ll->m0 - mx);
-  return mx + log (s);
+  return jc_lterm_floor (mx + log (s));
 }
 
 /* the log Z cache entry of row sidx of locus L (NULL: none) */
@@ -2744,7 +2974,7 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
             }
           Ll->cur[sidx] = v - Ll->logz[sidx];
         }
-      J->lterm[l] = jc_logsumexp (Ll->cur, Ll->n);
+      J->lterm[l] = jc_lterm_floor (jc_logsumexp (Ll->cur, Ll->n));
       total += J->lterm[l];
       if (Ll->n > J->maxn)
         J->maxn = Ll->n;
@@ -2835,7 +3065,7 @@ jc_local_refresh (jc_local *J, const double *phi)
           if (Ll->cur[sidx] > mx)
             mx = Ll->cur[sidx];
         }
-      const double exact = jc_logsumexp (Ll->cur, Ll->n);
+      const double exact = jc_lterm_floor (jc_logsumexp (Ll->cur, Ll->n));
       if (isfinite (exact) && isfinite (J->lterm[l]) && fabs (exact - J->lterm[l]) > change)
         change = fabs (exact - J->lterm[l]);
       if (getenv ("MIGRATE_JC_DEBUG") != NULL && fabs (exact - J->lterm[l]) > 1e-3)
@@ -3051,7 +3281,7 @@ jc_local_accept (jc_local *J)
                 v += Ll->unit[sidx * nu + u];
               Ll->cur[sidx] = v - Ll->logz[sidx];
             }
-          J->lterm[l] = jc_logsumexp (Ll->cur, Ll->n);
+          J->lterm[l] = jc_lterm_floor (jc_logsumexp (Ll->cur, Ll->n));
         }
     }
 }
@@ -3637,6 +3867,8 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                       + (pp < npos ? zn[q] - z[q] : 0.0);
                 }
               btri++;
+              if (ok && !jc_order_ok (ly, phin, -1, 0.0))   /* divergence-order=TREE */
+                ok = FALSE;
               if (ok)
                 {
                   const double dd = jc_eval_block (E, E->accept_prev, phi, phin, nphi);
@@ -3678,7 +3910,8 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
               newsky = jc_sky_logprior (ly, phi);
               phi[p] = keep;
             }
-          if (x >= lo && x <= hi && (!mult || x > 0.0) && newsky > -HUGE_VAL)
+          if (x >= lo && x <= hi && (!mult || x > 0.0) && newsky > -HUGE_VAL
+              && jc_order_ok (ly, phi, p, x))   /* divergence-order=TREE */
             {
               double delta = (tau ? 0.0 : scaling_prior (world, p, x) - scaling_prior (world, p, phi[p])
                               + (mult ? log (x / phi[p]) : 0.0))
@@ -4095,6 +4328,12 @@ jc_combine (world_fmt *world)
       if (p < npos && phi[p] <= 0.0)
         phi[p] = 0.01 * hi;
     }
+  /* divergence-order=TREE: a start inside the order (the per-locus means
+     already are when the per-locus chains were ordered) */
+  for (long pass = 0; pass <= ly.nsplit && !jc_order_ok (&ly, phi, -1, 0.0); pass++)
+    for (long k = 0; k < ly.nsplit; k++)
+      if (ly.split_par[k] >= 0 && phi[ly.split_pmu[k]] > phi[ly.split_pmu[ly.split_par[k]]])
+        phi[ly.split_pmu[k]] = phi[ly.split_pmu[ly.split_par[k]]];
   /* skyline multipliers: 1 (or the geometric mean of log-uniform bounds
      that exclude 1), moved inside the range rule */
   for (long j = 0; j < ly.nfree; j++)

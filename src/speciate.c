@@ -111,7 +111,7 @@ node * set_type2(world_fmt *world, node *p, node *q, char *custm2);
 MYREAL time_to_coalmig(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from);
 //MYREAL time_to_coalmig (world_fmt * world, long pop, long timeslice, long *lineages, char * event,  long * to, long * from);
 MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timeslice, long *lineages, char * event, long * to, long *from);
-MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, long timeslice, long * lineages, char * event, long * to, long * from);
+MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, long timeslice, long * lineages, double age, char * event, long * to, long * from);
 MYREAL time_to_speciation(world_fmt * world, long pop, double age, char * event, long * to, long * from);
 void keep_min_eventtime(MYREAL *the_eventtime, MYREAL eventtime, char *the_event, char myevent,
 			long *to, long tox, long *from, long fromx);
@@ -1395,7 +1395,43 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 }
 
 
-MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, long timeslice, long * lineages, char * event, long * to, long * from)
+/* the oldest age at which a lineage may move (backward in time) into
+   population pop: a daughter population does not exist before its split
+   (forward in time), so a move into it is allowed only at ages up to the
+   mean split time D of that split; other populations have no limit. A
+   lineage already in the daughter keeps its migration routes until its own
+   split time (drawn from Normal(D, S)) */
+double species_mig_gate(world_fmt * world, long pop)
+{
+  long c;
+  if (!world->has_speciation)
+    return (double) HUGE;
+  for (c = 0; c < world->species_model_size; c++)
+    if (world->species_model[c].to == pop)
+      return world->param0[world->species_model[c].paramindex_mu];
+  return (double) HUGE;
+}
+
+/* TRUE when some migration route can move a lineage (backward in time)
+   into a daughter population, i.e. forward in time gene flow out of a
+   daughter: only then does species_mig_gate() change anything */
+boolean species_mig_gated_model(world_fmt * world)
+{
+  long i, from, to;
+  if (!world->has_speciation)
+    return FALSE;
+  for (i = world->numpop; i < world->numpop2; i++)
+    {
+      if (strchr ("0dt", world->options->custm2[i]) != NULL)
+        continue;
+      m2mm(i, world->numpop, &from, &to);
+      if (species_mig_gate(world, from) < (double) HUGE)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, long timeslice, long * lineages, double age, char * event, long * to, long * from)
 {
   (void) lineages;
   (void) proposal;
@@ -1438,6 +1474,7 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
   long the_to = -1;
   long the_from = -1;
   long offlimit_from = -1; //nothing is offlimit
+  double gate;
   double mlalpha = 1.0; //= world->mlalpha;
   boolean has_mlalpha = world->has_mlalpha;//mlalpha < 1.0;
   
@@ -1473,7 +1510,8 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 	      error("mismatch with skyparams\n");
 	    }
 	  m2mm(i,numpop,&fromx,&tox);
-	  if(offlimit_from == fromx)
+	  gate = species_mig_gate(world, fromx);
+	  if(offlimit_from == fromx || age >= gate)
 	    {
 	      interval= (double) HUGE;
 	    }
@@ -1492,6 +1530,10 @@ MYREAL time_to_migration(proposal_fmt *proposal, world_fmt *world, long pop, lon
 		  invdenom = 1.0 / (mm);
 		  interval =  (-(LOG (UNIF_RANDUM ())) * invdenom);
 		}
+	      /* each route is its own Poisson process: one whose first event
+	         falls beyond the gate has no event in the allowed range */
+	      if (age + interval > gate)
+		interval = (double) HUGE;
 	    }
 	  if (the_eventtime > interval)
 	    {
@@ -1582,7 +1624,7 @@ MYREAL eventtime_single(proposal_fmt *proposal, world_fmt *world, long pop, long
   // is kept unused
   ceventtime = time_to_coalescence(world, pop, age, timeslice, lineages, &myevent,&tox, &fromx);
   keep_min_eventtime(&the_eventtime, ceventtime, &the_event, myevent, to, tox, from, fromx);
-  meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, &myevent,&tox, &fromx);
+  meventtime = time_to_migration(proposal, world, pop, timeslice, lineages, age, &myevent,&tox, &fromx);
   keep_min_eventtime(&the_eventtime, meventtime, &the_event, myevent, to, tox, from, fromx);
   deventtime = time_to_speciation(world, pop, age, &myevent, &tox, &fromx);
   keep_min_eventtime(&the_eventtime, deventtime, &the_event, myevent, to, tox, from, fromx);
@@ -2201,6 +2243,54 @@ long get_species_record(world_fmt * world,long which)
   return s->id;
 }
 
+
+/* divergence-order=TREE: the population tree orders the mean split times.
+   Split c (population c->to from c->from) and split q that created c's
+   ancestor (q->to == c->from): c is younger, D_c <= D_q. Sister splits
+   (the same ancestor) are not ordered. Only the means are ordered; the
+   split time of each lineage is still Normal(D, S). */
+boolean species_order_ok(world_fmt * world, const MYREAL *param)
+{
+  long c, q;
+  if (!world->has_speciation || !world->options->divergence_order)
+    return TRUE;
+  for (c = 0; c < world->species_model_size; c++)
+    for (q = 0; q < world->species_model_size; q++)
+      {
+        const species_fmt *sc = &world->species_model[c];
+        const species_fmt *sq = &world->species_model[q];
+        if (q != c && sq->to == sc->from
+            && param[sc->paramindex_mu] > param[sq->paramindex_mu])
+          return FALSE;
+      }
+  return TRUE;
+}
+
+/* start values that break the order (random or user start values): a split
+   older than its ancestor's split moves to the ancestor's split time; from
+   the tips toward the root, so every pass fixes at least one pair */
+boolean species_order_repair(world_fmt * world)
+{
+  long c, q, pass;
+  boolean changed = FALSE;
+  if (!world->has_speciation || !world->options->divergence_order)
+    return FALSE;
+  for (pass = 0; pass <= world->species_model_size && !species_order_ok(world, world->param0); pass++)
+    for (c = 0; c < world->species_model_size; c++)
+      for (q = 0; q < world->species_model_size; q++)
+        {
+          species_fmt *sc = &world->species_model[c];
+          const species_fmt *sq = &world->species_model[q];
+          if (q != c && sq->to == sc->from
+              && world->param0[sc->paramindex_mu] > world->param0[sq->paramindex_mu])
+            {
+              world->param0[sc->paramindex_mu] = world->param0[sq->paramindex_mu];
+              sc->mu = world->param0[sc->paramindex_mu];
+              changed = TRUE;
+            }
+        }
+  return changed;
+}
 
 long propose_new_spec_mu(world_fmt * world, long which, boolean *is_mu, MYREAL *newparam)
 {

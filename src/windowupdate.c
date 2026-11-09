@@ -351,6 +351,13 @@ local_M_propose (world_fmt * world, long *which_out, MYREAL * Mold_out,
   if (numpop2 <= numpop)
     return FALSE;               /* no migration parameters at all (numpop==1) */
 
+  /* a model can have migration entries but none estimated (0, c, or d: a
+     split without gene flow); the rejection loop below would never end */
+  for (which = numpop; which < numpop2; which++)
+    if (!shortcut (which, world, &w))
+      break;
+  if (which == numpop2)
+    return FALSE;
   which = numpop + RANDINT (0L, numpop2 - numpop - 1);
   while (shortcut (which, world, &w))
     {

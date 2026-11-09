@@ -496,6 +496,23 @@ MYREAL probg_treetimes(world_fmt* world)
    genealogy's own, world->treetimes, or a proposal's); for Mittag-Leffler
    one alpha per interval (see docs/mittag_leffler_in_migrate.tex). Entries
    without an event node take type and populations from the list. */
+/* a route whose backward destination is a daughter population waits only
+   up to that split's mean time (species_mig_gate()): the fraction of the
+   interval's waiting term [t0, t1] that the route keeps */
+static double probg_gate_factor(world_fmt *world, long route, double t0, double t1,
+                                double deltatime, double deltatime2, boolean has_mlalpha, double mlalpha)
+{
+  long gfrom, gto;
+  m2mm(route, world->numpop, &gfrom, &gto);
+  const double gate = species_mig_gate(world, gfrom);
+  if (!(t1 > gate))
+    return 1.0;
+  if (!(deltatime2 > 0.0))
+    return 0.0;
+  const double len = gate > t0 ? gate - t0 : 0.0;
+  return has_mlalpha ? pow(len, mlalpha) / (-deltatime) : len / deltatime2;
+}
+
 MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 {
     const MYREAL *geo = world->data->geo;
@@ -541,7 +558,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     /* coalescence runs at the locus Theta: inheritance scalar x Theta of the
        reference locus (param0); migration (M = m/mu) does not depend on Ne */
     const MYREAL theta_rate = mu_rate * world->options->inheritance_scalars[world->locus];
-    double mlalpha;// = world->mlalpha;
+    double mlalpha = 1.0;// = world->mlalpha;
     // DIAGNOSTIC (remove after finding bug)
 #ifdef DEBUGMIG
     // Per-migration-parameter sufficient statistics for the conditional
@@ -618,6 +635,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
             route[world->mstart[pop] + nroute[pop]++] = pop2;
       }
 #endif
+    const boolean gated = world->has_speciation;
     for(i=1; i<T-1;i++)
     {
       tli1 = &tl[i-1];
@@ -707,7 +725,8 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		    {
 		      pop2 = route[r];
 		      pk = param0[pop2] * geo[pop2];
-		      sum += kpopmurate * pk;
+		      sum += kpopmurate * pk
+			* (gated ? probg_gate_factor(world, pop2, t0, t1, deltatime, deltatime2, has_mlalpha, mlalpha) : 1.0);
 		    }
 		}
 	      else
@@ -716,7 +735,8 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		    {
 		      pop2 = route[r];
 		      pk = param0[pop2] / param0[pop];
-		      sum += kpopmurate * geo[pop2] * pk;
+		      sum += kpopmurate * geo[pop2] * pk
+			* (gated ? probg_gate_factor(world, pop2, t0, t1, deltatime, deltatime2, has_mlalpha, mlalpha) : 1.0);
 		    }
 		}
 #else
@@ -798,6 +818,8 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 		}
 	      break;
 	    case 'm':
+	      if (gated && t1 > species_mig_gate(world, from))
+		return (MYREAL) -HUGE;   /* into a daughter before it exists (forward) */
 	      if (usem)
 		{
 		  eventprob = log(param0[m2mmm(from,
@@ -1854,6 +1876,10 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
       hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
       hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
       bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+      /* divergence-order=TREE: the prior is zero where a split is older than
+         the split that created its ancestor */
+      if (is_mu && !species_order_ok(world, world->param0))
+        hastingsratio = -HUGE;
       reprecalc_world(world, which);
       // calculate prob(G|params)
       newval = probg_treetimes(world);
@@ -4446,18 +4472,16 @@ void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt 
 					 custm2[pa0]);
 	      }
 	  }
-	else if (world->has_speciation && pa0 < npr)
-	  {
-	    for(pa0=npr;pa0<nps;pa0++)
-	      {
-		species_fmt * s = get_which_species_model(pa,world->species_model,world->species_model_size);
-		frompop = s->from;
-		topop = s->to;
-		if(pa == s->paramindex_mu)
-		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "D", frompop+1, topop+1);
-		else
-		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "S", frompop+1, topop+1);
-	      }
+	else if (world->has_speciation && pa0 < nps)
+	  {   /* one label per divergence parameter (the test was pa0 < npr, the
+		 end of the rate block, so D and S were labelled UEP-mu) */
+	    species_fmt * s = get_which_species_model(pa0,world->species_model,world->species_model_size);
+	    if (s == NULL)
+	      continue;
+	    frompop = s->from;
+	    topop = s->to;
+	    *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa0+1,
+				   pa0 == s->paramindex_mu ? "D" : "S", frompop+1, topop+1);
 	  }
 	else if (world->has_growth && pa0 < npg)
 	  {
@@ -4743,7 +4767,7 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# Raw results from Bayesian inference: these values can be used to generate\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# joint posterior distribution of any parameter combination\n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# Writing information on parameters (Thetas, M or xNm, growth, ml-alpha)\n");
-    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# every %li parameter-steps\n", interval+1);
+    bufsize += mysnprintf(buf+bufsize,LINESIZE,"# every %li recorded sample(s) = every %li steps\n", interval, interval * world->options->lincr);
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# \n");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "Steps");
     bufsize += mysnprintf(buf+bufsize,LINESIZE,"# --  %s\n", "Locus");

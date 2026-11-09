@@ -1552,7 +1552,7 @@ void default_prior(long priortype, option_fmt * options, prior_fmt *result)
       if (seq)
         set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, DNA_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
       else
-        set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, ALLELE_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
+        set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, ALLELE_GUESS_MIG*10.0, ALLELE_GUESS_MIG, BAYESNUMBIN);
       break;
     case RATEPRIOR:
       set_option_prior(&result,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
