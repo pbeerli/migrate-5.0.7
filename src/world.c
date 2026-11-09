@@ -396,9 +396,10 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->verbose = options->verbose;
     wopt->replicate = options->replicate;
     wopt->gelman = options->gelman;
-    wopt->gelmanpairs = options->gelmanpairs;
     wopt->lcepsilon = options->lcepsilon;
     wopt->joint_ess = options->joint_ess;
+    wopt->joint_samples = options->joint_samples;
+    wopt->divergence_order = options->divergence_order;
     wopt->joint_block = options->joint_block;
     wopt->mlscale = options->mlscale;
     wopt->totalsites = options->totalsites;

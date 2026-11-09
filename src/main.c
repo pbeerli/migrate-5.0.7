@@ -78,6 +78,7 @@
 #include "priors.h"
 #include "pretty.h"
 #include "speciate.h"
+#include "mlf_hastings.h"
 #include <stdio.h>
 #ifdef BEAGLE
 #include "calculator.h"
@@ -518,9 +519,7 @@ main (int argc, char **argv)
 	  printf("%i> argv[%i]=%s\n",myID, i, argv[i]);
 	printf("%i> parmfilename=%s\n",myID, options->parmfilename);
 #endif
-	printf("before option master\n");
 	read_options_master (options);
-	printf("after option master\n");
 	options->menu = set_usemenu(usemenu, options->menu);
 	print_menu_title (stdout, options, EARTH);
 	get_menu (options, EARTH, data);
@@ -2162,6 +2161,18 @@ run_replicate (long locus,
       {
 	heating_prepare (universe, usize, options, data, replicate);
 	heating_mutationmodel_baseref_finish(universe, usize, locus);
+      }
+    /* divergence-order=TREE: start values that break the order of the
+       population tree (random or user start values) are moved into it */
+    if (EARTH->has_speciation)
+      {
+        const long nw = options->heating ? options->heated_chains : 1;
+        if (species_mig_gated_model (EARTH) && mlh_density_applies (EARTH))
+          error ("Migration out of a daughter population (forward in time) is limited to the time after its split; this is not available with skyline=PARAM or Mittag-Leffler alpha yet\n");
+        long w;
+        for (w = 0; w < nw; w++)
+          if (species_order_repair (universe[w]))
+            precalc_world (universe[w]);
       }
     type = 's';
     runs = 0;

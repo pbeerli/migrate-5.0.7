@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/}
-#define NUMNUMBER 77
+#define NUMNUMBER 79
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale","joint-samples","divergence-order"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -471,6 +471,7 @@ void init_options (option_fmt * options)
     options->msat_tuning[1] = 0.5;
     /*sequence data */
     options->sequence_model = F84;
+    options->datamodel = F84; /* the parmfile writer prints datamodel: keep it equal to the model a run uses */
     options->sequence_model_parameters = (MYREAL *) mycalloc(16, sizeof(MYREAL));
     options->sequence_model_numparam = 1;
     options->sequence_model_parameters[0] = 2.0;
@@ -558,10 +559,11 @@ void init_options (option_fmt * options)
     // obscure options to accept more different trees
     options->lcepsilon = LONGCHAINEPSILON;
     options->joint_ess = JOINT_ESS_DEFAULT;
+    options->joint_samples = 0.0;   /* AUTO */
+    options->divergence_order = TRUE;   /* TREE */
     options->joint_block = JOINT_BLOCK_AUTO;
     options->mlscale = ML_SCALE_INVARIANT;
     options->gelman = FALSE; 
-    options->gelmanpairs = FALSE;
     options->pluschain = PLUSCHAIN;
     //
     // replication options
@@ -1478,6 +1480,10 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
         }
         if (options->joint_ess > 0)
             fprintf (file, "   Joint combination stops at ESS:      %20li\n", options->joint_ess);
+        if (options->joint_samples > 1.0)
+            fprintf (file, "   Joint combination genealogies/locus: %20.0f\n", options->joint_samples);
+        else if (options->joint_samples > 0.0)
+            fprintf (file, "   Joint combination genealogies/locus: %10.3g of recorded\n", options->joint_samples);
     fprintf (file, "\nPrint options:\n");
       fprintf (file, "   Data file: %46.46s\n", options->infilename);
       fprintf (file, "   Parameter file: %41.41s\n", options->parmfilename);
@@ -4522,6 +4528,14 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     // print_parm_mutable(&bufsize, buffer, allocbufsize,  "divergence-distrib=%c",( options->species_model_dist == 2 ? 'E' :(options->species_model_dist==0 ? 'W' : (options->species_model_dist == NORMAL_DIST ? 'N' : 'S'))));
     print_parm_mutable(&bufsize, buffer, allocbufsize,  "divergence-distrib=%c",( options->species_model_dist == 2 ? 'E' :(options->species_model_dist==0 ? 'N' : (options->species_model_dist == NORMAL_DIST ? 'N' : 'N'))));
     print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Order of the divergence times implied by the population tree");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Syntax: divergence-order=<TREE | NONE>");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        TREE = a population splits after the split that created its ancestor:");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               with 1 |-> 2 |-> 3, D_2->3 <= D_1->2 (mean split times; Default!)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        NONE = the mean split times are not ordered");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: divergence-order=TREE");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "divergence-order=%s", options->divergence_order ? "TREE" : "NONE");
+    print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Custom migration model");
@@ -4776,6 +4790,16 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     else
       print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-ess=NO");
     print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Joint multi-locus combination: genealogies used per locus; AUTO: 4000 (sqrt(k)-1)^2");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   for k free parameters, bounded by memory; a VALUE up to 1 is a fraction of the");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   genealogies a locus records (long-sample x replicates), a larger VALUE a number");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: joint-samples=<AUTO | VALUE>");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: joint-samples=AUTO");
+    if (options->joint_samples > 0.0)
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-samples=%g", options->joint_samples);
+    else
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "joint-samples=AUTO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Joint multi-locus combination: block proposals (all parameters at once,");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   with the covariance of the burn-in) instead of one parameter at a time");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: joint-block=<AUTO | YES | NO>   (AUTO: Mittag-Leffler only)");
@@ -4873,12 +4897,11 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Convergence statistic [Gelman and Rubin]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: gelman-convergence=< YES:Pairs|Summary | NO >");    
+    print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: gelman-convergence=< YES | NO >");
     print_parm_comment(&bufsize, buffer, allocbufsize, "      NO      do not use Gelman's convergence criterium");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "      YES     use Gelman's convergence criteria between chain i, and i-1");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              PAIRS reports all replicate pairs");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "              SUM   reports only mean and maxima");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "gelman-convergence=%s", options->gelman ? (options->gelmanpairs ? "Yes:Pairs" : "Yes:Sum" ) : "No");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "      YES     use Gelman's convergence criteria between replicates,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "              reporting the mean and maximum sqrt(R) across all of them");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "gelman-convergence=%s", options->gelman ? "Yes" : "No");
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "   REPLICATON:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "   Syntax: replicate=< NO | YES:<VALUE> >");
@@ -5404,20 +5427,14 @@ booleancheck (option_fmt * options, char *var, char *value)
         options->geo = (boolean) check;
         set_filename(value, "YES", &options->geofilename);
         break;
-    case 18:   /* gelman-convergence =  <yes:pairs|sum | no> */
+    case 18:   /* gelman-convergence = <yes | no>; an old ":Pairs"/":Sum"
+                  suffix is still accepted and discarded so existing parmfiles
+                  keep parsing; Gelman-Rubin reporting is summary-only */
         options->gelman = (boolean) check;
-	options->gelmanpairs = FALSE;
         if (options->gelman)
         {
             get_next_word(&value, ":\n", &tmp);
-            if (value != NULL)
-            {
-                if (uppercase (value[0]) == 'P')
-		  {
-		    options->gelmanpairs = TRUE;
-		  }
-	    }
-	}
+        }
         break;
     case 19:   /* randomtree start =  <yes | no> */
         warning("OBSOLETE option randomtree=YES|NO ===> use usertree=RANDOM or usertree=NO\n");
@@ -6284,6 +6301,22 @@ numbercheck (option_fmt * options, char *var, char *value)
             options->mlscale = ML_SCALE_INVARIANT;
             break;
           }
+        break;
+    case 77:   /*joint-samples=<AUTO|VALUE>: genealogies per locus used by the
+                 joint combination; AUTO: 4000 (sqrt(k)-1)^2 for k free
+                 parameters, bounded by memory; a VALUE up to 1 is a fraction of
+                 the genealogies a locus records (long-sample x replicates),
+                 a larger VALUE a number */
+        if (uppercase (value[0]) == 'A')
+            options->joint_samples = 0.0;
+        else
+            options->joint_samples = atof (value) > 0.0 ? atof (value) : 0.0;
+        break;
+    case 78:   /*divergence-order=<TREE|NONE>: TREE keeps the mean split time
+                 of a population younger than the mean split time of the
+                 split that created its ancestor (1 |-> 2 |-> 3: D_2->3 <=
+                 D_1->2); NONE leaves the split times unordered */
+        options->divergence_order = (uppercase (value[0]) == 'N') ? FALSE : TRUE;
         break;
     case 25:   /* print-tree options */
         switch (uppercase (value[0]))
@@ -8312,10 +8345,10 @@ static const char *window_unsupported(option_fmt * options, long numpop)
     for (j = 0; j < numpop; j++)
       {
         const long k = i * numpop + j;
-        if (i != j && (k >= n || (c[k] != '0' && c[k] != 'c' && c[k] != 'C')))
+        if (i != j && (k >= n || (c[k] != '0' && c[k] != 'c' && c[k] != 'C' && c[k] != 'd')))
           return NULL;
       }
-  return "no estimated migration rate (all 0 or constant)";
+  return "no estimated migration rate (all 0, constant, or d: split without gene flow)";
 }
 
 /// why the scaler move cannot run with these options (the same cases that

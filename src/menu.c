@@ -1733,6 +1733,34 @@ void set_menu_ownstartvalue(option_fmt *options, long numpop)
 }
 
 
+/// one-line summary of the start values (Theta and M) for the parameters menu
+static void
+show_startparam_summary(char *out, size_t len, option_fmt * options)
+{
+  const char *name[2] = {"Theta", "M"};
+  size_t n = 0;
+  long i;
+  out[0] = '\0';
+  for (i = 0; i < 2; i++)
+    {
+      const char *sep = (i == 0) ? "" : ", ";
+      switch (options->startguess[i][0])
+        {
+        case PRIOR:
+          n += (size_t) snprintf(out + n, len - n, "%s%s: prior %li%%", sep, name[i], options->startguess[i][1]);
+          break;
+        case RANDOMPRIOR:
+          n += (size_t) snprintf(out + n, len - n, "%s%s: random from prior", sep, name[i]);
+          break;
+        default:
+          n += (size_t) snprintf(out + n, len - n, "%s%s: own values", sep, name[i]);
+          break;
+        }
+      if (n >= len)
+        break;
+    }
+}
+
 ///
 ///allows to set all parameter related issues:start parameters, mutation type, migration model
 void
@@ -1760,7 +1788,7 @@ menuParameters(option_fmt * options)
     printf
       ("  Start parameters:\n");
     //switch_startparam(outputstring, options);
-    strcpy(outputstring,"combined startparameter report not finished");
+    show_startparam_summary(outputstring, LINESIZE, options);
     printf("  1   First parameter values are?\n      %64s\n", outputstring);
     printf
       ("\n Gene flow parameter and Mutation rate variation among loci:\n");
@@ -2982,27 +3010,12 @@ boolean menuStrategy_bayes(option_fmt * options)
     }
     break;
   case BAYESGELMAN:
-    printf("  Convergence statistic options: Pairs , Sum, NO\n");
-    printf("  [Currently set to %15s]\n===> ",
-	   options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary" ) : " NO");
+    printf("  Gelman-Rubin convergence statistic across replicates? < YES | NO >\n");
+    printf("  [Currently set to %3s]\n===> ", options->gelman ? "YES" : "NO");
     fflush(stdout); FGETS(input, LINESIZE, stdin);
     if (input[0] == '\0')
       break;
-    switch(uppercase(input[0]))
-      {
-      case 'N':
-	options->gelman = FALSE;
-	options->gelmanpairs = FALSE;
-	break;
-      case 'P':
-	options->gelman = TRUE;
-	options->gelmanpairs = TRUE;
-	break;
-      default:
-	options->gelman = TRUE;
-	options->gelmanpairs = FALSE;
-	break;
-      }
+    options->gelman = (uppercase(input[0]) != 'N');
     break;
  */
   case BAYESPRIORALONE:
@@ -3184,27 +3197,12 @@ boolean         menuStrategy_ml(option_fmt * options)
     while (options->lcepsilon <= 0);
     break;
   case MLGELMAN:
-      printf("  Convergence statistic options: Pairs , Sum, NO\n");
-      printf("  [Currently set to %10s]\n===> ",
-	 options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary" ) : " NO");
+      printf("  Gelman-Rubin convergence statistic across replicates? < YES | NO >\n");
+      printf("  [Currently set to %3s]\n===> ", options->gelman ? "YES" : "NO");
       fflush(stdout); FGETS(input, LINESIZE, stdin);
       if (input[0] == '\0')
 	break;
-      switch(uppercase(input[0]))
-	{
-	case 'N':
-	  options->gelman = FALSE;
-	  options->gelmanpairs = FALSE;
-	  break;
-	case 'P':
-	  options->gelman = TRUE;
-	  options->gelmanpairs = TRUE;
-	  break;
-	default:
-	  options->gelman = TRUE;
-	  options->gelmanpairs = FALSE;
-	  break;
-	}
+      options->gelman = (uppercase(input[0]) != 'N');
       break;
   }
   return FALSE;
@@ -3316,7 +3314,7 @@ display_ml_mcmc(option_fmt * options) {
     mysnprintf(temp,LINESIZE, "%17.17s", "infinity");
   printf(" 11   Epsilon of parameter likelihood    %s\n", temp);
   printf(" 12   Use Gelman's convergence criterium?    %13s\n",
-	 options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary" ) : " NO");
+	 options->gelman ? "YES" : " NO");
 }
 
 void
@@ -3346,18 +3344,12 @@ display_bayes_mcmc(option_fmt * options)
 	      options->bayesmdiminterval*options->lincrement);
       printf(  "            %58.58s\n", outputstring);
     }
-  p = &options->bayes_priors[0];
+  outputstring[0] = '\0';
   count = 0;
-  while(p!=NULL)
-    {
-      count += mysnprintf(outputstring+count,LINESIZE, "%li ",p->bins); 
-      p = p->next;
-      //      if (count > 20)
-      //{
-      //  count += mysnprintf(outputstring+count,LINESIZE, "..."); 
-      //  break;
-      //}
-    }
+  for (p = options->bayes_priors; p != NULL && count < 30; p = p->next)
+    count += mysnprintf(outputstring+count, LINESIZE-count, "%li ", p->bins);
+  if (count == 0) /* the priors are set up after the menu: show the default */
+    mysnprintf(outputstring, LINESIZE, "%li", options->bayes_posterior_bins[THETAPRIOR]);
   printf("  %2i   Number of bins of posterior? %35.35s\n", BAYESBINNING, outputstring);
   printf("  %2i   Plotting type of posterior distribution?%23s\n", BAYESPRETTY, 
 	 (options->bayespretty == PRETTY_P99 ? "up to 99% percentile" :
@@ -3405,7 +3397,7 @@ display_bayes_mcmc(option_fmt * options)
   /* do we need this see action items further down
   mysnprintf(outputstring,LINESIZE,"%f",options->acceptfreq);
   printf("  %2i   Sampling at least fraction of new genealogies:       %10.10s\n", BAYESMOVINGSTEPS, outputstring);
-  mysnprintf(outputstring,LINESIZE,"%s",options->gelman ? (options->gelmanpairs ? "YES:Pairs" : "YES:Summary") : "NO");
+  mysnprintf(outputstring,LINESIZE,"%s",options->gelman ? "YES" : "NO");
   printf("  %2i   Convergence diagnostic for replicates:            %13.13s\n", BAYESGELMAN, outputstring);
   */
 

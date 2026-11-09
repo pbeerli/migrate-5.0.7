@@ -1464,64 +1464,10 @@ void print_gelman_rubin_outfile(FILE *file, world_fmt *world)
 /// report convergence statistic to screen or file
 void convergence_progress(FILE *file, world_fmt *world)
 {
-  long i;
-  long j;
-  long maxreplicate = (world->options->replicate
-		       && world->options->replicatenum >
-		       0) ? world->options->replicatenum : 1;
-  
-  MYREAL *gelmanmeanR = world->convergence->gelmanmeanmaxR; //upper half of matrix
-  MYREAL *gelmanmaxR = world->convergence->gelmanmeanmaxR;  //lower half of matrix
-
   fprintf(file,"\n\nGelman-Rubin convergence statistic\n");
   fprintf(file,"----------------------------------\n\n");
   fprintf(file,"Values close to 1.0, especially values < 1.2 are a sign of convergence of the\n");
   fprintf(file,"chains. On very short chains this statistic does not work well\n\n");
-  if(world->options->gelmanpairs)
-    {
-      fprintf(file,"Pairwise evaluation of replicates\n[above diagonal: mean; below diagonal: maximum value]\n");
-      fprintf(file,"%4li ", 1L);
-      for(i=1; i < maxreplicate; i++)
-	{
-	  fprintf(file,"%6li ", i+1);
-	}
-      fprintf(file,"\n");
-      for(i=0; i < maxreplicate; i++)
-	{
-	  for(j=0; j < maxreplicate; j++)
-	    {
-	      if(i==j)
-		fprintf(file,"------ ");
-	      else
-		{
-		  if(i < j) 
-		    {
-		      if(gelmanmeanR[i * maxreplicate + j] <=0.)
-			{
-			  fprintf(file,"  -N-  ");
-			}
-		      else
-			{
-			  fprintf(file," %1.3f ",gelmanmeanR[i * maxreplicate + j]);
-			}
-		    }
-		  else
-		    {
-		      if(gelmanmaxR[i * maxreplicate + j] <=0.)
-			{
-			  fprintf(file," -N-   ");
-			}
-		      else
-			{
-			  fprintf(file,"*%1.3f ",gelmanmaxR[i * maxreplicate + j]); 
-			}
-		    }
-		}
-	    }
-	  fprintf(file,"\n");
-	}
-      fprintf(file,"\n\n");
-    }
   fprintf(file,"Overall convergence:\n");
   fprintf(file,"Mean sqrt(R)    = %f\n", world->convergence->gelmanmeanRall);
   fprintf(file,"Maximum sqrt(R) = %f\n\n\n", world->convergence->gelmanmaxRall);
