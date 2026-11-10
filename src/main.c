@@ -2170,6 +2170,7 @@ run_replicate (long locus,
         if (species_mig_gated_model (EARTH) && mlh_density_applies (EARTH))
           error ("Migration out of a daughter population (forward in time) is limited to the time after its split; this is not available with skyline=PARAM or Mittag-Leffler alpha yet\n");
         long w;
+        species_order_check (EARTH);
         for (w = 0; w < nw; w++)
           if (species_order_repair (universe[w]))
             precalc_world (universe[w]);

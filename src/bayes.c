@@ -1876,7 +1876,7 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
       hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
       hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
       bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
-      /* divergence-order=TREE: the prior is zero where a split is older than
+      /* divergence-order TREE/RANK: the prior is zero where a split is older than
          the split that created its ancestor */
       if (is_mu && !species_order_ok(world, world->param0))
         hastingsratio = -HUGE;

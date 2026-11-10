@@ -171,7 +171,7 @@ typedef struct
   long *split_rep;          /* per split: first split of its tied group (t/T), else itself */
   long *split_par;          /* per group (its first split): the group of the split that
                                created its ancestor population, -1 if none or unordered
-                               (divergence-order=TREE: the mean split time is at most
+                               (divergence-order TREE/RANK: the mean split time is at most
                                that of the parent) */
   double *split_sfix;       /* per split: the fixed std */
   long *off_D;              /* per split: offset of the D(mu, sigma) grid */
@@ -383,21 +383,30 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->nrow += 2 + JC_NM * ly->split_ns[k];
       ly->nsplit++;
     }
-  /* divergence-order=TREE: the group of a split whose ancestor population was
-     itself created by a split (parent group: that split's group) */
+  /* divergence-order TREE or RANK: the parent group of a group is the group
+     of the split that must be older (species_order_partner: TREE the split
+     that created the ancestor population, RANK the split listed before);
+     each group has at most one parent, so the ordered groups form trees */
   for (s = 0; s < ly->nsplit; s++)
     {
       ly->split_par[s] = -1;
-      if (!world->options->divergence_order || ly->split_rep[s] != s)
+      if (ly->split_rep[s] != s)
         continue;
-      const long from = world->species_model[ly->split_model[s]].from;
-      long q;
-      for (q = 0; q < ly->nsplit; q++)
-        if (world->species_model[ly->split_model[q]].to == from && ly->split_rep[q] != s)
-          {
-            ly->split_par[s] = ly->split_rep[q];
-            break;
-          }
+      long m, q;
+      for (m = 0; m < ly->nsplit && ly->split_par[s] < 0; m++)
+        {
+          if (ly->split_rep[m] != s)
+            continue;
+          const long partner = species_order_partner (world, ly->split_model[m]);
+          if (partner < 0)
+            continue;
+          for (q = 0; q < ly->nsplit; q++)
+            if (ly->split_model[q] == partner && ly->split_rep[q] != s)
+              {
+                ly->split_par[s] = ly->split_rep[q];
+                break;
+              }
+        }
     }
   /* skyline=PARAM segments */
   ly->nseg = world->timeelements > 2 ? world->timeelements - 1 : 1;
@@ -1514,7 +1523,7 @@ jc_logtrapz (const double *v, const double *x, long n)
   return r;
 }
 
-/* divergence-order=TREE: TRUE when no group is older than its parent group
+/* divergence-order TREE/RANK: TRUE when no group is older than its parent group
    (phi[p] read as x, when p >= 0) */
 static boolean
 jc_order_ok (const jc_layout *ly, const double *phi, long p, double x)
@@ -1659,11 +1668,31 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
   return jc_logtrapz (v, x, n);
 }
 
-/* ordered splits (divergence-order=TREE): the mean of group k on one grid
-   for all stds, over the union of the windows of every member and std row
-   (fine) and the rest of the prior range (coarse); H[g] = log prior(mu)
-   + log int prior(sigma) e^{D(mu, sigma)} dsigma */
-#define JC_DORD (2 * JC_DMU)
+/* ordered splits (divergence-order TREE/RANK): the mean of group k on one grid
+   for all stds: JC_DMU points over the union of the windows of every member
+   and std row, JC_ORDP points over each row's own window (the rows span a
+   factor 1000 in std, so the narrow peaks of the small stds need their own
+   points), and the rest of the prior range (coarse); sorted. H[g] = log
+   prior(mu) + log int prior(sigma) e^{D(mu, sigma)} dsigma */
+#define JC_ORDP 65
+static int jc_cmp_double (const void *a, const void *b);
+#define JC_ORDOUT 31
+static long
+jc_div_order_cap (const jc_layout *ly)
+{
+  long k, m, most = 1;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      long rows = 0;
+      for (m = 0; m < ly->nsplit; m++)
+        if (ly->split_rep[m] == k)
+          rows += ly->split_ns[m];
+      if (rows > most)
+        most = rows;
+    }
+  return 2 * JC_ORDOUT + JC_DMU + most * JC_ORDP;
+}
+
 static long
 jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, long k,
                    double *x, double *H)
@@ -1672,7 +1701,7 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
   const double lo = ly->mlo[k], hi = ly->mhi[k];
   double L = hi, U = lo;
   long m, j, n = 0, g, b;
-  const long nout = 31;
+  const long nout = JC_ORDOUT;
   for (m = 0; m < ly->nsplit; m++)
     if (ly->split_rep[m] == k)
       for (j = 0; j < ly->split_ns[m]; j++)
@@ -1683,6 +1712,8 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
             L = Lj;
           if (Uj > U)
             U = Uj;
+          for (g = 0; g < JC_ORDP; g++)
+            x[n++] = Lj + (Uj - Lj) * (double) g / (JC_ORDP - 1);
         }
   if (L > U)
     {
@@ -1692,11 +1723,26 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
   if (L > lo)
     for (g = 0; g < nout; g++)
       x[n++] = lo + (L - lo) * (double) g / nout;
-  for (g = 0; g < JC_DORD; g++)
-    x[n++] = L + (U - L) * (double) g / (JC_DORD - 1);
+  for (g = 0; g < JC_DMU; g++)
+    x[n++] = L + (U - L) * (double) g / (JC_DMU - 1);
   if (U < hi)
     for (g = 1; g <= nout; g++)
       x[n++] = U + (hi - U) * (double) g / nout;
+  for (g = 0; g < n; g++)
+    {
+      if (x[g] < lo)
+        x[g] = lo;
+      if (x[g] > hi)
+        x[g] = hi;
+    }
+  qsort (x, (size_t) n, sizeof (double), jc_cmp_double);
+  {   /* drop repeated points */
+    long u = 0;
+    for (g = 0; g < n; g++)
+      if (u == 0 || x[g] > x[u - 1])
+        x[u++] = x[g];
+    n = u;
+  }
   double *row = (double *) mycalloc ((size_t) q->ns, sizeof (double));
   for (g = 0; g < n; g++)
     {
@@ -1763,7 +1809,7 @@ jc_log_cum_at (const double *x, const double *F, const double *cum, long n, doub
 static double
 jc_div_order_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q, boolean *done)
 {
-  const long ns = ly->nsplit, nmax = JC_DORD + 64;
+  const long ns = ly->nsplit, nmax = jc_div_order_cap (ly);
   double *x = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
   double *F = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
   double *cum = (double *) mycalloc ((size_t) (ns * nmax), sizeof (double));
@@ -3867,7 +3913,7 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                       + (pp < npos ? zn[q] - z[q] : 0.0);
                 }
               btri++;
-              if (ok && !jc_order_ok (ly, phin, -1, 0.0))   /* divergence-order=TREE */
+              if (ok && !jc_order_ok (ly, phin, -1, 0.0))   /* divergence-order TREE/RANK */
                 ok = FALSE;
               if (ok)
                 {
@@ -3911,7 +3957,7 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
               phi[p] = keep;
             }
           if (x >= lo && x <= hi && (!mult || x > 0.0) && newsky > -HUGE_VAL
-              && jc_order_ok (ly, phi, p, x))   /* divergence-order=TREE */
+              && jc_order_ok (ly, phi, p, x))   /* divergence-order TREE/RANK */
             {
               double delta = (tau ? 0.0 : scaling_prior (world, p, x) - scaling_prior (world, p, phi[p])
                               + (mult ? log (x / phi[p]) : 0.0))
@@ -4328,7 +4374,7 @@ jc_combine (world_fmt *world)
       if (p < npos && phi[p] <= 0.0)
         phi[p] = 0.01 * hi;
     }
-  /* divergence-order=TREE: a start inside the order (the per-locus means
+  /* divergence-order TREE/RANK: a start inside the order (the per-locus means
      already are when the per-locus chains were ordered) */
   for (long pass = 0; pass <= ly.nsplit && !jc_order_ok (&ly, phi, -1, 0.0); pass++)
     for (long k = 0; k < ly.nsplit; k++)
