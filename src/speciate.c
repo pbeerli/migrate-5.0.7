@@ -33,6 +33,7 @@ $Id:$
 /* \file speciate.c 
 speciation tools
 */
+#include <stdarg.h>
 #include "migration.h"
 #include "bayes.h"
 #include "random.h"
@@ -2244,51 +2245,161 @@ long get_species_record(world_fmt * world,long which)
 }
 
 
-/* divergence-order=TREE: the population tree orders the mean split times.
-   Split c (population c->to from c->from) and split q that created c's
-   ancestor (q->to == c->from): c is younger, D_c <= D_q. Sister splits
-   (the same ancestor) are not ordered. Only the means are ordered; the
-   split time of each lineage is still Normal(D, S). */
+/* index (in world->species_model) of the TREE partner of split c: the split
+   that created c's ancestor population (sq->to == sc->from), -1 if none */
+static long species_tree_partner(world_fmt * world, long c)
+{
+  long q;
+  for (q = 0; q < world->species_model_size; q++)
+    if (q != c && world->species_model[q].to == world->species_model[c].from)
+      return q;
+  return -1;
+}
+
+/* position of split c in the divergence-order=RANK list, -1 if absent */
+static long species_rank_pos(world_fmt * world, long c)
+{
+  long r;
+  for (r = 0; r < world->options->divergence_ranksize; r++)
+    if (world->options->divergence_rank[2 * r] == world->species_model[c].from
+        && world->options->divergence_rank[2 * r + 1] == world->species_model[c].to)
+      return r;
+  return -1;
+}
+
+/* the split whose mean split time D must be at least that of split c
+   (older, forward in time), -1 if none:
+   TREE: the split that created c's ancestor; sister splits are not ordered.
+   RANK: the split listed just before c (species_order_check makes sure
+   the list holds every split once and agrees with the tree).
+   Only the means are ordered; the split time of each lineage is still
+   Normal(D, S). */
+long species_order_partner(world_fmt * world, long c)
+{
+  if (!world->has_speciation)
+    return -1;
+  switch (world->options->divergence_order)
+    {
+    case DIVORDER_TREE:
+      return species_tree_partner(world, c);
+    case DIVORDER_RANK:
+      {
+        const long r = species_rank_pos(world, c);
+        long q;
+        if (r <= 0)
+          return -1;
+        for (q = 0; q < world->species_model_size; q++)
+          if (species_rank_pos(world, q) == r - 1)
+            return q;
+        return -1;
+      }
+    default:
+      return -1;
+    }
+}
+
+static void species_rank_error(const char *fmt, ...)
+{
+  char msg[LINESIZE];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, LINESIZE, fmt, ap);
+  va_end(ap);
+  error(msg);
+}
+
+/* divergence-order=RANK: the list holds every split of the model once, a
+   split comes after the split that created its ancestor, and tied splits
+   (t) are next to each other; error otherwise */
+void species_order_check(world_fmt * world)
+{
+  long c, q, r;
+  if (!world->has_speciation || world->options->divergence_order != DIVORDER_RANK)
+    return;
+  const long n = world->options->divergence_ranksize;
+  const long *rk = world->options->divergence_rank;
+  for (r = 0; r < n; r++)
+    {
+      for (q = 0; q < world->species_model_size; q++)
+        if (species_rank_pos(world, q) == r)
+          break;
+      if (q == world->species_model_size)
+        {
+          for (q = 0; q < r; q++)
+            if (rk[2 * q] == rk[2 * r] && rk[2 * q + 1] == rk[2 * r + 1])
+              species_rank_error("divergence-order=RANK: %li->%li is listed twice\n", rk[2 * r] + 1, rk[2 * r + 1] + 1);
+          species_rank_error("divergence-order=RANK: %li->%li is not a divergence of the custom-migration model\n",
+                             rk[2 * r] + 1, rk[2 * r + 1] + 1);
+        }
+    }
+  for (c = 0; c < world->species_model_size; c++)
+    {
+      const species_fmt *sc = &world->species_model[c];
+      const long rc = species_rank_pos(world, c);
+      if (rc < 0)
+        species_rank_error("divergence-order=RANK: the divergence %li->%li is missing (list every divergence, oldest first)\n",
+                           sc->from + 1, sc->to + 1);
+      q = species_tree_partner(world, c);
+      if (q >= 0 && species_rank_pos(world, q) > rc)
+        species_rank_error("divergence-order=RANK: %li->%li must come before %li->%li (population %li exists only after %li->%li)\n",
+                           world->species_model[q].from + 1, world->species_model[q].to + 1, sc->from + 1, sc->to + 1,
+                           sc->from + 1, world->species_model[q].from + 1, world->species_model[q].to + 1);
+      if (sc->type != 't')
+        continue;
+      for (q = 0; q < world->species_model_size; q++)
+        {
+          const species_fmt *sq = &world->species_model[q];
+          const long rq = species_rank_pos(world, q);
+          long m;
+          if (q == c || sq->type != 't' || sq->from != sc->from)
+            continue;
+          for (m = 0; m < world->species_model_size; m++)
+            {
+              const long rm = species_rank_pos(world, m);
+              const species_fmt *sm = &world->species_model[m];
+              if (rm > (rc < rq ? rc : rq) && rm < (rc > rq ? rc : rq)
+                  && !(sm->type == 't' && sm->from == sc->from))
+                species_rank_error("divergence-order=RANK: the tied divergences %li->%li and %li->%li share one time; list them next to each other\n",
+                                   sc->from + 1, sc->to + 1, sq->from + 1, sq->to + 1);
+            }
+        }
+    }
+}
+
+/* the mean split times keep the order (divergence-order TREE or RANK) */
 boolean species_order_ok(world_fmt * world, const MYREAL *param)
 {
   long c, q;
-  if (!world->has_speciation || !world->options->divergence_order)
+  if (!world->has_speciation || world->options->divergence_order == DIVORDER_NONE)
     return TRUE;
   for (c = 0; c < world->species_model_size; c++)
-    for (q = 0; q < world->species_model_size; q++)
-      {
-        const species_fmt *sc = &world->species_model[c];
-        const species_fmt *sq = &world->species_model[q];
-        if (q != c && sq->to == sc->from
-            && param[sc->paramindex_mu] > param[sq->paramindex_mu])
-          return FALSE;
-      }
+    if ((q = species_order_partner(world, c)) >= 0
+        && param[world->species_model[c].paramindex_mu] > param[world->species_model[q].paramindex_mu])
+      return FALSE;
   return TRUE;
 }
 
 /* start values that break the order (random or user start values): a split
-   older than its ancestor's split moves to the ancestor's split time; from
-   the tips toward the root, so every pass fixes at least one pair */
+   older than its partner moves to the partner's split time; the partners
+   form trees, so every pass settles at least one more level */
 boolean species_order_repair(world_fmt * world)
 {
   long c, q, pass;
   boolean changed = FALSE;
-  if (!world->has_speciation || !world->options->divergence_order)
+  if (!world->has_speciation || world->options->divergence_order == DIVORDER_NONE)
     return FALSE;
   for (pass = 0; pass <= world->species_model_size && !species_order_ok(world, world->param0); pass++)
     for (c = 0; c < world->species_model_size; c++)
-      for (q = 0; q < world->species_model_size; q++)
-        {
-          species_fmt *sc = &world->species_model[c];
-          const species_fmt *sq = &world->species_model[q];
-          if (q != c && sq->to == sc->from
-              && world->param0[sc->paramindex_mu] > world->param0[sq->paramindex_mu])
-            {
-              world->param0[sc->paramindex_mu] = world->param0[sq->paramindex_mu];
-              sc->mu = world->param0[sc->paramindex_mu];
-              changed = TRUE;
-            }
-        }
+      {
+        species_fmt *sc = &world->species_model[c];
+        if ((q = species_order_partner(world, c)) >= 0
+            && world->param0[sc->paramindex_mu] > world->param0[world->species_model[q].paramindex_mu])
+          {
+            world->param0[sc->paramindex_mu] = world->param0[world->species_model[q].paramindex_mu];
+            sc->mu = world->param0[sc->paramindex_mu];
+            changed = TRUE;
+          }
+      }
   return changed;
 }
 

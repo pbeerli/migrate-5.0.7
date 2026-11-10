@@ -37,7 +37,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
 #define TI_NBINS 64          /* adaptive heating: beta bins for thermodynamic integration */
-#define MIGRATEVERSION "6.1.81"
+#define MIGRATEVERSION "6.1.82"
 #define MIGRATESUBVERSION "November-9-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
@@ -461,6 +461,9 @@ long chains is used */
 #define ML_SCALE_SITE 0           /* mittag-leffler-scale: clock E_a(-lambda t^a), t per site */
 #define ML_SCALE_LOCUS 1          /* E_a(-lambda c^(a-1) t^a), c the sites of the locus */
 #define ML_SCALE_INVARIANT 2      /* E_a(-(lambda t)^a) */
+#define DIVORDER_NONE 0           /* divergence-order: mean split times unordered */
+#define DIVORDER_TREE 1           /* ordered along the population tree */
+#define DIVORDER_RANK 2           /* user ranking of all splits, oldest first */
 #define CHAINVARIANCEDELTA 0.01 /*difference of variances of parts of a chain [see burnin_autostop]*/
 #define ESSMINIMUM 20  /*effective sample size minimum for burnin, see burnin_autostop (autotune.c)*/
 #define GELMAN_MYSTIC_VALUE 1.2

@@ -1035,7 +1035,9 @@ typedef struct _option
   MYREAL lcepsilon;
   long joint_ess;  // joint combination: main run stops at this ESS (0: fixed length)
   MYREAL joint_samples; // joint combination: genealogies used per locus (0: AUTO, <=1: fraction of the recorded ones, >1: number)
-  int divergence_order; // divergence-order: TRUE (TREE) keeps a split younger than the split that created its ancestor
+  int divergence_order; // divergence-order: DIVORDER_NONE/TREE/RANK (TREE: a split is younger than the split that created its ancestor)
+  long *divergence_rank; // divergence-order=RANK: (from,to) pairs, 0-based, oldest split first (forward in time)
+  long divergence_ranksize; // number of splits in divergence_rank
   int joint_block; // joint combination: block proposals, JOINT_BLOCK_AUTO/YES/NO
   int mlscale;     // mittag-leffler-scale: ML_SCALE_SITE/LOCUS/INVARIANT
   boolean gelman;
@@ -1342,6 +1344,8 @@ typedef struct _worldoption
     long joint_ess;
     MYREAL joint_samples;
     int divergence_order;
+    long *divergence_rank;      /* shared with option_fmt, not freed here */
+    long divergence_ranksize;
     int joint_block;
     int mlscale;
     long totalsites;   /* SNP data: sites of a locus with the invariant ones */

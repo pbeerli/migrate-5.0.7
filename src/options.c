@@ -560,7 +560,9 @@ void init_options (option_fmt * options)
     options->lcepsilon = LONGCHAINEPSILON;
     options->joint_ess = JOINT_ESS_DEFAULT;
     options->joint_samples = 0.0;   /* AUTO */
-    options->divergence_order = TRUE;   /* TREE */
+    options->divergence_order = DIVORDER_TREE;
+    options->divergence_rank = NULL;
+    options->divergence_ranksize = 0;
     options->joint_block = JOINT_BLOCK_AUTO;
     options->mlscale = ML_SCALE_INVARIANT;
     options->gelman = FALSE; 
@@ -1484,6 +1486,16 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
             fprintf (file, "   Joint combination genealogies/locus: %20.0f\n", options->joint_samples);
         else if (options->joint_samples > 0.0)
             fprintf (file, "   Joint combination genealogies/locus: %10.3g of recorded\n", options->joint_samples);
+        if (options->divergence_order == DIVORDER_NONE)
+            fprintf (file, "   Divergence order:                                    NONE\n");
+        else if (options->divergence_order == DIVORDER_RANK)
+          {
+            long r;
+            fprintf (file, "   Divergence order (oldest first):    ");
+            for (r = 0; r < options->divergence_ranksize; r++)
+              fprintf (file, " %li->%li", options->divergence_rank[2 * r] + 1, options->divergence_rank[2 * r + 1] + 1);
+            fprintf (file, "\n");
+          }
     fprintf (file, "\nPrint options:\n");
       fprintf (file, "   Data file: %46.46s\n", options->infilename);
       fprintf (file, "   Parameter file: %41.41s\n", options->parmfilename);
@@ -2784,6 +2796,8 @@ destroy_options (option_fmt * options)
 {
     myfree(options->thetag);
     myfree(options->mg);
+    if (options->divergence_rank != NULL)
+      myfree(options->divergence_rank);
     destroy_startparameters(options);
     myfree(options->mu_rates);
     myfree(options->inheritance_scalars);
@@ -4529,12 +4543,25 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_mutable(&bufsize, buffer, allocbufsize,  "divergence-distrib=%c",( options->species_model_dist == 2 ? 'E' :(options->species_model_dist==0 ? 'N' : (options->species_model_dist == NORMAL_DIST ? 'N' : 'N'))));
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Order of the divergence times implied by the population tree");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "Syntax: divergence-order=<TREE | NONE>");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Syntax: divergence-order=<TREE | NONE | RANK: from->to from->to ...>");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        TREE = a population splits after the split that created its ancestor:");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               with 1 |-> 2 |-> 3, D_2->3 <= D_1->2 (mean split times; Default!)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        NONE = the mean split times are not ordered");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        RANK = every split, oldest first (forward in time), for example");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               RANK: 1->2 2->3 1->4 means D_1->2 >= D_2->3 >= D_1->4");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: divergence-order=TREE");
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "divergence-order=%s", options->divergence_order ? "TREE" : "NONE");
+    if (options->divergence_order == DIVORDER_RANK && options->divergence_ranksize > 0)
+      {
+        char rank[LINESIZE];
+        long r, pos = 0;
+        rank[0] = '\0';
+        for (r = 0; r < options->divergence_ranksize && pos < LINESIZE - 40; r++)
+          pos += snprintf (rank + pos, (size_t) (LINESIZE - pos), " %li->%li",
+                           options->divergence_rank[2 * r] + 1, options->divergence_rank[2 * r + 1] + 1);
+        print_parm_mutable(&bufsize, buffer, allocbufsize, "divergence-order=RANK:%s", rank);
+      }
+    else
+      print_parm_mutable(&bufsize, buffer, allocbufsize, "divergence-order=%s", options->divergence_order ? "TREE" : "NONE");
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
@@ -6316,7 +6343,52 @@ numbercheck (option_fmt * options, char *var, char *value)
                  of a population younger than the mean split time of the
                  split that created its ancestor (1 |-> 2 |-> 3: D_2->3 <=
                  D_1->2); NONE leaves the split times unordered */
-        options->divergence_order = (uppercase (value[0]) == 'N') ? FALSE : TRUE;
+        /* RANK: 1->2 2->3 1->4 = every split, oldest first (forward
+           in time); the splits are checked against the model later
+           (species_order_check) */
+        if (options->divergence_rank != NULL)
+          myfree (options->divergence_rank);
+        options->divergence_rank = NULL;
+        options->divergence_ranksize = 0;
+        switch (uppercase (value[0]))
+          {
+          case 'N':
+            options->divergence_order = DIVORDER_NONE;
+            break;
+          case 'R':
+            {
+              char *c = strchr (value, ':');
+              long a, b, n = 0;
+              options->divergence_order = DIVORDER_RANK;
+              options->divergence_rank = (long *) mycalloc ((size_t) (2 * (strlen (value) + 1)), sizeof (long));
+              while (c != NULL && *c != '\0')
+                {
+                  char *e;
+                  while (*c != '\0' && !isdigit ((unsigned char) *c))
+                    c++;
+                  if (*c == '\0')
+                    break;
+                  a = strtol (c, &e, 10);
+                  c = e;
+                  while (*c == ' ' || *c == '-' || *c == '>')
+                    c++;
+                  if (!isdigit ((unsigned char) *c))
+                    error ("divergence-order=RANK: needs splits like 1->2, e.g. divergence-order=RANK: 1->2 2->3 1->4\n");
+                  b = strtol (c, &e, 10);
+                  c = e;
+                  options->divergence_rank[2 * n] = a - 1;
+                  options->divergence_rank[2 * n + 1] = b - 1;
+                  n++;
+                }
+              if (n == 0)
+                error ("divergence-order=RANK: needs splits like 1->2, e.g. divergence-order=RANK: 1->2 2->3 1->4\n");
+              options->divergence_ranksize = n;
+            }
+            break;
+          default:
+            options->divergence_order = DIVORDER_TREE;
+            break;
+          }
         break;
     case 25:   /* print-tree options */
         switch (uppercase (value[0]))

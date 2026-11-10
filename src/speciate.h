@@ -45,6 +45,8 @@ extern void fill_speciesvector(world_fmt*world, option_fmt *options);
 extern long propose_new_spec_mu_old(world_fmt * world, MYREAL *oldmu, MYREAL *oldsigma, MYREAL *newmu, MYREAL *newsigma, long which, boolean *is_mu);
 extern void adjust_averagediv(world_fmt * world, long which, MYREAL *newparam);
 extern long propose_new_spec_mu(world_fmt * world, long which, boolean *is_mu, MYREAL *newparam);
+extern long species_order_partner(world_fmt * world, long c);
+extern void species_order_check(world_fmt * world);
 extern boolean species_order_ok(world_fmt * world, const MYREAL *param);
 extern boolean species_order_repair(world_fmt * world);
 extern double species_mig_gate(world_fmt * world, long pop);
