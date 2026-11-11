@@ -98,7 +98,8 @@ Models and analyses
   'Joint' (joint combination with Monte Carlo error).
 - Marginal likelihoods for Bayes factor model comparison (thermodynamic
   integration with Bezier correction, stepping stone, harmonic mean); use
-  static heating (heating=YES:1:LINEAR:N or POWER:N) for model comparison.
+  static heating (heating=YES:1:LINEAR:N, POWER:N, or POWER:N:SHAPE with
+  beta = x^(1/SHAPE), SHAPE 0.3 = POWER, 1 = LINEAR) for model comparison.
 - Convergence diagnostics: effective sample sizes (batch means) and the
   Gelman-Rubin statistic across replicates.
 - Relabeling/merging of populations and random subsets of individuals.

@@ -4413,16 +4413,17 @@ MYREAL read_date_fromfile (FILE * datefile, data_fmt *data, option_fmt *options,
 		      }
 		    else
 		      {
-			data->sampledates[pop][locus][ind].date = 
-			  (oldest - data->sampledates[pop][locus][ind].date) 
-			  + (youngest - oldest);
+			// forward dates (calendar years): age = latest date - date
+			data->sampledates[pop][locus][ind].date =
+			  oldest - data->sampledates[pop][locus][ind].date;
 		      }
 		  }
 	      }
 	  }
     }
     free(name);
-    return oldest;
+    // the age of the oldest sample after the conversion
+    return (youngest <= oldest) ? oldest - youngest : 0.0;
 }
 
 ///

@@ -69,7 +69,8 @@ extern void read_options_master (option_fmt * options);
 // \param options  {is the option structure that holds all general option data}
 // \returns None
 extern void read_options_worker (char **buffer, option_fmt * options);
-extern void set_heating_ladder (option_fmt * options, long n, boolean power);
+#define HEATING_POWER_SHAPE 0.3   /* default shape of the POWER ladder */
+extern void set_heating_ladder (option_fmt * options, long n, MYREAL shape);
 extern void option_note (const char *fmt, ...);
 extern char * getpriortype(int kind);
 /* default move weights of the forces with their own move: create_options()

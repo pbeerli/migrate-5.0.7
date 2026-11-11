@@ -3529,6 +3529,9 @@ read_heatvalues(option_fmt * options) {
 	  "or, most lazily, let me suggest a range [simply type a #]\n");
   FPRINTF(stdout,
 	  "or a power ladder with more hot chains  [simply type a p]\n");
+  FPRINTF(stdout,
+	  "   (p SHAPE, e.g. p 0.5: beta = x^(1/SHAPE), p alone is 0.3,\n"
+	  "    1 is the suggested range; larger SHAPE = more chains near the cold one)\n");
   FPRINTF(stdout,"@@@@@ For model comparison, the range of temperatures @@@@@\n");
   FPRINTF(stdout,"@@@@@ MUST include a very hot chain (>100000.0)       @@@@@\n");
   printf("===> ");
@@ -3546,9 +3549,13 @@ read_heatvalues(option_fmt * options) {
   else 
     {
       if (strstr(input, "#")) 
-	set_heating_ladder(options, options->heated_chains, FALSE);
+	set_heating_ladder(options, options->heated_chains, 1.0);
       else if (tolower(input[0]) == 'p')
-	set_heating_ladder(options, options->heated_chains, TRUE);
+	{
+	  MYREAL shape = atof(input + 1);
+	  set_heating_ladder(options, options->heated_chains,
+			     shape > 0.0 ? shape : HEATING_POWER_SHAPE);
+	}
       else
 	{
 	  if (strstr(input, "@")) 

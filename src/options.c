@@ -4883,13 +4883,21 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "       ADAPTIVE adaptive heating using start TEMPERATURES [fails sometimes!!]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       SKIP skip that many comparisons, this lengthens the run by SKIP");
     print_parm_comment(&bufsize, buffer, allocbufsize, "           TEMPERATURES    { 1.0, temp1, temp2, temp3 .. tempn}");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or LINEAR:N  N chains, inverse temperatures evenly");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     spaced, hottest 1000000.0");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or POWER:N   N chains, power ladder (more hot chains),");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     hottest 1000000.0");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or LINEAR:N  N chains, inverse temperatures (beta = 1/T)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     evenly spaced, hottest 1000000.0");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or POWER:N   N chains, beta = x^(1/0.3) with x = 1, (N-2)/(N-1),");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     ..., 1/(N-1): more chains near beta = 0 (hot),");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     good for marginal likelihoods (thermodynamic");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     integration), hottest 1000000.0");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                        or POWER:N:SHAPE  beta = x^(1/SHAPE): SHAPE 0.3 is POWER:N,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     SHAPE 1 is LINEAR:N. A larger SHAPE moves the");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     chains toward the cold chain (more swaps with");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     it, better mixing), a smaller SHAPE toward");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                                     beta = 0 (better marginal likelihoods)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:{1.0, 1.2, 3.0,1000000.0}");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:LINEAR:4   [same as {1.0,1.5,3.0,1000000.0}]");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:POWER:8");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:POWER:5    [same as {1.0,2.61,10.08,101.59,1000000.0}]");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "    Example: heating=YES:1:POWER:5:0.5  [same as {1.0,1.78,4.0,16.0,1000000.0}]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "Heating:  swapping chains");
     print_parm_comment(&bufsize, buffer, allocbufsize, "    Syntax: heated-swap=< YES | NO >");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        YES  swapping of chains enabled [DEFAULT]");
@@ -6682,10 +6690,16 @@ numbercheck (option_fmt * options, char *var, char *value)
                     && (uppercase (tmp[0]) == 'L' || uppercase (tmp[0]) == 'P'))
                 {
                     /* heating=YES:SKIP:LINEAR:N or heating=YES:SKIP:POWER:N */
+                    /* heating=YES:SKIP:POWER:N:SHAPE, SHAPE default 0.3 */
                     char *count = strchr (tmp, ':');
+                    char *shapestr = (count != NULL) ? strchr (count + 1, ':') : NULL;
+                    MYREAL shape = 1.0;
+                    if (uppercase (tmp[0]) == 'P')
+                      shape = (shapestr != NULL && shapestr[1] != '\0')
+                        ? atof (shapestr + 1) : HEATING_POWER_SHAPE;
                     set_heating_ladder (options,
                                         count != NULL ? atol (count + 1) : 0,
-                                        uppercase (tmp[0]) == 'P');
+                                        shape);
                 }
                 else if (tmp != NULL)
                 {
@@ -6706,7 +6720,7 @@ numbercheck (option_fmt * options, char *var, char *value)
                     {
                         warning ("heating needs at least 4 chains, %li temperatures given: using 1, 1.5, 3, 1000000\n", (long) z);
                         option_note ("heating needs at least 4 chains, %li temperatures given: using 1, 1.5, 3, 1000000", (long) z);
-                        set_heating_ladder (options, 4, FALSE);
+                        set_heating_ladder (options, 4, 1.0);
                     }
                 }
             }
@@ -8541,8 +8555,10 @@ void set_updating_choices(double *choices, option_fmt * options, int flag, long 
 /// chain is always 1e6 (beta ~ 0) for thermodynamic integration.
 /// linear (power == FALSE): beta evenly spaced 1 .. 1/(n-1), the menu's
 ///   suggested ladder, e.g. n=4 gives {1, 1.5, 3, 1e6}
-/// power (power == TRUE): beta_k = (k/(n-1))^(1/0.3), which puts more chains
-///   near beta = 0 where E_beta[log L] bends (Xie et al. 2011)
+/// shape: beta_k = (k/(n-1))^(1/shape); shape 1 is the linear ladder, shape
+///   0.3 (POWER) puts more chains near beta = 0 where E_beta[log L] bends
+///   (Xie et al. 2011: quantiles of a Beta(shape, 1) distribution); shapes
+///   between 0.3 and 1 move chains back toward the cold chain
 /* notes on defaults and switched-off forces, collected while the options
    and priors are set up and replayed into the "Potential problems" section
    by record_option_notes() once the cold chain's world exists */
@@ -8657,7 +8673,7 @@ record_option_notes (world_fmt * world, option_fmt * options)
 }
 
 void
-set_heating_ladder (option_fmt * options, long n, boolean power)
+set_heating_ladder (option_fmt * options, long n, MYREAL shape)
 {
   long i;
   MYREAL x;
@@ -8665,9 +8681,9 @@ set_heating_ladder (option_fmt * options, long n, boolean power)
   if (n < 4)   /* run_chains() and print_heating_progress() assume 4 chains */
     {
       warning ("heating=...:%s:N needs N >= 4 chains, using 4\n",
-               power ? "POWER" : "LINEAR");
+               shape == 1.0 ? "LINEAR" : "POWER");
       option_note ("heating=...:%s:N needs N >= 4 chains, using 4",
-                   power ? "POWER" : "LINEAR");
+                   shape == 1.0 ? "LINEAR" : "POWER");
       n = 4;
     }
   if (n > maxchains)
@@ -8676,11 +8692,20 @@ set_heating_ladder (option_fmt * options, long n, boolean power)
                maxchains);
       n = maxchains;
     }
+  if (!(shape > 0.0))
+    {
+      warning ("heating=...:POWER:N:SHAPE needs SHAPE > 0, using %g\n",
+               HEATING_POWER_SHAPE);
+      option_note ("heating=...:POWER:N:SHAPE needs SHAPE > 0, using %g",
+                   HEATING_POWER_SHAPE);
+      shape = HEATING_POWER_SHAPE;
+    }
   options->heat[0] = 1.0;
   for (i = 1; i < n - 1; i++)
     {
+      /* beta = x^(1/shape): shape 1 is LINEAR, shape 0.3 the POWER ladder */
       x = (MYREAL) (n - 1 - i) / (MYREAL) (n - 1);
-      options->heat[i] = 1. / (power ? pow (x, 1. / 0.3) : x);
+      options->heat[i] = 1. / pow (x, 1. / shape);
     }
   options->heat[n - 1] = 1000000.;
   options->heated_chains = n;
