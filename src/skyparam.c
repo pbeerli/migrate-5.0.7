@@ -319,6 +319,20 @@ static long skyline_bin2(double v, double lo, double width, long n)
   return b;
 }
 
+/* bin of v on the grid, or -1 outside it. The 2-D grids of the loci are
+   combined as product / prior^(L-1): a sample outside the grid must be left
+   out, not put into the edge bin. The edge bin then held the whole tail
+   below the grid (for M with a uniform prior from 0: everything below
+   1000 e^-7), about 1/bin-width times its density on every locus, and with
+   20 loci the product sat at the grid floor (M near 1, value = tau) */
+static long skyline_bin2_in(double v, double lo, double width, long n)
+{
+  const double u = (v - lo) / width * n;
+  if (!(u >= 0.0) || u >= (double) n)
+    return -1;
+  return (long) floor(u);
+}
+
 static void skyline_joint_add(world_fmt *world, long locus);
 
 /* one posterior sample of the cold chain */
@@ -352,8 +366,12 @@ void skyline_param_sample(world_fmt *world)
       skyline_grange(world, j, &glo, &gw);
       L->gsamples[(L->n * world->sky_ng + j) * 2] = (float) x;
       L->gsamples[(L->n * world->sky_ng + j) * 2 + 1] = (float) g;
-      L->ghist2[(j * SKY2_NX + skyline_bin2(x, skyline_gxlo(world, j), SKY2_XRANGE, SKY2_NX)) * SKY2_NG
-                + skyline_bin2(g, glo, gw, SKY2_NG)] += 1.0f;
+      {
+        const long bx = skyline_bin2_in(x, skyline_gxlo(world, j), SKY2_XRANGE, SKY2_NX);
+        const long bg = skyline_bin2_in(g, glo, gw, SKY2_NG);
+        if (bx >= 0 && bg >= 0)
+          L->ghist2[(j * SKY2_NX + bx) * SKY2_NG + bg] += 1.0f;
+      }
     }
   for (e = 0; e < world->sky_nent; e++)
     {
@@ -362,8 +380,12 @@ void skyline_param_sample(world_fmt *world)
       double x = log(world->param0[k]);
       L->samples[L->n * world->sky_nent + e] = (float) y;
       L->hist[e * SKYLINE_HISTBINS + skyline_bin(y)] += 1.0;
-      L->hist2[(e * SKY2_NX + skyline_bin2(x, skyline_xlo(world, e), SKY2_XRANGE, SKY2_NX)) * SKY2_NY
-               + skyline_bin2(y, -SKY2_YMAX, 2.0 * SKY2_YMAX, SKY2_NY)] += 1.0f;
+      {
+        const long bx = skyline_bin2_in(x, skyline_xlo(world, e), SKY2_XRANGE, SKY2_NX);
+        const long by = skyline_bin2_in(y, -SKY2_YMAX, 2.0 * SKY2_YMAX, SKY2_NY);
+        if (bx >= 0 && by >= 0)
+          L->hist2[(e * SKY2_NX + bx) * SKY2_NY + by] += 1.0f;
+      }
     }
   L->n++;
   L->nsamples += 1.0;
