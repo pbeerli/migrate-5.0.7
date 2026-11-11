@@ -1902,22 +1902,38 @@ jc_div_normalizer (const jc_layout *ly, const double *st, const jc_divquad *q)
 
      R_e(x0) = e^{f_0(x0)} int prod_{s>=1} K(u_{s-1}, u_s) e^{f_s(x0 e^{u_s})} du
 
-   In w_s = log(x0 tau_s) the range rule (every segment value in the prior
-   range) is the grid itself; the random walk on log tau is a random walk on
-   w that starts at w_0 = log x0 (backward recursion with a banded Gaussian
-   kernel, rows normalised: a std below the grid spacing pins the segments
-   together); the log-uniform prior is independent per segment, w_s within
-   w_0 + [log a, log b]. The hard limit |log tau| <= SKYLINE_HISTMAX is part
-   of the log-uniform windows; for the random walk it is not part of R (its
-   prior mass is negligible unless sigma is large) but the joint sampler
-   enforces it. Constant factors of the prior cancel in p(G)/Z(G). */
+   in w_s = log(x0 tau_s). The base value x0 is the parameter and stays in
+   its prior range (the grid x); a segment value x0 tau_s may leave it (no
+   range rule since 7.0.102, as in the sampler): the segments s >= 1 use the
+   grid extended by SKYLINE_HISTMAX in log on both sides (|log tau| <=
+   SKYLINE_HISTMAX). Before, the segment values were confined to the prior
+   range here while the samplers allowed more, so genealogies that call for
+   a segment value above the range got a Z(G) too small and dominated the
+   joint (two populations with an M skyline: M x tau ran to about 8000 with
+   the prior of M up to 1000). The random walk on log tau is a random walk
+   on w that starts at w_0 = log x0 (backward recursion with a banded
+   Gaussian kernel, rows normalised: a std below the grid spacing pins the
+   segments together); the log-uniform prior is independent per segment,
+   w_s within w_0 + [log a, log b]. The hard limit |log tau| <=
+   SKYLINE_HISTMAX is part of the log-uniform windows; for the random walk
+   it is not part of R (its prior mass is negligible unless sigma is large)
+   but the joint sampler enforces it. Constant factors of the prior cancel
+   in p(G)/Z(G). */
 static void
 jc_sky_logR (const jc_layout *ly, const double *st, long e, double mu, const double *x, double *R)
 {
   const long n = JC_TGRID, j = ly->sky_j[e];
-  const double h = (log (x[n - 1]) - log (x[0])) / (double) (n - 1);
-  double f[JC_TGRID], B[JC_TGRID], C[JC_TGRID];
+  const double lx0 = log (x[0]);
+  const double h = (log (x[n - 1]) - lx0) / (double) (n - 1);
+  const long E = (long) ceil (SKYLINE_HISTMAX / h);   /* extension on each side */
+  const long ne = n + 2 * E;
+  double *xe = (double *) mycalloc ((size_t) ne, sizeof (double));
+  double *f = (double *) mycalloc ((size_t) ne, sizeof (double));
+  double *B = (double *) mycalloc ((size_t) ne, sizeof (double));
+  double *C = (double *) mycalloc ((size_t) ne, sizeof (double));
   long i, q, sg;
+  for (i = 0; i < ne; i++)
+    xe[i] = (i >= E && i < E + n) ? x[i - E] : exp (lx0 + (double) (i - E) * h);
   if (ly->sky_type[j] == SKYPRIOR_LOGUNIFORM)
     {
       const double la = log (ly->sky_a[j]) > -SKYLINE_HISTMAX ? log (ly->sky_a[j]) : -SKYLINE_HISTMAX;
@@ -1927,67 +1943,79 @@ jc_sky_logR (const jc_layout *ly, const double *st, long e, double mu, const dou
       for (sg = 1; sg < ly->nseg; sg++)
         {
           double fmax = -HUGE_VAL;
-          for (i = 0; i < n; i++)
+          for (i = 0; i < ne; i++)
             {
-              f[i] = jc_sky_seg_term (ly, st, e, sg, x[i], mu);
+              f[i] = jc_sky_seg_term (ly, st, e, sg, xe[i], mu);
               if (f[i] > fmax)
                 fmax = f[i];
             }
           C[0] = 0.0;   /* cumulative trapezoid of e^{f - fmax} in w */
-          for (i = 1; i < n; i++)
+          for (i = 1; i < ne; i++)
             C[i] = C[i - 1] + 0.5 * h * (exp (f[i - 1] - fmax) + exp (f[i] - fmax));
           for (i = 0; i < n; i++)
             {
-              /* window [i + la/h, i + lb/h] in grid units, clipped to the grid */
-              double a = (double) i + la / h, b = (double) i + lb / h, ca, cb;
+              /* window [w_0 + log a, w_0 + log b] in extended-grid units */
+              double a = (double) (i + E) + la / h, b = (double) (i + E) + lb / h, ca, cb;
               if (a < 0.0) a = 0.0;
-              if (b > (double) (n - 1)) b = (double) (n - 1);
+              if (b > (double) (ne - 1)) b = (double) (ne - 1);
               if (b <= a || fmax == -HUGE_VAL)
                 {
                   R[i] = -HUGE_VAL;
                   continue;
                 }
-              q = (long) a; if (q > n - 2) q = n - 2;
+              q = (long) a; if (q > ne - 2) q = ne - 2;
               ca = C[q] + (a - q) * (C[q + 1] - C[q]);
-              q = (long) b; if (q > n - 2) q = n - 2;
+              q = (long) b; if (q > ne - 2) q = ne - 2;
               cb = C[q] + (b - q) * (C[q + 1] - C[q]);
               R[i] += (cb > ca) ? fmax + log (cb - ca) : -HUGE_VAL;
             }
         }
-      return;
     }
-  /* random walk with std sigma on w */
-  const double sigma = ly->sky_a[j];
-  long band = (long) ceil (6.0 * sigma / h);
-  if (band > n - 1)
-    band = n - 1;
-  double *kw = (double *) mycalloc ((size_t) (2 * band + 1), sizeof (double));
-  double ksum = 0.0;
-  for (q = -band; q <= band; q++)
-    ksum += (kw[q + band] = exp (-0.5 * (q * h / sigma) * (q * h / sigma)));
-  for (q = 0; q <= 2 * band; q++)
-    kw[q] /= ksum;
-  for (i = 0; i < n; i++)
-    B[i] = jc_sky_seg_term (ly, st, e, ly->nseg - 1, x[i], mu);
-  for (sg = ly->nseg - 2; sg >= 0; sg--)
+  else
     {
-      double bmax = -HUGE_VAL;
-      for (i = 0; i < n; i++)
-        if (B[i] > bmax)
-          bmax = B[i];
-      for (i = 0; i < n; i++)
-        C[i] = bmax == -HUGE_VAL ? 0.0 : exp (B[i] - bmax);
-      for (i = 0; i < n; i++)
+      /* random walk with std sigma on w */
+      const double sigma = ly->sky_a[j];
+      long band = (long) ceil (6.0 * sigma / h);
+      if (band > ne - 1)
+        band = ne - 1;
+      double *kw = (double *) mycalloc ((size_t) (2 * band + 1), sizeof (double));
+      double ksum = 0.0;
+      for (q = -band; q <= band; q++)
+        ksum += (kw[q + band] = exp (-0.5 * (q * h / sigma) * (q * h / sigma)));
+      for (q = 0; q <= 2 * band; q++)
+        kw[q] /= ksum;
+      /* B_s(w) = f_s(w) + log int K(w, w') e^{B_{s+1}(w')} dw', s = nseg-1 .. 1,
+         on the extended grid; then R(x0) = f_0(x0) + log int K e^{B_1} */
+      for (i = 0; i < ne; i++)
+        B[i] = jc_sky_seg_term (ly, st, e, ly->nseg - 1, xe[i], mu);
+      for (sg = ly->nseg - 2; sg >= 0; sg--)
         {
-          double sum = 0.0;
-          const long lo = i - band < 0 ? 0 : i - band, hi = i + band > n - 1 ? n - 1 : i + band;
-          for (q = lo; q <= hi; q++)
-            sum += kw[q - i + band] * C[q];
-          B[i] = jc_sky_seg_term (ly, st, e, sg, x[i], mu) + (sum > 0.0 ? bmax + log (sum) : -HUGE_VAL);
+          double bmax = -HUGE_VAL;
+          const long from = sg == 0 ? E : 0, to = sg == 0 ? E + n : ne;
+          for (i = 0; i < ne; i++)
+            if (B[i] > bmax)
+              bmax = B[i];
+          for (i = 0; i < ne; i++)
+            C[i] = bmax == -HUGE_VAL ? 0.0 : exp (B[i] - bmax);
+          for (i = from; i < to; i++)
+            {
+              double sum = 0.0;
+              const long lo = i - band < 0 ? 0 : i - band, hi = i + band > ne - 1 ? ne - 1 : i + band;
+              for (q = lo; q <= hi; q++)
+                sum += kw[q - i + band] * C[q];
+              f[i] = jc_sky_seg_term (ly, st, e, sg, xe[i], mu) + (sum > 0.0 ? bmax + log (sum) : -HUGE_VAL);
+            }
+          for (i = 0; i < ne; i++)
+            B[i] = (i >= from && i < to) ? f[i] : -HUGE_VAL;
         }
+      for (i = 0; i < n; i++)
+        R[i] = B[i + E];
+      myfree (kw);
     }
-  memcpy (R, B, sizeof (double) * (size_t) n);
-  myfree (kw);
+  myfree (xe);
+  myfree (f);
+  myfree (B);
+  myfree (C);
 }
 
 /* TRUE when parameter p is the parameter of a free skyline entry */

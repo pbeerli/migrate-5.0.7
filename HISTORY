@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 11  Migrate 6.1.86 skyline=PARAM in the joint combination: the integral over the multipliers
+             (Z of each genealogy) kept every segment value inside the prior range of its
+             parameter, while the samplers allow values outside it (since 7.0.102); with an
+             M skyline the joint ran to M x tau of thousands (all Joint* rows). The fallback
+             combination (product of per-locus grids) put samples outside its grid into the
+             edge bins and then sat at the grid floor (segment value = multiplier). Both fixed.
 November 11  Migrate 6.1.85 Empirical skyline (skyline=YES): each time bin now reports the
              maximum-likelihood value of a parameter that is constant in the bin, given the
              sampled genealogies (generalized skyline: Theta = sum k(k-1)dt / coalescences,
