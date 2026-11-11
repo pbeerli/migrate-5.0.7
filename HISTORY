@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 11  Migrate 6.1.83 heating=YES:1:POWER:N:SHAPE sets the ladder beta = x^(1/SHAPE)
+             (0.3 = POWER, 1 = LINEAR). Tip dates given forward in time (title F) gave
+             negative ages, fixed.
 November 9   Migrate 6.1.82 New divergence-order=RANK: 1->2 2->3 1->4 (every split, oldest
              first). Joint with ordered splits (TREE, RANK): the normalizer grid missed the
              narrow peaks of small split-time stds (log errors up to 0.3), fixed.
