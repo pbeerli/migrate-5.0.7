@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 11  Migrate 6.1.85 Empirical skyline (skyline=YES): each time bin now reports the
+             maximum-likelihood value of a parameter that is constant in the bin, given the
+             sampled genealogies (generalized skyline: Theta = sum k(k-1)dt / coalescences,
+             M = migrations / sum k dt). The old values were time-weighted averages of
+             per-interval estimates (about 2 Theta for constant size), used only part of each
+             genealogy, counted intervals ending at a tip date as coalescences, and dropped
+             values above 10x the mean. Error bars: value / sqrt(events per genealogy).
 November 11  Migrate 6.1.84 MPI runs with a tipdate-file lost the sampling dates of all loci
              but the first when the infile has all loci of an individual on one line
              (those loci were analyzed as undated; could also stop with "time conflict");

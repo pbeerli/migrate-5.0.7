@@ -9574,11 +9574,12 @@ pdf_histogram_legend(void)
     pdf_printf_next(lx, &page_height, "With estimated mutation rate only the combined rate modifier is plotted.");
     pdf_printf_next(lx, &page_height, "[this will change to  mutation rate plot].");
     pdf_advance(&page_height);
-    pdf_printf_next(lx, &page_height, "The gray bars cover 1.96 * approximate standard error (std in file skylinefile/number");
-    pdf_printf_next(lx, &page_height, "of observations in the bin) up and down from the expected value.");
-    pdf_printf_next(lx, &page_height, "The bar with different shades of gray on top of each plot indicates the number of values that were used to");
-    pdf_printf_next(lx, &page_height, "to calculate the expected value, white means there were very few and black means");
-    pdf_printf_next(lx, &page_height, "that there were many thousands of samples per bin.");
+    pdf_printf_next(lx, &page_height, "In each time bin the value is the maximum-likelihood value of a parameter that is constant");
+    pdf_printf_next(lx, &page_height, "in the bin, given the sampled genealogies (generalized skyline): Theta = sum k(k-1)dt over");
+    pdf_printf_next(lx, &page_height, "the coalescences in the bin, M = migrations / sum k dt (k lineages, dt time in the bin).");
+    pdf_printf_next(lx, &page_height, "The gray bars cover 1.96 * standard error up and down (value / sqrt(events per genealogy),");
+    pdf_printf_next(lx, &page_height, "file skylinefile). The bar with different shades of gray on top of each plot shows the");
+    pdf_printf_next(lx, &page_height, "number of events in the bin: white means very few, black many thousands.");
     pdf_advance(&page_height);
     pdf_printf_next(lx, &page_height, "On some plots one can see red squares below the grayscale bar, these suggest that either the");
     pdf_printf_next(lx, &page_height, "upper quantile and/or the main value was higher than the visible part of the  axis.");

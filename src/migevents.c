@@ -825,58 +825,40 @@ void store_events (world_fmt * world, timelist_fmt * ltl, long np, long rep)
 	if(!world->data->skiploci[world->locus])
 	  {
 	    bb = &(world->mighistloci[world->locus]);
-	    
-	    if((*ltl).tl[0].eventnode->type != 't')
-	      {
-		calculate_event_values(bb->migeventbins, bb->migeventbinnum, bb->eventbinsize, 
-				       (*ltl).tl[0].age, 
-				       (*ltl).tl[0].age, 
-				       (*ltl).tl[0].eventnode->type, 
-				       (*ltl).tl[0].from, (*ltl).tl[0].to,
-				       (*ltl).tl[0].lineages, world->numpop, FALSE,
-				       world);
-		// calculate skyline values
-		if(world->options->skyline)
-		  {
-		    if((*ltl).tl[0].eventnode->visited)
-		      {
-			calculate_expected_values(bb->eventbins, bb->eventbinnum, bb->eventbinsize, 
-						  (*ltl).tl[0].age, 
-						  (*ltl).tl[0].age, 
-						  (*ltl).tl[0].eventnode->type,
-						  (*ltl).tl[0].from, (*ltl).tl[0].to,
-						  (*ltl).tl[0].lineages, world->numpop, world);
-		      }
-		  }
-	      }
 	    T = (*ltl).T - 1;
+	    // event histograms: the events near the last change of the genealogy
+	    if((*ltl).tl[0].eventnode->type != 't')
+	      calculate_event_values(bb->migeventbins, bb->migeventbinnum, bb->eventbinsize, 
+				     (*ltl).tl[0].age, 
+				     (*ltl).tl[0].age, 
+				     (*ltl).tl[0].eventnode->type, 
+				     (*ltl).tl[0].from, (*ltl).tl[0].to,
+				     (*ltl).tl[0].lineages, world->numpop, FALSE,
+				     world);
 	    for (j = 1; j < T; j++)
 	      {
 		t = (*ltl).tl[j].age - (*ltl).tl[j - 1].age;
 		if((*ltl).tl[j].eventnode->type != 't')
-		  {
-		    // calculate event values
-		    calculate_event_values(bb->migeventbins, bb->migeventbinnum, bb->eventbinsize, 
-					   t, 
-					   (*ltl).tl[j].age, 
-					   (*ltl).tl[j].eventnode->type, 
-					   (*ltl).tl[j].from, (*ltl).tl[j].to,
-					   (*ltl).tl[j].lineages, world->numpop, is_same(j,T-1),
-					   world);
-		    
-		    // calculate skyline values
-		    if(world->options->skyline)
-		      {
-			if((*ltl).tl[j].eventnode->visited)
-			  {
-			    calculate_expected_values(bb->eventbins, bb->eventbinnum, bb->eventbinsize, t, 
-						      (*ltl).tl[j].age,
-						      (*ltl).tl[j].eventnode->type, 
-						      (*ltl).tl[j].from, (*ltl).tl[j].to,
-						      (*ltl).tl[j].lineages, world->numpop, world);
-			  }	  
-		      }
-		  }
+		  calculate_event_values(bb->migeventbins, bb->migeventbinnum, bb->eventbinsize, 
+					 t, 
+					 (*ltl).tl[j].age, 
+					 (*ltl).tl[j].eventnode->type, 
+					 (*ltl).tl[j].from, (*ltl).tl[j].to,
+					 (*ltl).tl[j].lineages, world->numpop, is_same(j,T-1),
+					 world);
+	      }
+	    // skyline (skyline=YES): every interval of every sampled genealogy,
+	    // tip intervals included (their lineages count, the tip is no event)
+	    if(world->options->skyline)
+	      {
+		skyline_next_genealogy();
+		for (j = 1; j < T; j++)
+		  calculate_expected_values(bb->eventbins, bb->eventbinnum, bb->eventbinsize,
+					    (*ltl).tl[j].age - (*ltl).tl[j - 1].age,
+					    (*ltl).tl[j].age,
+					    (*ltl).tl[j].eventnode->type,
+					    (*ltl).tl[j].from, (*ltl).tl[j].to,
+					    (*ltl).tl[j].lineages, world->numpop, world);
 	      }
 	  }
       }

@@ -31,6 +31,7 @@
  $Id$
   */
 #include "migration.h"
+extern void skyline_next_genealogy(void);
 extern void calculate_expected_values(tetra **eventbins, long *eventbinnum, MYREAL eventinterval, MYREAL interval, MYREAL age, char type, long from, long to, long * lineages, long numpop, world_fmt *world);
 extern void setup_expected_events (world_fmt * world, option_fmt * options);
 extern void destroy_expected_events (world_fmt * world);
