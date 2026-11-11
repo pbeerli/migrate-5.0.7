@@ -1700,41 +1700,27 @@ pack_databuffer (data_fmt * data, option_fmt * options)
   // tipdate file
   if (options->has_datefile)
     {
-      locus = 0;
-      if(data->oneliner) // assumes all data for an individual is on one line
-      {
-	for (pop = 0; pop < data->numpop; pop++)
-	  {
-	    for(ind=0; ind < data->numind[pop][0]; ind++)
-	      {
-		  if (bufsize >= allocfpsize-200)
-		    {
-		      allocfpsize += LONGLINESIZE;
-		      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
-		    }
-		  bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
-	      }
-	  }
-      }
-      else
-	{
-	  // assumes locus and sublocus are the same!!!
-	  for(locus=0;locus<data->loci;locus++)
-	    {
-	      for (pop = 0; pop < data->numpop; pop++)
-		{
-		  for(ind=0; ind < data->numind[pop][locus]; ind++)
-		    {
-		      if (bufsize >= allocfpsize-200)
-			{
-			  allocfpsize += LONGLINESIZE;
-			  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
-			}
-		      bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
-		    }
-		}
-	    }
-	}
+      /* one list per locus, always: the worker reads it that way. With a
+         one-line infile (all loci of an individual on one line) only
+         locus 0 used to be sent, while the worker (which sets oneliner only
+         for datatype '@') read a list per locus, so all loci but the first
+         lost their sampling dates under MPI (read_date_fromfile fills
+         every locus in either case) */
+      for(locus=0;locus<data->loci;locus++)
+        {
+          for (pop = 0; pop < data->numpop; pop++)
+            {
+              for(ind=0; ind < data->numind[pop][locus]; ind++)
+                {
+                  if (bufsize >= allocfpsize-200)
+                    {
+                      allocfpsize += LONGLINESIZE;
+                      buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
+                    }
+                  bufsize += mysnprintf(buffer+bufsize,LINESIZE, "%s %f\n", data->sampledates[pop][locus][ind].name, data->sampledates[pop][locus][ind].date);
+                }
+            }
+        }
       // assumes buffer is big enough
       bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%20.20f\n", data->maxsampledate);
       //      printf("%i> pack_data maxsampledate=%f %s\n",myID, data->maxsampledate, fp);
@@ -2265,49 +2251,19 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 	  }
 	MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);    
 	buf = buffer;
-	if(data->oneliner)
+	/* one list per locus (see the packing side) */
+	for(locus=0;locus<data->loci;locus++)
 	  {
 	    for (pop = 0; pop < data->numpop; pop++)
 	      {
-		for(ind=0; ind < data->numind[pop][0]; ind++)
+		for(ind=0; ind < data->numind[pop][locus]; ind++)
 		  {
-		    //sgets_safe (&input, &inputsize, &buf);
-		    sgets(input, LONGLINESIZE, &buf);
-		    //printf("%i> %s\n",myID, input);
+		    sgets (input, LONGLINESIZE, &buf);
 		    double date;
 		    sscanf (input, "%s %lf", name, &date);
-		    //printf("%i> new: %li %li %s %f\n",myID, ind, pop, name, date);
-		    data->sampledates[pop][0][ind].date = (MYREAL) date;
-		    //if (data->sampledates[pop][locus][ind].name == NULL)
-		      data->sampledates[pop][0][ind].name = (char *) mycalloc(strlen(name)+1,sizeof(char));
-		    strcpy(data->sampledates[pop][0][ind].name, name);
-		    for(locus=1;locus<data->loci;locus++)
-		      {
-			data->sampledates[pop][locus][ind].date = (MYREAL) date;
-			//if (data->sampledates[pop][locus][ind].name == NULL)
-			  data->sampledates[pop][locus][ind].name = (char *) mycalloc(strlen(name)+1,sizeof(char));
-			strcpy(data->sampledates[pop][locus][ind].name, name);
-		      }
-		  }
-	      }
-	  }
-	else
-	  {
-	    for(locus=0;locus<data->loci;locus++)
-	      {
-		for (pop = 0; pop < data->numpop; pop++)
-		  {
-		    for(ind=0; ind < data->numind[pop][locus]; ind++)
-		      {
-			sgets (input, LONGLINESIZE, &buf);
-			//printf("%i> %s\n",myID, input);
-			double date;
-			sscanf (input, "%s %lf", name, &date);
-			//printf("%i> old: %li %li %s %f\n",myID, ind, pop, name, date);
-			data->sampledates[pop][locus][ind].date = (MYREAL) date;
-			data->sampledates[pop][locus][ind].name = (char *) mycalloc(strlen(name)+1,sizeof(char));
-			strcpy(data->sampledates[pop][locus][ind].name, name);
-		      }
+		    data->sampledates[pop][locus][ind].date = (MYREAL) date;
+		    data->sampledates[pop][locus][ind].name = (char *) mycalloc(strlen(name)+1,sizeof(char));
+		    strcpy(data->sampledates[pop][locus][ind].name, name);
 		  }
 	      }
 	  }
