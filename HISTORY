@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 12  Migrate 6.1.87 the warning buffer (printed at the end of the outfile) overflowed when
+             a warning filled it to the last byte: heap corruption and an abort of the master,
+             and under MPI a run that never ended (seen with "Upper prior boundary seems too
+             low" warnings). Fixed.
 November 11  Migrate 6.1.86 skyline=PARAM in the joint combination: the integral over the multipliers
              (Z of each genealogy) kept every segment value inside the prior range of its
              parameter, while the samplers allow values outside it (since 7.0.102); with an

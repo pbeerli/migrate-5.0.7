@@ -4021,21 +4021,19 @@ void record_warnings(world_fmt * world, const char *fmt, ...)
   if(myID==MASTER && world->cold)
     {
       va_start(ap, fmt);
-      mypos = vsnprintf(p, LINESIZE, fmt, ap);
+      vsnprintf(p, LINESIZE, fmt, ap);
       va_end(ap);
-      if((world->warningsize + mypos) < world->warningallocsize)
-	{
-	  world->warningsize += mysnprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
-	}
-      else
+      mypos = (long) strlen(p) + 2;   /* the text, '\n' and the terminating NUL */
+      if (world->warning == NULL || world->warningsize + mypos > world->warningallocsize)
 	{
 	  world->warningallocsize = world->warningsize + 4 * mypos; // add some extra space
 	  if(world->warning != NULL)
 	    world->warning = (char *) myrealloc (world->warning, world->warningallocsize * sizeof (char));
 	  else
 	    world->warning = (char *) mycalloc (world->warningallocsize, sizeof (char));
-	  world->warningsize += mysnprintf(world->warning + world->warningsize,LINESIZE, "%s\n",p);
 	}
+      world->warningsize += mysnprintf(world->warning + world->warningsize,
+				       (size_t) (world->warningallocsize - world->warningsize), "%s\n",p);
     }
   myfree(p);
 }
