@@ -3507,30 +3507,15 @@ void print_spectra(world_fmt * world, option_fmt * options,data_fmt * data)
 	      nummaxalleles = findAllele(data,"\0",sublocus);
 	      if(nummaxalleles == 0)
 		nummaxalleles = get_states(s, data, locus); 
+	      maxalleles[locus] = nummaxalleles;
+	      if (s->datatype=='m')
+		break; // the stepwise model keeps its allele window (finish_mutationmodel)
 	      s->numstates = nummaxalleles;
 	      if (s->datatype=='a')
 		s->maxalleles = nummaxalleles+1;
 	      else
 		s->maxalleles = nummaxalleles;
 	      s->freq = 1.0 / s->maxalleles;
-	      maxalleles[locus] = nummaxalleles;
-	      break;
-	    case 'x': // this needs to be fixed 
-	      find_minmax_msat_allele (world, data, locus, &smallest, &biggest);
-	      s->numstates  = biggest - smallest; //get_states(s,world); //biggest - smallest;
-	      s->micro_threshold = options->micro_threshold;
-	      if(s->micro_threshold > biggest-smallest)
-		s->micro_threshold = biggest-smallest;//s->numstates;
-	      if(s->micro_threshold % 2 != 0)
-		s->micro_threshold += 1; // to make it even
-	      s->microstart = smallest - 1 - s->micro_threshold;
-	      if (s->microstart < 0)
-		s->microstart = 0;
-	      s->maxalleles = biggest - smallest + 2 * s->micro_threshold; //this is the scaled max
-	      s->microrange = s->maxalleles;
-	      s->basefreqs  = (double *) mycalloc((s->numstates+BASEFREQLENGTH-4),sizeof(double));
-	      //printf("%i> micro-threshold=%li\n", myID, s->micro_threshold);
-	      doublevec2d(&s->steps,s->micro_threshold,s->micro_threshold);
 	      break;
 	    case 'h':
 	    case 'n':
@@ -4058,7 +4043,9 @@ create_alleles (world_fmt *world, data_fmt * data, option_fmt *options)
 	  if (s->baseref_used)
 	    return -1;
 	  z = 0;
-	  if(data->repeatlength[sublocus]!=0)
+	  /* MPI workers have no repeat lengths: the master sends the alleles
+	     already translated to repeats (fixed 2026-11-12, workers crashed) */
+	  if(data->repeatlength != NULL && data->repeatlength[sublocus]!=0)
 	    find_allele_repeatlength(data, options,sublocus);
 	  for (pop = 0; pop < data->numpop; pop++)
 	    {

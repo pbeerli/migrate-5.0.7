@@ -205,7 +205,7 @@ MYREAL prob_micro_singlestep (MYREAL t, long diff, world_fmt * world, mutationmo
 
 void make_sequences(long xs, mutationmodel_fmt *s, node *theNode, site_fmt **datapart);
 void make_invarsites(long sublocus, mutationmodel_fmt *s, node *theNode);
-long make_alleles(long xs, mutationmodel_fmt *s, node *theNode, option_fmt *options,
+long make_alleles(long xs, long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt *options,
 		  data_fmt *data, site_fmt *datapart2);
 long make_brownian(long xs, mutationmodel_fmt *s, node *theNode, option_fmt *options, site_fmt *datapart);
 long make_microsatellites (long sublocus, mutationmodel_fmt *s, node *theNode,
@@ -1631,7 +1631,7 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 		      break;
 		      // allelic
 		    case 'a':
-		      zminus = make_alleles(xs, s,treenode[z], options, data, datapart[0]);
+		      zminus = make_alleles(xs, sublocus, s,treenode[z], options, data, datapart[0]);
 		      if(old)
 			{
 			  if(zminus == 1)
@@ -1643,7 +1643,7 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 			    z++;
 			  allocate_tip (world, options, &treenode[z], pop, locus, z,
 					ind, data->indnames[pop][ind]);
-			  zminus = make_alleles(xs, s,treenode[z], options, data, datapart[1]);
+			  zminus = make_alleles(xs, sublocus, s,treenode[z], options, data, datapart[1]);
 			}
 		      break;
 		      // brownian
@@ -3031,7 +3031,10 @@ void make_invarsites(long sublocus, mutationmodel_fmt *s, node *theNode)
 }
 
 
-long make_alleles(long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt *options, data_fmt *data, site_fmt *datapart2)
+/// xs: sublocus within the locus (tip vector), sublocus: index into the
+/// data's allele tables (fixed 2026-11-12: xs was used for both, so every
+/// locus after the first looked its alleles up in the first locus' table)
+long make_alleles(long xs, long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt *options, data_fmt *data, site_fmt *datapart2)
 {
   //long ii,top;
   //long pop, ind;
@@ -3044,7 +3047,10 @@ long make_alleles(long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt
   if (strcmp (a1, "?"))
     {
       mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
-      theNode->x[sublocus].a[findAllele (data, a1, sublocus)] = 1.0;
+      const long allele = findAllele (data, a1, sublocus);
+      if (allele >= s->maxalleles)
+	error("make_alleles(): allele not in this locus' allele table");
+      theNode->x[xs].a[allele] = 1.0;
       return 0;
     }
   else
@@ -3053,7 +3059,7 @@ long make_alleles(long sublocus, mutationmodel_fmt *s, node *theNode, option_fmt
 	{
 	  mysnprintf(theNode->nayme,LINESIZE,"A!%s",a1);
 	  for(iu=0;iu < s->maxalleles; iu++)
-	    theNode->x[sublocus].a[iu] = 1.0;
+	    theNode->x[xs].a[iu] = 1.0;
 	  return 0;
 	}
     }

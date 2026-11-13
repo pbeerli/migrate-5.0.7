@@ -1815,6 +1815,32 @@ pack_databuffer (data_fmt * data, option_fmt * options)
       MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
       MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);
     }
+  // allele tables for the infinite-allele model: with data on demand the
+  // workers have no genotypes yet and cannot build them (fixed 2026-11-12)
+  if (options->datatype == 'a')
+    {
+      long sublocus, a;
+      bufsize = 0;
+      for (sublocus = 0; sublocus < data->allsubloci; sublocus++)
+	{
+	  const long n = data->maxalleles[sublocus];
+	  for (a = -1; a < n - 1; a++)
+	    {
+	      if (bufsize >= allocfpsize - LINESIZE)
+		{
+		  allocfpsize += LONGLINESIZE;
+		  buffer = (char *) myrealloc (buffer, sizeof (char) * (size_t) allocfpsize);
+		}
+	      if (a < 0)
+		bufsize += mysnprintf(buffer + bufsize, LINESIZE, "%li\n", n);
+	      else
+		bufsize += mysnprintf(buffer + bufsize, LINESIZE, "%s\n", data->allele[sublocus][a]);
+	    }
+	}
+      bufsize += 1;
+      MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
+      MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);
+    }
   myfree(buffer);
   return 0;
 }
@@ -2370,7 +2396,31 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
     switch (options->datatype)
     {
     case 'a':
-      create_alleles (world, data, options);
+      {
+	/* allele tables from the master (pack_databuffer); create_alleles()
+	   needs the genotypes, which workers get later (data on demand) */
+	long sublocus, a, n;
+	MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
+	if (bufsize > allocbufsize)
+	  {
+	    allocbufsize = bufsize;
+	    buffer = (char*) myrealloc(buffer, (size_t) allocbufsize * sizeof(char));
+	  }
+	MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);
+	buf = buffer;
+	for (sublocus = 0; sublocus < data->allsubloci; sublocus++)
+	  {
+	    sgets_safe (&input, &inputsize, &buf);
+	    sscanf (input, "%li", &n);
+	    for (a = 0; a < n - 1; a++)
+	      {
+		sgets_safe (&input, &inputsize, &buf);
+		sscanf (input, "%s", data->allele[sublocus][a]);
+	      }
+	    data->maxalleles[sublocus] = n;
+	    world->mutationmodels[sublocus].maxalleles = n;
+	  }
+      }
         break;
     case 'b':
         for (pop = 0; pop < data->loci; pop++)
@@ -2380,7 +2430,7 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 	  }
         break;
     case 'm':
-      create_alleles (world, data, options);
+      // no allele table needed: tips use the repeat numbers directly
         for (pop = 0; pop < data->loci; pop++)
 	  {
             data->maxalleles[pop] = options->micro_stepnum;

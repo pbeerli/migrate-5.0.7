@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 12  Migrate 6.1.88 microsatellite data with the stepwise model (datatype=MICROSATELLITEDATA)
+             stopped at once ("micro_threshold is zero"); the infinite allele model
+             (datatype=ALLELICDATA) had likelihood 0 (no genealogy accepted) and, in loci after
+             the first, used the first locus' allele table. Both crashed MPI workers. Fixed.
 November 12  Migrate 6.1.87 the warning buffer (printed at the end of the outfile) overflowed when
              a warning filled it to the last byte: heap corruption and an abort of the master,
              and under MPI a run that never ended (seen with "Upper prior boundary seems too
