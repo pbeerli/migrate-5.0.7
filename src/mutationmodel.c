@@ -40,6 +40,7 @@ void calc_brownian_default(mutationmodel_fmt *s, option_fmt *options, data_fmt *
 void calc_seq_basefreq(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long sublocus);
 void set_subloci_basefrequencies_seq(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long xs);
 void calculate_microsat_steps (mutationmodel_fmt *s);
+static void setup_microsat_range(world_fmt *world, data_fmt *data, option_fmt *options, long locus, mutationmodel_fmt *s);
 void adjust_mutationmodel(mutationmodel_fmt *s, option_fmt *options);
 void set_subloci_basefrequencies(mutationmodel_fmt *s, world_fmt *world, option_fmt *options, data_fmt *data, long locus, long xs);
 void set_tn_model(double a1, double a2, double b, double pia, double pic, double pig, mutationmodel_fmt *mumod);
@@ -91,10 +92,13 @@ void calculate_microsat_steps (mutationmodel_fmt *s)
   long k;
   long diff;
   const long stepnum = s->micro_threshold;
-  MYREAL **steps = s->steps;
+  MYREAL **steps;
 
   if(stepnum < 1)
     error("micro_threshold is zero or not initialized");
+  if(s->steps == NULL) // MPI workers receive only the scalars
+    doublevec2d(&s->steps,stepnum,stepnum);
+  steps = s->steps;
 
 //printf("\n%i> micro-threshold=%li %li\n", myID, s->micro_threshold, stepnum);
   for (diff = 0; diff < stepnum; diff++)
@@ -137,6 +141,10 @@ void set_subloci_basedefaults(mutationmodel_fmt *s, world_fmt *world, option_fmt
       s->maxalleles = XBROWN_SIZE;
       break;
     case 'm':
+      // the allele window is set in finish_mutationmodel() (sublocistarts
+      // is not ready here); MPI workers receive it from the master
+      if (s->micro_threshold < 1)
+	break;
       calculate_microsat_steps(s);
       break;
     case 'n':
@@ -1337,6 +1345,50 @@ void init_mutationmodel_second(world_fmt *world, data_fmt *data)
 }
 
 ///
+/// stepwise microsatellite model: allele window, threshold and step table
+/// (fixed 2026-11-12: this was only done for the unused datatype 'x', so
+/// datatype=MICROSATELLITEDATA stopped with "micro_threshold is zero")
+static void setup_microsat_range(world_fmt *world, data_fmt *data, option_fmt *options, long locus, mutationmodel_fmt *s)
+{
+  long smallest = LONG_MAX, biggest = 0;
+  long pop, ind, copy, tmp;
+  const long sublocus = s - world->mutationmodels;
+  const long copies = (options->datatype != '@') ? 2 : 1;
+  (void) locus;
+  // find_minmax_msat_allele() reads world->options, not set at this point
+  for (pop = 0; pop < data->numpop; pop++)
+    for (ind = 0; ind < data->numind[pop][sublocus]; ind++)
+      for (copy = 0; copy < copies; copy++)
+	{
+	  const char *a = data->yy[pop][ind][sublocus][copy][0];
+	  if (a[0] == '?')
+	    continue;
+	  tmp = atol (a);
+	  if (tmp > biggest)
+	    biggest = tmp;
+	  if (tmp < smallest)
+	    smallest = tmp;
+	}
+  if (biggest < smallest) // no known allele
+    smallest = biggest = 0;
+  s->micro_threshold = options->micro_threshold;
+  if(s->micro_threshold > biggest-smallest)
+    s->micro_threshold = biggest-smallest;
+  if(s->micro_threshold % 2 != 0)
+    s->micro_threshold += 1; // to make it even
+  if(s->micro_threshold < 2)
+    s->micro_threshold = 2;
+  s->microstart = smallest - 1 - s->micro_threshold;
+  if (s->microstart < 0)
+    s->microstart = 0;
+  s->maxalleles = biggest - smallest + 2 * s->micro_threshold; //this is the scaled max
+  s->microrange = s->maxalleles; // tip vectors and nuview_micro use the same length
+  if(s->steps != NULL)
+    free_doublevec2d(s->steps);
+  doublevec2d(&s->steps,s->micro_threshold,s->micro_threshold);
+}
+
+///
 /// finish the mutation model structure
 void finish_mutationmodel(world_fmt *world, data_fmt *data, option_fmt *options, long locus)
 {
@@ -1377,12 +1429,27 @@ void finish_mutationmodel(world_fmt *world, data_fmt *data, option_fmt *options,
 	  printf("2@@@@@@@@@@@@@@@@@@@@@@@ %i> %p %i: 0:%f 1:%f 2:%f \n",myID, (void *) s, s->model, s->parameters[0],s->parameters[1],s->parameters[2]);
 #endif	      
 
+	  if(s->datatype == 'm' && s->micro_threshold < 1)
+	    {
+	      setup_microsat_range(world, data, options, locus, s);
+	      calculate_microsat_steps(s);
+	    }
 	  set_mutationmodel_eigenmaterial(z,world); //eigenvectormatrix, inverse eigenvector matrix, eigenvalues
 	  set_siterates(z,world,options);
 
 	  switch(s->datatype)
 	    {
 	    case 'a':
+	      /* infinite-allele kernels and root use s->freq = 1/(k+1); it was
+		 only set in print_spectra(), after the run (fixed 2026-11-12) */
+	      if (s->maxalleles == 0)
+		s->maxalleles = data->maxalleles[z];
+	      if (s->maxalleles > 0)
+		{
+		  s->freq = 1.0 / s->maxalleles;
+		  s->freqlast = 1.0 - s->freq;
+		}
+	      break;
 	    case 'b':
 	    case 'm':
 	      //nummaxalleles = findAllele(data,"\0",z);
@@ -1391,23 +1458,6 @@ void finish_mutationmodel(world_fmt *world, data_fmt *data, option_fmt *options,
 	      //s->numstates = nummaxalleles;
 	      //s->maxalleles = nummaxalleles+1;
 	      //s->freq = 1.0 / s->maxalleles;
-	      break;
-	    case 'x': // this needs to be fixed 
-	      find_minmax_msat_allele (world, data, locus, &smallest, &biggest);
-	      s->numstates  = get_states(s,data, locus); //biggest - smallest;
-	      s->micro_threshold = options->micro_threshold;
-	      if(s->micro_threshold > biggest-smallest)
-		s->micro_threshold = biggest-smallest;//s->numstates;
-	      if(s->micro_threshold % 2 != 0)
-		s->micro_threshold += 1; // to make it even
-	      s->microstart = smallest - 1 - s->micro_threshold;
-	      if (s->microstart < 0)
-		s->microstart = 0;
-	      s->maxalleles = biggest - smallest + 2 * s->micro_threshold; //this is the scaled max
-	      s->microrange = s->maxalleles - s->microstart;
-	      s->basefreqs  = (double *) mycalloc((s->numstates+BASEFREQLENGTH-4),sizeof(double));
-	      //printf("%i> micro-threshold=%li\n", myID, s->micro_threshold);
-	      doublevec2d(&s->steps,s->micro_threshold,s->micro_threshold);
 	      break;
 	    default:
 	      //s->numstates = get_states(s,data,locus);
@@ -1522,6 +1572,8 @@ void print_mutationrate_weights(FILE *file, MYREAL *murates, long *segregs, MYRE
 void copy_micro_steps(mutationmodel_fmt *s, mutationmodel_fmt *old)
 {
   //printf("old->micro_threshold=%li\n",old->micro_threshold);
+  if(old->steps==NULL && old->micro_threshold > 0) // stepwise on MPI workers: only the threshold is sent
+    calculate_microsat_steps(old);
   if(s->steps==NULL)
     {
       doublevec2d(&s->steps,old->micro_threshold+1,old->micro_threshold+1);
