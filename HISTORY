@@ -12,6 +12,16 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 14  Migrate 6.1.89 haplotyping: the #% masks per locus work (* resolve, 0 or - keep the
+             phase; one character per sublocus anchors the 0 subloci); they were read and
+             ignored. Several loci: the burn-in of every locus after the first compared the
+             haplotype, mutation-rate and scaler moves with the likelihood of the previous
+             locus (serial runs; MPI workers with several loci); MPI workers with several
+             loci reused the phase records of the previous locus (crash, mixed counts) and
+             reported only their last locus. The phase report no longer counts the burn-in.
+             theta=Own and migration=Own with more values than the default number of
+             populations overflowed, and MPI workers ignored Own start values; a model with
+             every parameter constant hung. Fixed.
 November 12  Migrate 6.1.88 microsatellite data with the stepwise model (datatype=MICROSATELLITEDATA)
              stopped at once ("micro_threshold is zero"); the infinite allele model
              (datatype=ALLELICDATA) had likelihood 0 (no genealogy accepted) and, in loci after

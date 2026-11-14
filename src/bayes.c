@@ -2512,6 +2512,17 @@ bayes_update (world_fmt * world)
     which /*= world->bayes->paramnum*/ = RANDINT(0L,npx2-1);
     //printf("select which: %li ",which);
     //    while(bayes->map[which][1] == INVALID)
+    if (shortcut(which,world,&w))
+      {
+        // every parameter constant (e.g. custom-migration={ccc ccc ccc}): nothing to
+        // update; without this check the loop below never ends
+        long k, wk;
+        for (k = 0; k < npx2; k++)
+          if (!shortcut(k,world,&wk))
+            break;
+        if (k == npx2)
+          return 0;
+      }
     while(shortcut(which,world,&w))
       {
         which = RANDINT(0L,npx2-1);

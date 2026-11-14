@@ -809,6 +809,15 @@ mpi_run_locus(world_fmt ** universe, int usize, option_fmt * options,
       }
     if(!universe[0]->options->has_bayesmdimfile)
       calculate_credibility_interval(universe[0], locus);
+    /* the cold chain's phase records of this locus, kept until the master
+       asks for them after all loci (pack_haplotypes_buffer()); before, a
+       worker with several loci kept only the records of its last one
+       (fixed 2026-11-14) */
+    if (options->haplotyping_report && universe[0]->haplotypes[locus] == NULL)
+      {
+        save_haplotypes(universe[0], locus);
+        reset_haplotypes(universe[0], locus);
+      }
     
     // cleanup
     if (options->heating)
@@ -1802,16 +1811,25 @@ pack_databuffer (data_fmt * data, option_fmt * options)
 		  allocfpsize += LONGLINESIZE;
 		  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
 		}
+	      const char *mask = data->individuals[locus][id].mask;
+	      const long masklen = mask != NULL ? (long) strlen(mask) : 1L;
+	      if (bufsize + masklen >= allocfpsize-100)
+		{
+		  allocfpsize += masklen + LONGLINESIZE;
+		  buffer = (char *) myrealloc (buffer, sizeof (char) * allocfpsize);
+		}
 	      bufsize += mysnprintf(buffer + bufsize,LINESIZE, "%li\n%s\n%li %li %li\n",
 				  data->individuals[locus][id].id,
 				  data->individuals[locus][id].name,
 				  data->individuals[locus][id].ind[0],
 				  data->individuals[locus][id].ind[1],
 				  data->individuals[locus][id].numstates);
+	      /* the #% mask of the locus ('*': all subloci resolved) */
+	      bufsize += mysnprintf(buffer + bufsize, (size_t) (masklen + 2), "%s\n",
+				    mask != NULL ? mask : "*");
 	    }
 	}
       bufsize += 1;
-      printf("%i> %s\n",myID,buffer);
       MYMPIBCAST (&bufsize, 1, MPI_LONG, MASTER, comm_world);
       MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);
     }
@@ -2359,7 +2377,6 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 	    buffer = (char*) myrealloc(buffer, allocbufsize * sizeof(char));
 	  }
 	MYMPIBCAST (buffer, bufsize, MPI_CHAR, MASTER, comm_world);    
-	printf("hap %i> %s\n",myID,buffer);
 	buf = buffer;
 	if(data->numindividuals==NULL)
 	  data->numindividuals = (long *) calloc(data->loci,sizeof(long));
@@ -2387,6 +2404,9 @@ unpack_databuffer (data_fmt * data, option_fmt * options, world_fmt *world)
 			&data->individuals[locus][id].ind[1],
 			&data->individuals[locus][id].numstates);
 		data->individuals[locus][id].region = locus;
+		sgets (input, LONGLINESIZE, &buf);
+		input[strcspn(input, "\r\n")] = '\0';
+		data->individuals[locus][id].mask = (strcmp(input, "*") == 0) ? NULL : strdup(input);
 	      }
 	  }
 	// hook into data->indnames for world for haplotyping  
@@ -3941,10 +3961,6 @@ long pack_haplotypes_buffer(MYREAL **buffer, world_fmt * world,
 	{
 	  save_haplotypes(world,locus);
 	  reset_haplotypes(world,locus);
-	}
-      else
-	{
-	  warning("haplotype states for locus %li were already saved\n", locus + 1);
 	}
       for(pop=0;pop<numpop;pop++)
 	{

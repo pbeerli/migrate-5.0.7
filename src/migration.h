@@ -459,6 +459,9 @@ typedef struct _individualDB
   long numstates;
   long keylength; /* characters of a reported phase state: the heterozygous subloci */
   long targeted;
+  char *mask;     /* #% mask of this locus, one character per sublocus ('*' phase
+                     unknown, '0' phase as given); NULL: all unknown */
+  long anchored;  /* heterozygous subloci with the phase as given (mask '0') */
 } individualDB_fmt;
 
 
@@ -1485,6 +1488,7 @@ typedef struct _worlddata
 #endif
   long numindividuals;
   individualDB_fmt *individuals;
+  long individuals_alloc; /* entries allocated in individuals (cleanup lowers numindividuals) */
   boolean haplotyping;
   boolean haplotyping_report;
   long allsubloci;
