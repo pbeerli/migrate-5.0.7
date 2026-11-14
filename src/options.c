@@ -68,7 +68,7 @@ extern char * generator;
 
 /* parmfile parameter specifications and keywords */
 //#define LONGLINESIZE 10000
-#define NUMBOOL 37
+#define NUMBOOL 38
 #define BOOLTOKENS {\
 "menu", /*0*/					\
 "recover",\
@@ -105,7 +105,7 @@ extern char * generator;
   "assign",\
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
-  "print-all-variable-sites" /*36*/}
+  "print-all-variable-sites" /*36*/, "phased-infile" /*37*/}
 #define NUMNUMBER 79
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
@@ -395,6 +395,7 @@ void init_options (option_fmt * options)
     init_filename( &options->uepfilename, UEPFILE);
 #endif
     init_filename( &options->bayesfilename, BAYESFILE);
+    init_filename( &options->phasedinfilename, PHASEDINFILE);
 #ifdef ZNZ
     init_filename( &options->bayesmdimfilename, BAYESMDIMFILE);
     options->use_compressed=1;
@@ -431,6 +432,7 @@ void init_options (option_fmt * options)
         (char *) mycalloc (1, sizeof (char) * LONGLINESIZE);
     options->tersepdf = FALSE;
     options->printallvarsites = FALSE;
+    options->phasedinfile = FALSE;
     options->profile = ALL;
     //options->profilemethod = 'p';
     options->df = 1;
@@ -2797,6 +2799,7 @@ void free_options_filenames(option_fmt * options)
     myfree( options->uepfilename);
 #endif
     myfree( options->bayesfilename);
+    myfree( options->phasedinfilename);
     myfree( options->bayesmdimfilename);
     myfree( options->datefilename);
 }
@@ -3551,6 +3554,13 @@ void print_parm_haplotyping(long *bufsize, char **buffer, long *allocbufsize, op
     print_parm_comment(bufsize, buffer, allocbufsize,"   If you are not interested in the haplotypes, refrain from reprting the");
     print_parm_comment(bufsize, buffer, allocbufsize,"   the haplotypes because this will be very time consuming and slows the program");
     print_parm_mutable(bufsize, buffer, allocbufsize,"haplotyping=%s", options->haplotyping ? (options->haplotyping_report ? "YES:reporting\n" : "YES:not-reporting") : "NO");
+    print_parm_comment(bufsize, buffer, allocbufsize,"Write the infile with the most probable phase of every individual and locus");
+    print_parm_comment(bufsize, buffer, allocbufsize,"(the posterior mode of the phase report; needs haplotyping=YES:reporting)");
+    print_parm_comment(bufsize, buffer, allocbufsize,"   Syntax: phased-infile=<YES:FILENAME | NO> [default: NO, file infile.phased]");
+    if (options->phasedinfile)
+      print_parm_mutable(bufsize, buffer, allocbufsize,"phased-infile=YES:%s", options->phasedinfilename);
+    else
+      print_parm_mutable(bufsize, buffer, allocbufsize,"phased-infile=NO");
     print_parm_br(bufsize, buffer, allocbufsize);
 }
 
@@ -5714,6 +5724,12 @@ booleancheck (option_fmt * options, char *var, char *value)
       break;
     case 36: /*print-all-variable-sites=yes/no */
         options->printallvarsites = (boolean) check;
+        break;
+    case 37: /* phased-infile=<YES:filename | NO>: after a haplotyping run, write
+		the infile with the posterior mode of the phase of every individual
+		and locus (write_phased_infile(), haplotype.c) */
+        options->phasedinfile = (boolean) check;
+        set_filename(value, "YES", &options->phasedinfilename);
         break;
     default:
         return FALSE;
@@ -8617,6 +8633,17 @@ check_force_moves (option_fmt * options)
   check_force_move (options, options->haplotyping, HAPLOTYPEUPDATE,
                     &options->haplotype_updatefreq, DEFAULT_HAPLOTYPE_UPDATEFREQ,
                     "Haplotyping", "haplotype");
+  /* phased-infile needs the phase counts, which only the report keeps */
+  if (options->phasedinfile && !options->haplotyping)
+    {
+      options->phasedinfile = FALSE;
+      option_note ("phased-infile=YES ignored: it needs haplotyping=YES:reporting");
+    }
+  else if (options->phasedinfile && !options->haplotyping_report)
+    {
+      options->haplotyping_report = TRUE;
+      option_note ("haplotyping=YES:reporting set: phased-infile=YES needs the phase report");
+    }
 }
 
 static const char *scaler_unsupported(option_fmt * options);

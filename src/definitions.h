@@ -37,7 +37,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
 #define TI_NBINS 64          /* adaptive heating: beta bins for thermodynamic integration */
-#define MIGRATEVERSION "6.1.89"
+#define MIGRATEVERSION "6.1.90"
 #define MIGRATESUBVERSION "November-14-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
@@ -188,6 +188,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define AICFILE "aicfile"
 #define AICFILENUM 19
 #define BAYESFILE "bayesfile"
+#define PHASEDINFILE "infile.phased"
 #define BAYESFILENUM 20
 #define BAYESMDIMFILE "bayesallfile.gz"
 #define BAYESMDIMFILE2 "bayesallfile.txt"

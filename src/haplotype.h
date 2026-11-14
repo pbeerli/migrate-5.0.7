@@ -29,6 +29,8 @@ void link_individual_node(char *rawname, node *thenode, long region, world_fmt *
 void reset_ID_nodelist(long locus, world_fmt * world);
 void copy_individuals_from_data(data_fmt * data, worlddata_fmt * wdata, long locus);
 void reset_phase_counts(world_fmt *world);
+void write_phased_infile(world_fmt *world, data_fmt *data, option_fmt *options, boolean fromdata);
+void phase_locus_for_infile(world_fmt *world, data_fmt *data, option_fmt *options, long locus);
 void copy_individuals_differences(MYREAL heat, worlddata_fmt * ndata, worlddata_fmt * odata);
 void add_state_counter(hash_fmt **hash, size_t *numhash, float *total, int *states, long numstates, int count);
 void store_indname(char *name, long pop, long ind, long region, data_fmt *data);

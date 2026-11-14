@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 14  Migrate 6.1.90 new option phased-infile=YES:filename writes, after a haplotyping
+             run, the infile with the most probable phase (posterior mode) of every individual
+             and locus, with the probability of each as a comment.
 November 14  Migrate 6.1.89 haplotyping: the #% masks per locus work (* resolve, 0 or - keep the
              phase; one character per sublocus anchors the 0 subloci); they were read and
              ignored. Several loci: the burn-in of every locus after the first compared the

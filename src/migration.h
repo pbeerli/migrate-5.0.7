@@ -1093,6 +1093,8 @@ typedef struct _option
   boolean has_speciation;
   boolean has_migration;
   boolean tersepdf; // prints only summaries and not per locus information
+  boolean phasedinfile;     // phased-infile=YES:name: write the infile with the posterior mode of the phase
+  char *phasedinfilename;
   boolean printallvarsites; // overrides the default cap on the number of loci listed in the "Variable sites per locus" report
   boolean allposteriors; // plot all loci-posteriors
   long **unfinished;

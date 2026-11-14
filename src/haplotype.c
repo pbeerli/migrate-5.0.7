@@ -1068,3 +1068,297 @@ void free_haplotypes(world_fmt *world, long locus)
   free_hash(ii->hash,ii->numhash,(size_t) (ii->keylength > 0 ? ii->keylength : ii->numstates));
   ii = NULL;
 }
+
+/// the posterior mode of the phase of an individual at a locus (the state
+/// with the largest count after merging each state with its complement,
+/// written starting with 0, as in the report); NULL when nothing was
+/// recorded. *prob is its posterior probability.
+static char *phase_mode(individualDB_fmt *ii, double *prob)
+{
+  const long keylen = ii->keylength;
+  char **showkeys;
+  int *showvalues;
+  char *best = NULL;
+  long leaves = 0, z = 0, i;
+  double bestvalue = -1.0, total = 0.0;
+  *prob = 0.0;
+  if (ii->total1 == 0.0f || keylen <= 0 || ii->hash == NULL)
+    return NULL;
+  hash_leaves(ii->hash, ii->numhash, &leaves);
+  if (leaves == 0)
+    return NULL;
+  charvec2d(&showkeys, leaves, keylen + 1);
+  showvalues = (int *) mycalloc(leaves, sizeof(int));
+  show_hash(ii->hash, ii->numhash, (size_t) keylen, &showkeys, &showvalues, &z);
+  best = (char *) mycalloc(keylen + 1, sizeof(char));
+  for (i = 0; i < z; i++)
+    {
+      if (showkeys[i][0] == '\0')
+	continue;
+      char key[keylen + 1];
+      memcpy(key, showkeys[i], (size_t) keylen);
+      key[keylen] = '\0';
+      const double value = (double) extract_showkeys(showkeys, showvalues, (int) z, (int) keylen, (int) i);
+      if (key[0] == '1')
+	{
+	  long k;
+	  for (k = 0; k < keylen; k++)
+	    key[k] = (key[k] == '0') ? '1' : '0';
+	}
+      total += value;
+      if (value > bestvalue)
+	{
+	  bestvalue = value;
+	  memcpy(best, key, (size_t) keylen + 1);
+	}
+    }
+  free_charvec2d(showkeys);
+  myfree(showvalues);
+  *prob = total > 0.0 ? bestvalue / total : 0.0;
+  return best;
+}
+
+/// a site state for comparing the two copies of an individual: missing data
+/// in any spelling is the same
+static char phase_site_state(char c)
+{
+  c = (char) toupper((unsigned char) c);
+  return strchr("N?-OX", c) != NULL ? '?' : c;
+}
+
+/* phased-infile: the phased sequences and the comments, filled locus by
+   locus (serial runs free the sequences of a locus after running it) */
+static struct
+{
+  boolean checked, usable;
+  char ***seq;          /* [pop][ind]: all sites of all subloci */
+  long *offset;         /* first site of each sublocus in seq */
+  long **partner;       /* [pop][ind]: the other copy of the individual, -1 */
+  char *comments;
+  long commentsize, alloccomments;
+} phased;
+
+static boolean phased_infile_usable(world_fmt *world, data_fmt *data, option_fmt *options)
+{
+  long pop, locus, s, ind, i;
+  char name[SMALLBUFSIZE], other[SMALLBUFSIZE];
+  if (phased.checked)
+    return phased.usable;
+  phased.checked = TRUE;
+  phased.usable = FALSE;
+  if (!options->phasedinfile || !options->haplotyping || world->haplotypes == NULL)
+    return FALSE;
+  if (data->oldsyntax || strchr(DNASEQUENCETYPES, options->datatype) == NULL)
+    {
+      warning("phased-infile: only DNA sequence data in the new infile syntax can be written; no %s\n",
+	      options->phasedinfilename);
+      return FALSE;
+    }
+  for (s = 0; s < data->allsubloci; s++)
+    if (world->mutationmodels[s].dataclass != SITECHARACTER)
+      {
+	warning("phased-infile: sublocus %li is not a sequence; no %s\n", s + 1, options->phasedinfilename);
+	return FALSE;
+      }
+  for (pop = 0; pop < data->numpop; pop++)
+    for (locus = 1; locus < data->loci; locus++)
+      if (data->numind[pop][locus] != data->numind[pop][0])
+	{
+	  warning("phased-infile: the loci of population %li have different individuals; no %s\n",
+		  pop + 1, options->phasedinfilename);
+	  return FALSE;
+	}
+  phased.offset = (long *) mycalloc(data->allsubloci + 1, sizeof(long));
+  for (s = 0; s < data->allsubloci; s++)
+    phased.offset[s + 1] = phased.offset[s] + world->mutationmodels[s].numsites;
+  phased.seq = (char ***) mycalloc(data->numpop, sizeof(char **));
+  phased.partner = (long **) mycalloc(data->numpop, sizeof(long *));
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      const long n = data->numind[pop][0];
+      phased.seq[pop] = (char **) mycalloc(MAX(1, n), sizeof(char *));
+      phased.partner[pop] = (long *) mycalloc(MAX(1, n), sizeof(long));
+      for (ind = 0; ind < n; ind++)
+	{
+	  phased.seq[pop][ind] = (char *) mycalloc(phased.offset[data->allsubloci] + 1, sizeof(char));
+	  phased.partner[pop][ind] = -1;
+	  haplotype_base_name(data->indnames[pop][ind][0], name, sizeof(name));
+	  for (i = 0; i < n && phased.partner[pop][ind] == -1; i++)
+	    {
+	      if (i == ind)
+		continue;
+	      haplotype_base_name(data->indnames[pop][i][0], other, sizeof(other));
+	      if (strcmp(name, other) == 0)
+		phased.partner[pop][ind] = i;
+	    }
+	}
+    }
+  phased.alloccomments = LINESIZE;
+  phased.comments = (char *) mycalloc(phased.alloccomments, sizeof(char));
+  phased.usable = TRUE;
+  return TRUE;
+}
+
+/// phased-infile: the posterior mode of the phase of every haplotyped
+/// individual at this locus; copies the sequences of the locus, with the two
+/// copies swapped at every heterozygous sublocus whose mode state is 1.
+/// Needs the sequences of the locus (serial: before free_datapart(); MPI:
+/// the master keeps them) and the phase counts of the locus (saved at the end
+/// of run_locus(), or received from the workers).
+void phase_locus_for_infile(world_fmt *world, data_fmt *data, option_fmt *options, long locus)
+{
+  long pop, ind, s, i;
+  char name[SMALLBUFSIZE];
+  if (!phased_infile_usable(world, data, options))
+    return;
+  const long sstart = world->sublocistarts[locus];
+  const long send = world->sublocistarts[locus + 1];
+  for (pop = 0; pop < data->numpop; pop++)
+    {
+      const long n = data->numind[pop][0];
+      boolean *swap = (boolean *) mycalloc(MAX(1, n * (send - sstart)), sizeof(boolean));
+      for (ind = 0; ind < n; ind++)
+	{
+	  const long j = phased.partner[pop][ind];
+	  long id, nhet = 0;
+	  long *het;
+	  double prob;
+	  char *key;
+	  if (j <= ind) /* no partner, or the pair was done at its first copy */
+	    continue;
+	  haplotype_base_name(data->indnames[pop][ind][0], name, sizeof(name));
+	  id = find_inDB(data->indnames[pop][ind][0], locus, world->haplotypes[locus], world->numhaplotypes[locus]);
+	  if (id == -1)
+	    continue;
+	  key = phase_mode(&world->haplotypes[locus][id], &prob);
+	  if (key == NULL)
+	    continue;
+	  het = (long *) mycalloc(send - sstart + 1, sizeof(long));
+	  for (s = sstart; s < send; s++)
+	    {
+	      const long numsites = world->mutationmodels[s].numsites;
+	      long site;
+	      for (site = 0; site < numsites; site++)
+		if (phase_site_state(data->yy[pop][ind][s][0][site][0])
+		    != phase_site_state(data->yy[pop][j][s][0][site][0]))
+		  break;
+	      if (site < numsites)
+		het[nhet++] = s;
+	    }
+	  if (phased.alloccomments - phased.commentsize < LINESIZE)
+	    {
+	      phased.alloccomments += 10 * LINESIZE;
+	      phased.comments = (char *) myrealloc(phased.comments, (size_t) phased.alloccomments * sizeof(char));
+	    }
+	  if (nhet != (long) strlen(key))
+	    phased.commentsize += mysnprintf(phased.comments + phased.commentsize, LINESIZE,
+					     "# %s locus %li: phase left as in the input (%li heterozygous subloci, %li in the report)\n",
+					     name, locus + 1, nhet, (long) strlen(key));
+	  else
+	    {
+	      for (i = 0; i < nhet; i++)
+		if (key[i] == '1')
+		  {
+		    swap[ind * (send - sstart) + het[i] - sstart] = TRUE;
+		    swap[j * (send - sstart) + het[i] - sstart] = TRUE;
+		  }
+	      phased.commentsize += mysnprintf(phased.comments + phased.commentsize, LINESIZE,
+					       "# %s locus %li: mode %s probability %.3f\n",
+					       name, locus + 1, key, prob);
+	    }
+	  myfree(het);
+	  myfree(key);
+	}
+      for (ind = 0; ind < n; ind++)
+	for (s = sstart; s < send; s++)
+	  {
+	    const long src = (swap[ind * (send - sstart) + s - sstart] && phased.partner[pop][ind] != -1)
+	      ? phased.partner[pop][ind] : ind;
+	    const long numsites = world->mutationmodels[s].numsites;
+	    long site;
+	    for (site = 0; site < numsites; site++)
+	      phased.seq[pop][ind][phased.offset[s] + site] = data->yy[pop][src][s][0][site][0];
+	  }
+      myfree(swap);
+    }
+}
+
+/// phased-infile=YES:name -- writes the infile with the posterior mode of
+/// the phase of every haplotyped individual and locus (see
+/// phase_locus_for_infile()); the mode is taken for each individual and locus
+/// on its own, not as the best joint configuration, and its probability is
+/// written as a comment. Master only, after the phase report. With fromdata
+/// the loci are phased here (MPI: the master keeps all sequences).
+void write_phased_infile(world_fmt *world, data_fmt *data, option_fmt *options, boolean fromdata)
+{
+  const long numpop = data->numpop;
+  const long loci = data->loci;
+  long pop, ind, locus, s, i;
+  FILE *f;
+  if (fromdata)
+    for (locus = 0; locus < loci; locus++)
+      phase_locus_for_infile(world, data, options, locus);
+  if (!phased_infile_usable(world, data, options))
+    return;
+  f = fopen(options->phasedinfilename, "w");
+  if (f == NULL)
+    {
+      warning("phased-infile: cannot write %s\n", options->phasedinfilename);
+      return;
+    }
+  fprintf(f, "%li %li %s\n", numpop, data->allsubloci, options->title);
+  for (locus = 0; locus < loci; locus++)
+    {
+      fprintf(f, "%s(", locus > 0 ? " " : "");
+      for (s = world->sublocistarts[locus]; s < world->sublocistarts[locus + 1]; s++)
+	fprintf(f, "%ss%li", s > world->sublocistarts[locus] ? " " : "", world->mutationmodels[s].numsites);
+      fprintf(f, ")");
+    }
+  fprintf(f, "\n# phased by migrate-n %s (phased-infile): the posterior mode of the phase of each\n", MIGRATEVERSION);
+  fprintf(f, "# individual and locus taken on its own; mode = one character per heterozygous\n");
+  fprintf(f, "# sublocus, 1 = the copies were swapped there (relative to %s)\n", options->infilename);
+  fprintf(f, "%s", phased.comments);
+  for (i = 0; i < data->numhaplotyping; i++)
+    {
+      boolean any = FALSE;
+      fprintf(f, "#%% %s:", data->haplotyping_list[i].key);
+      for (locus = 0; locus < loci; locus++)
+	if (data->haplotyping_list[i].pick != NULL && data->haplotyping_list[i].pick[locus] != NULL)
+	  any = TRUE;
+      if (any)
+	for (locus = 0; locus < loci; locus++)
+	  fprintf(f, " %s", data->haplotyping_list[i].pick[locus] != NULL ? data->haplotyping_list[i].pick[locus] : "*");
+      fprintf(f, "\n");
+    }
+  for (pop = 0; pop < numpop; pop++)
+    {
+      fprintf(f, "%li %s\n", data->numind[pop][0], data->popnames[pop]);
+      for (ind = 0; ind < data->numind[pop][0]; ind++)
+	{
+	  char label[SMALLBUFSIZE];
+	  size_t len;
+	  mysnprintf(label, SMALLBUFSIZE, "%s", data->indnames[pop][ind][0]);
+	  len = strlen(label);
+	  while (len > 0 && isspace((unsigned char) label[len - 1]))
+	    label[--len] = '\0';
+	  fprintf(f, "%-*s", (int) options->nmlength, label);
+	  for (s = 0; s < data->allsubloci; s++)
+	    fprintf(f, "%s%.*s", s > 0 ? " " : "", (int) (phased.offset[s + 1] - phased.offset[s]),
+		    phased.seq[pop][ind] + phased.offset[s]);
+	  fputc('\n', f);
+	}
+    }
+  fclose(f);
+  for (pop = 0; pop < numpop; pop++)
+    {
+      for (ind = 0; ind < data->numind[pop][0]; ind++)
+	myfree(phased.seq[pop][ind]);
+      myfree(phased.seq[pop]);
+      myfree(phased.partner[pop]);
+    }
+  myfree(phased.seq);
+  myfree(phased.partner);
+  myfree(phased.offset);
+  myfree(phased.comments);
+  phased.usable = FALSE;
+}
