@@ -671,6 +671,11 @@ main (int argc, char **argv)
 #endif
 	get_haplotypes(EARTH,options);
 	print_haplotype_stat(EARTH,data);
+#ifdef MPI
+	write_phased_infile(EARTH, data, options, TRUE);  /* the master kept the sequences */
+#else
+	write_phased_infile(EARTH, data, options, FALSE); /* phased locus by locus in run_loci() */
+#endif
 	fflush (EARTH->outfile);
 	//---------------------------------------------------------------------------------------------
 	// printing additional results
@@ -1107,6 +1112,9 @@ run_loci (world_fmt ** universe, int usize, option_fmt * options,
 	{
 	  run_locus (universe, usize, options, data,
 		     localheating_pool, maxreplicate, locus, treefilepos, Gmax);
+	  /* phased-infile: the sequences of the locus are freed next */
+	  if (options->phasedinfile)
+	    phase_locus_for_infile(universe[0], data, options, locus);
 	}
       free_datapart(data,universe[0],locus);
     }
