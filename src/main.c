@@ -1398,6 +1398,12 @@ setup_locus (long locus, world_fmt * world, option_fmt * options,
              data_fmt * data)
 {
   world->locus = locus;
+  /* the cold chain's current likelihood is likelihood[G]; G was reset only
+     after burn-in, so the burn-in of every later locus (serial runs, MPI
+     workers with several loci) compared the haplotype, rate and other
+     data-likelihood moves with a value of the previous locus (fixed
+     2026-11-14; the heated chains reset G in heating_prepare2()) */
+  world->G = 0;
   set_param (world, data, options, locus);
   // replaced with more informative reporting in burnin_bayes(). 
   //if (world->options->progress)
@@ -2069,6 +2075,12 @@ void run_chains (world_fmt ** universe,
           burnin_chain (universe[i]);
         }
 #endif
+      if (options->haplotyping)
+        {
+          long hc;
+          for(hc=0; hc<EARTH->options->heated_chains; hc++)
+            reset_phase_counts(universe[hc]);
+        }
       EARTH->G = 0;
       EARTH->accept_freq = 0.;
       EARTH->accept = 0;
@@ -2079,6 +2091,8 @@ void run_chains (world_fmt ** universe,
   else
     {
       burnin_chain (EARTH);
+      if (options->haplotyping)
+        reset_phase_counts(EARTH);
       EARTH->G = 0;
       EARTH->accept_freq = 0.;
       EARTH->accept = 0;

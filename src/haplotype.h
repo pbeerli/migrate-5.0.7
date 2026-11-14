@@ -28,6 +28,7 @@ void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options);
 void link_individual_node(char *rawname, node *thenode, long region, world_fmt *world);
 void reset_ID_nodelist(long locus, world_fmt * world);
 void copy_individuals_from_data(data_fmt * data, worlddata_fmt * wdata, long locus);
+void reset_phase_counts(world_fmt *world);
 void copy_individuals_differences(MYREAL heat, worlddata_fmt * ndata, worlddata_fmt * odata);
 void add_state_counter(hash_fmt **hash, size_t *numhash, float *total, int *states, long numstates, int count);
 void store_indname(char *name, long pop, long ind, long region, data_fmt *data);
@@ -49,5 +50,6 @@ void reset_haplotypes(world_fmt* world, long locus);
 long set_haplotype_states(individualDB_fmt *winner, char *word);
 long find_inDB(char * thisname, long region, individualDB_fmt *individuals, long numindividuals);
 void haplotype_base_name(const char *raw, char *out, size_t outlen);
+const char *haplotyping_mask(data_fmt *data, long listed, long locus);
 void free_haplotypes(world_fmt *world, long locus);
 #endif

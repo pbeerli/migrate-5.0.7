@@ -14,7 +14,7 @@ the main function in this file is:
 
  replaced with the function data.c: 
  read_comments(): read_individuals_dictionary(data, options)
- insert_individual_inlist(...) the pick variable needs to be checked and removed?
+ insert_individual_inlist(): the #% list of individuals and their masks
 
 
 Copyright 2010 Peter Beerli, Tallahassee FL
@@ -56,80 +56,73 @@ void debug_states(individualDB_fmt *w);
 
 void insert_individual_inlist(char *input, data_fmt *data, option_fmt *options)
 {
-  // eventually it will be this but there are complications downstream
-  // read name 
-  // read a list of site location separated by ';' where we would need to haplotype
-  // it will go through all loci that have locations for each mentioned individual
-  //
-  // old and still current working:
-  // read subloci model: use 0 for no haplotyping and * for haplotyping
-  // an example  looks like this: #% rid1324: *0*00*** 0 0 
-  // the name is delimited with a colon, there are 8 subloci in locus 1
-  // the second, fourth and fifth are not haplotyped and 2 other loci that are not
-  // haplotyped, regions are separated by a space, if there is no data for a
-  // a particular locus then use a - (minus sign)
-  // for example:  #% rid1324: *0*00-** - 0
-  // important: #% name forces that there are 3 characters before the name starts.
+  // #% name: mask1 mask2 ... one mask per locus (the loci are the
+  // parenthesized groups of subloci), separated by blanks:
+  //   *         resolve the phase of all heterozygous subloci of the locus
+  //   0 or -    do not resolve the phase at this locus (keep it as given;
+  //             '-' marks a locus without data)
+  //   *0*00***  one character per sublocus: the '*' subloci are resolved,
+  //             the '0' subloci keep their phase as given, relative to each
+  //             other, and anchor the phase of the '*' subloci
+  // Loci without a mask (name alone, or fewer masks than loci) are '*'.
+  // Individuals without a #% line are not haplotyped.
+  // #% forces three characters before the name starts.
   long locus;
-  long s = 0;
-  s = 0;
-  for (locus=0; locus<data->loci; locus++)
-    s += data->subloci[locus];
-  if(data->haplotyping_list == NULL)
-    {
-      data->haplotyping_list = (haplotyping_orderform_fmt *) mycalloc((data->numhaplotyping+1), sizeof(haplotyping_orderform_fmt));
-      data->haplotyping_list[0].key  = (char *) calloc(LINESIZE, sizeof(char));
-      charvec2d(&data->haplotyping_list[0].pick, s, LINESIZE);
-    }
-  else
-    {
-      data->haplotyping_list = (haplotyping_orderform_fmt *) realloc(data->haplotyping_list,sizeof(haplotyping_orderform_fmt)* (size_t) (data->numhaplotyping+1));
-      data->haplotyping_list[data->numhaplotyping].key  = (char *) calloc(LINESIZE, sizeof(char));
-      charvec2d(&data->haplotyping_list[data->numhaplotyping].pick, s, LINESIZE);
-    }
-  char *tmp;
+  long n = data->numhaplotyping;
+  haplotyping_orderform_fmt *h;
   char *input2 = (char *) strdup(input);
-  tmp = strtok (input2, ":\n");
-  trim(&tmp);
-  if (tmp != NULL)
+  char *colon = strchr(input2, ':');
+  char *rest = colon != NULL ? colon + 1 : input2 + strlen(input2);
+  char *tok;
+  char name[SMALLBUFSIZE];
+  if (colon != NULL)
+    *colon = '\0';
+  haplotype_base_name(input2, name, sizeof(name));
+  if (name[0] == '\0')
+    usererror("#%% line without an individual name: #%% %s\n", input);
+  if (find_in_haplotypingorderDB(name, data->haplotyping_list, n) != -1)
+    usererror("Individual %s is twice in the haplotyping list (#%% lines)\n", name);
+  data->haplotyping_list = (haplotyping_orderform_fmt *)
+    myrealloc(data->haplotyping_list, sizeof(haplotyping_orderform_fmt) * (size_t) (n + 1));
+  h = &data->haplotyping_list[n];
+  h->key = (char *) mycalloc(SMALLBUFSIZE, sizeof(char));
+  strncpy(h->key, name, (size_t) MIN(options->nmlength, SMALLBUFSIZE - 1));
+  h->pick = (char **) mycalloc(data->loci, sizeof(char *));
+  locus = 0;
+  for (tok = strtok(rest, " \t\r\n"); tok != NULL; tok = strtok(NULL, " \t\r\n"), locus++)
     {
-      int i;
-      size_t tmplen = (size_t) strlen(tmp);
-      for (i = 0; i < data->numhaplotyping; i++)
-	{
-	  if(tmplen == (size_t) strlen(data->haplotyping_list[i].key))
-	    {
-	      if(strstr(tmp,data->haplotyping_list[i].key)!=NULL)
-		break;
-	    }
-	    else
-	    {
-	      if(strstr(data->haplotyping_list[i].key, tmp)!=NULL)
-		break;
-	    }
-	}
-      if(i<data->numhaplotyping)
-	error("Identical individual is twice in the haplotyping list");
-      strncpy (data->haplotyping_list[data->numhaplotyping].key,tmp, (size_t) options->nmlength);
-      for(locus=0;locus<data->loci;locus++)
-	{
-	  for(i=0;i<data->subloci[locus];i++)
-	    {
-	      tmp = strtok (NULL, " ");
-	      if(tmp == NULL)
-		continue;
-	      tmplen = (size_t) strlen(tmp);
-	      //strncpy (data->haplotyping_list[data->numhaplotyping].pick[i],tmp, tmplen);
-	    }
-	}
+      size_t len = strlen(tok);
+      size_t k;
+      if (locus >= data->loci)
+	usererror("#%% %s: more masks than loci (%li)\n", name, data->loci);
+      if (len != 1 && len != (size_t) data->subloci[locus])
+	usererror("#%% %s: the mask \"%s\" of locus %li has %li characters, use one or one per sublocus (%li)\n",
+		  name, tok, locus + 1, (long) len, data->subloci[locus]);
+      for (k = 0; k < len; k++)
+	if (tok[k] != '*' && tok[k] != '0' && tok[k] != '-')
+	  usererror("#%% %s: the mask \"%s\" of locus %li may contain only *, 0 and -\n",
+		    name, tok, locus + 1);
+      for (k = 0; k < len; k++)
+	if (tok[k] == '-')
+	  tok[k] = '0';
+      if (len == 1 && tok[0] == '*')
+	continue;  // NULL: all subloci resolved
+      if (len > 1 && strchr(tok, '*') == NULL)
+	tok[1] = '\0';  // nothing to resolve: as '0'
+      h->pick[locus] = strdup(tok);
     }
-  else
-    {
-      strncpy (data->haplotyping_list[data->numhaplotyping].key,"NONAME", (size_t) options->nmlength);
-    }
-  //printf("%s %s\n",data->haplotyping_list[data->numhaplotyping].key,data->haplotyping_list[data->numhaplotyping].pick[0]);
   data->numhaplotyping += 1;
   myfree(input2);
+}
+
+/// the #% mask of an individual at a locus: NULL resolves all subloci, "0"
+/// none (the individual is not haplotyped there), else one character per
+/// sublocus
+const char *haplotyping_mask(data_fmt *data, long listed, long locus)
+{
+  if (listed < 0 || listed >= data->numhaplotyping || data->haplotyping_list[listed].pick == NULL)
+    return NULL;
+  return data->haplotyping_list[listed].pick[locus];
 }
 
 /*
@@ -414,7 +407,14 @@ void save_haplotypes(world_fmt* world, long locus)
 void reset_haplotypes(world_fmt* world, long locus)
 {
   (void) locus;
-  world->data->individuals = NULL;
+  /* the cold chain's records were saved (save_haplotypes()): only forget
+     them here; a heated chain's records are freed by the next
+     copy_individuals_from_data() */
+  if (world->cold)
+    {
+      world->data->individuals = NULL;
+      world->data->individuals_alloc = 0;
+    }
   world->data->numindividuals=0;
 }
 
@@ -540,8 +540,12 @@ void store_indname(char *name, long pop, long ind, long region, data_fmt *data)
   size_t numchar = (size_t) strcspn(name,":");
   strncpy(thisname,name,numchar);
   thisname[numchar]='\0';
-  if (-1 == find_in_haplotypingorderDB(thisname, data->haplotyping_list, data->numhaplotyping))
+  long listed = find_in_haplotypingorderDB(thisname, data->haplotyping_list, data->numhaplotyping);
+  if (listed == -1)
       return;
+  const char *mask = haplotyping_mask(data, listed, region);
+  if (mask != NULL && mask[1] == '\0')
+      return;  // '0': not haplotyped at this locus
   id = find_inDB(thisname, region, data->individuals[region], data->numindividuals[region]);
   if (id == -1)
     {
@@ -554,6 +558,7 @@ void store_indname(char *name, long pop, long ind, long region, data_fmt *data)
       data->individuals[region][id].ind[0] = ind;
       data->individuals[region][id].region = region;
       data->individuals[region][id].nodenum = 0;
+      data->individuals[region][id].mask = mask != NULL ? strdup(mask) : NULL;
       numchar = (size_t) strcspn(name,":");
       strncpy(data->individuals[region][id].name,name,numchar);
       data->individuals[region][id].name[numchar]='\0';
@@ -701,7 +706,7 @@ long calc_individual_checksum(int *difference, world_fmt *world, long locus)
   const long maxsubloci   = sublociend - sublocistart;
   for(sublocus=0;sublocus<maxsubloci;sublocus++)
     {
-      sum +=  (long) difference[sublocus];
+      sum +=  (long) (difference[sublocus] == 1);  // phase to resolve
     }
   return sum;
 }
@@ -739,12 +744,20 @@ void check_individual_node(char *rawname, node *thenode, long region, world_fmt 
 	decision = !(is_same_allele(&(wdata->individuals[id].nodep[0]->x[s2].a), &(wdata->individuals[id].nodep[1]->x[s2].a), numpatterns, numsiterates,numstates));
       else
 	decision = !(is_same_sequence(&(wdata->individuals[id].nodep[0]->x[s2].s), &(wdata->individuals[id].nodep[1]->x[s2].s), numpatterns, numsiterates,numstates));
+      /* difference: 0 homozygous, 1 heterozygous with the phase to resolve,
+	 2 heterozygous with the phase as given (#% mask '0'), never swapped
+	 but part of the reported phase */
       if(decision)
 	{
-	  wdata->individuals[id].difference[s2] = 1;    
+	  const char *mask = wdata->individuals[id].mask;
+	  wdata->individuals[id].difference[s2] = (mask != NULL && mask[s2] == '0') ? 2 : 1;
 	}
     }
   wdata->individuals[id].checksum = calc_individual_checksum(wdata->individuals[id].difference, world, region);
+  wdata->individuals[id].anchored = 0;
+  for(s2=0;s2<maxsubloci; s2++)
+    if (wdata->individuals[id].difference[s2] == 2)
+      wdata->individuals[id].anchored += 1;
 }
 
 /// driver to check the individuals nodes for haplotype differences
@@ -771,7 +784,8 @@ void check_individual_nodes(long region, world_fmt *world)
 
 /// and removing individuals from the database that have no phase to
 /// resolve: fewer than two heterozygous subloci (with one, a swap only
-/// exchanges the two tips of the individual in the genealogy)
+/// exchanges the two tips of the individual in the genealogy), counting
+/// those with the phase as given (#% mask '0'), of which none is swapped
 void cleanup_individual_nodes(long region, world_fmt *world)
 {
   (void) region;
@@ -781,7 +795,8 @@ void cleanup_individual_nodes(long region, world_fmt *world)
   const long last = world->data->numindividuals;
   while (i < last)
     {
-      if (ind[i].checksum < 2 || ind[i].numstates<2 || ind[i].targeted == 0)
+      if (ind[i].checksum < 1 || ind[i].checksum + ind[i].anchored < 2
+	  || ind[i].numstates<2 || ind[i].targeted == 0)
 	{
 	  individualDB_fmt tmp = ind[i];
 	  world->data->numindividuals -= 1;
@@ -817,26 +832,77 @@ void cleanup_individual_nodes(long region, world_fmt *world)
     }
 }
 
-/// copies the main haplotype structure from data to world->data
+/// frees the phase records of a chain that were not saved for the report
+/// (the cold chain's records go to world->haplotypes[locus], see
+/// save_haplotypes(), and its pointer is reset before the next locus)
+static void free_individuals(worlddata_fmt *wdata)
+{
+  long id;
+  for (id = 0; id < wdata->individuals_alloc; id++)
+    {
+      individualDB_fmt *w = &wdata->individuals[id];
+      myfree(w->ind);
+      if (w->nodep != NULL)
+	myfree(w->nodep);
+      if (w->difference != NULL)
+	myfree(w->difference);
+      if (w->states1 != NULL)
+	myfree(w->states1);
+      if (w->states2 != NULL)
+	myfree(w->states2);
+      if (w->hash != NULL)
+	free_hash(w->hash, w->numhash, (size_t) (w->keylength > 0 ? w->keylength : w->numstates));
+      /* w->mask belongs to data->individuals */
+    }
+  myfree(wdata->individuals);
+  wdata->individuals = NULL;
+  wdata->individuals_alloc = 0;
+}
+
+/// clears the phase counts of a chain at the end of burn-in: the phase
+/// report shows the sampled phases only (before 7.0.113 / 6.1.89 the
+/// burn-in, which starts at the input phase, was counted too)
+void reset_phase_counts(world_fmt *world)
+{
+  long id;
+  worlddata_fmt *wdata = world->data;
+  if (wdata == NULL || wdata->individuals == NULL)
+    return;
+  for (id = 0; id < wdata->individuals_alloc; id++)
+    {
+      individualDB_fmt *w = &wdata->individuals[id];
+      if (w->hash != NULL)
+	free_hash(w->hash, w->numhash, (size_t) (w->keylength > 0 ? w->keylength : w->numstates));
+      w->hash = NULL;
+      w->numhash = 0;
+      w->total1 = 0.0f;
+      w->total2 = 0.0f;
+      w->keylength = 0;
+    }
+}
+
+/// copies the main haplotype structure from data to world->data: fresh
+/// records for every locus. The heated chains' records of the previous
+/// locus were not reset under MPI (only the cold chain's are saved and reset)
+/// and were reused: an array sized for that locus's individuals, and phase
+/// counts with that locus's keys, which a chain swap could carry into the
+/// cold chain (heap overflow, crash, wrong phase report; fixed 2026-11-14)
 void copy_individuals_from_data(data_fmt * data, worlddata_fmt * wdata, long locus)
 {
   long id;
-  if(wdata->individuals==NULL)
-    wdata->individuals = (individualDB_fmt *) mycalloc(data->numindividuals[locus],sizeof(individualDB_fmt));
-  else
-    {
-      //wdata->individuals = (individualDB_fmt *) realloc(wdata->individuals, data->numindividuals[locus] * sizeof(individualDB_fmt));
-      //return;
-    }
+  if (wdata->individuals != NULL)
+    free_individuals(wdata);
+  wdata->individuals_alloc = data->numindividuals[locus];
+  wdata->individuals = (individualDB_fmt *) mycalloc(MAX(1, data->numindividuals[locus]), sizeof(individualDB_fmt));
   wdata->numindividuals = data->numindividuals[locus];
   for (id=0; id < data->numindividuals[locus]; id++)
     {
       wdata->individuals[id].id = id;
-      if (wdata->individuals[id].ind == NULL)
-	wdata->individuals[id].ind = (long *) mycalloc(TWO,sizeof(long));
+      wdata->individuals[id].ind = (long *) mycalloc(TWO,sizeof(long));
       memcpy(wdata->individuals[id].ind, data->individuals[locus][id].ind, sizeof(long)*TWO);
       wdata->individuals[id].region = data->individuals[locus][id].region;
       wdata->individuals[id].nodenum = 0;
+      wdata->individuals[id].mask = data->individuals[locus][id].mask; // shared, read only
       strcpy(wdata->individuals[id].name,data->individuals[locus][id].name);
     }
 }
@@ -895,14 +961,14 @@ static void add_phase_counter(individualDB_fmt *w)
 }
 
 /// swaps the heterozygous subloci number first..last (counted among the
-/// individual's heterozygous ones) between its two copies: the tip data, or
+/// individual's heterozygous ones whose phase is resolved) between its two copies: the tip data, or
 /// with record TRUE the phase record states1
 static void swap_het_subloci(individualDB_fmt *w, long first, long last, boolean record)
 {
   long i, k = 0;
   for (i = 0; i < w->numstates; i++)
     {
-      if (w->difference[i] == 0)
+      if (w->difference[i] != 1)  // homozygous or phase as given
 	continue;
       if (k >= first && k <= last)
 	{

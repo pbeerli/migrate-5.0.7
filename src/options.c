@@ -1622,19 +1622,31 @@ void allocate_startparam(option_fmt *options, long numpop)
   startparam->growth = (float *) mycalloc(numpop, sizeof(float));
   startparam->mlalpha = (float *) mycalloc(numpop, sizeof(float)); 
 }
+// the start values may be read (parmfile) before the number of populations is known:
+// the arrays grow in fill_startparam() and are never shrunk below the values read
+static void grow_startarray(float **a, long cap, long n)
+{
+  long k;
+  if (n <= cap)
+    return;
+  *a = (float *) myrealloc(*a, (size_t) n * sizeof(float));
+  for (k = cap; k < n; k++)
+    (*a)[k] = 0.0f;
+}
+
 void realloc_startparam(option_fmt *options, long numpop)
 {
   startparam_fmt *startparam = &options->startparam;
   if(startparam->allocated)
     {
+      startparam->theta = (float *) myrealloc(startparam->theta, (size_t) MAX(numpop, startparam->numtheta) * sizeof(float));
+      startparam->mig = (float *) myrealloc(startparam->mig, (size_t) MAX(numpop*(numpop-1), MAX(1,startparam->nummig)) * sizeof(float));
+      startparam->rate = (float *) myrealloc(startparam->rate, (size_t) MAX(numpop, startparam->numrate) * sizeof(float));
+      startparam->split = (float *) myrealloc(startparam->split, (size_t) MAX(numpop, startparam->numsplit) * sizeof(float));
+      startparam->splitstd = (float *) myrealloc(startparam->splitstd, (size_t) MAX(numpop, startparam->numsplitstd) * sizeof(float));
+      startparam->growth = (float *) myrealloc(startparam->growth, (size_t) MAX(numpop, startparam->numgrowth) * sizeof(float));
+      startparam->mlalpha = (float *) myrealloc(startparam->mlalpha, (size_t) MAX(numpop, startparam->nummlalpha) * sizeof(float));
       startparam->numpop = numpop;
-      startparam->theta = (float *) myrealloc(startparam->theta,startparam->numpop * sizeof(float));
-      startparam->mig = (float *) myrealloc(startparam->mig,(size_t) (numpop*(numpop-1)) * sizeof(float)); 
-      startparam->rate = (float *) myrealloc(startparam->rate, (size_t) numpop * sizeof(float)); 
-      startparam->split = (float *) myrealloc(startparam->split, (size_t) numpop * sizeof(float));
-      startparam->splitstd = (float *) myrealloc(startparam->splitstd, (size_t) numpop * sizeof(float)); 
-      startparam->growth = (float *) myrealloc(startparam->growth, (size_t) numpop * sizeof(float)); 
-      startparam->mlalpha = (float *) myrealloc(startparam->mlalpha, (size_t) numpop * sizeof(float)); 
     }
 }
 
@@ -1644,36 +1656,43 @@ void fill_startparam(option_fmt *options, short key, long index, float value)
   switch(key)
     {
     case THETAPRIOR:
+      grow_startarray(&startparam->theta, MAX(startparam->numpop, startparam->numtheta), index+1);
       if (index >= startparam->numtheta)
 	startparam->numtheta = index+1;
       startparam->theta[index] = value;
       break;
     case MIGPRIOR:
+      grow_startarray(&startparam->mig, MAX(startparam->numpop*(startparam->numpop-1), startparam->nummig), index+1);
       if (index >= startparam->nummig)
 	startparam->nummig = index+1;
       startparam->mig[index] = value;
       break;
     case RATEPRIOR:
+      grow_startarray(&startparam->rate, MAX(startparam->numpop, startparam->numrate), index+1);
       if (index >= startparam->numrate)
 	startparam->numrate = index+1;
       startparam->rate[index] = value;
       break;
     case SPECIESTIMEPRIOR:
+      grow_startarray(&startparam->split, MAX(startparam->numpop, startparam->numsplit), index+1);
       if (index >= startparam->numsplit)
 	startparam->numsplit = index+1;
       startparam->split[index] = value;
       break;
     case SPECIESSTDPRIOR:
+      grow_startarray(&startparam->splitstd, MAX(startparam->numpop, startparam->numsplitstd), index+1);
       if (index >= startparam->numsplitstd)
 	startparam->numsplitstd = index+1;
       startparam->splitstd[index] = value;
       break;
     case GROWTHPRIOR:
+      grow_startarray(&startparam->growth, MAX(startparam->numpop, startparam->numgrowth), index+1);
       if (index >= startparam->numgrowth)
 	startparam->numgrowth = index+1;
       startparam->growth[index] = value;
       break;
     case MLFPRIOR:
+      grow_startarray(&startparam->mlalpha, MAX(startparam->numpop, startparam->nummlalpha), index+1);
       if (index >= startparam->nummlalpha)
 	startparam->nummlalpha = index+1;
       startparam->mlalpha[index] = value;
@@ -3364,86 +3383,54 @@ void print_parm_usertree(long * bufsize, char **buffer, long *allocbufsize, opti
 }
 
 /// print the theta starting parameters
+// (written from options->startparam, which the parmfile reader fills: the
+//  legacy thetag/mg arrays stay empty, so MPI workers never got Own values)
 void print_parm_theta(long *bufsize, char ** buffer, long *allocbufsize, option_fmt * options)
 {
     long i;
-    char fp[LINESIZE];
-    char *lbuffer;
-    long lbufsize = 0L;
-    long alloclbufsize = LINESIZE;
-    lbuffer = (char *) mycalloc(alloclbufsize,sizeof(char));
-    
-    switch (options->numthetag)
+    const long n = options->startparam.numtheta;
+    if (n == 0)
       {
-      case 0:
-        if (strchr ("snupf", options->datatype))
-	  {
-	    mysnprintf(fp,LINESIZE, "theta=PRIOR:50");
-            add_to_buffer(fp, &lbufsize, &lbuffer, &alloclbufsize);
-	  }
-        else
-	  { 
-	    mysnprintf(fp,LINESIZE, "theta=PRIOR:50");
-            add_to_buffer(fp, &lbufsize, &lbuffer,  &alloclbufsize);
-	  }
-	break;
-      case 1:
-            mysnprintf(fp,LINESIZE, "theta=Own:%f",options->thetag[0]);
-            add_to_buffer(fp, &lbufsize, &lbuffer, &alloclbufsize);
-	    break;
-      default:
-	mysnprintf(fp,LINESIZE, "theta=Own:{");
-	add_to_buffer(fp,&lbufsize, &lbuffer, &alloclbufsize);
-	for (i = 0; i < options->numthetag - 1; i++)
-	  {
-	    mysnprintf(fp,LINESIZE, "%f ", options->thetag[i]);
-	    add_to_buffer(fp,&lbufsize,&lbuffer, &alloclbufsize);
-	  }
-	mysnprintf(fp,LINESIZE, "%f}", options->thetag[i]);
-	add_to_buffer(fp,&lbufsize, &lbuffer, &alloclbufsize);
-	break;
+        print_parm_mutable(bufsize, buffer, allocbufsize, "theta=PRIOR:50");
+        return;
       }
-#ifdef DEBUG
-    printf("%i>print_parm_theta>>> [%s]\n",myID,lbuffer);
-#endif
+    if (n == 1)
+      {
+        print_parm_mutable(bufsize, buffer, allocbufsize, "theta=Own:%f", (double) options->startparam.theta[0]);
+        return;
+      }
+    char *lbuffer = (char *) mycalloc((size_t) (n + 2) * 32, sizeof(char));
+    long len = sprintf(lbuffer, "theta=Own:{");
+    for (i = 0; i < n; i++)
+      len += sprintf(lbuffer + len, "%f%s", (double) options->startparam.theta[i], (i < n - 1) ? " " : "}");
     print_parm_mutable(bufsize, buffer, allocbufsize, "%s", lbuffer);
+    myfree(lbuffer);
 }
 
 /// print M starting parameters to the parmfile buffer
+// the values in the order read (the reader skips the '-' of the diagonal)
 void print_parm_m(long *bufsize, char **buffer, long *allocbufsize, option_fmt * options)
 {
     char fp[LINESIZE];
-    long i, j, z, num;
-    switch (options->nummg)
+    long i;
+    const long n = options->startparam.nummig;
+    switch (n)
     {
         case 0:
             mysnprintf(fp,LINESIZE, "migration=PRIOR:10\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         case 1:
-            mysnprintf(fp,LINESIZE, "migration=Own:%f\n", options->mg[0]);
+            mysnprintf(fp,LINESIZE, "migration=Own:%f\n", (double) options->startparam.mig[0]);
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
             break;
         default:
             mysnprintf(fp,LINESIZE, "migration=Own:{ ");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            z = 0;
-            num = (long) (1. + sqrt (4. * (MYREAL) options->nummg + 1.) / 2.);
-            for (i = 0; i < num; i++)
+            for (i = 0; i < n; i++)
             {
-                for (j = 0; j < num; j++)
-                {
-                    if (i == j)
-                    {
-                        mysnprintf(fp,LINESIZE, "- ");
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                    else
-                    {
-                        mysnprintf(fp,LINESIZE, "%f ", options->mg[z++]);
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                }
+                mysnprintf(fp,LINESIZE, "%f ", (double) options->startparam.mig[i]);
+                add_to_buffer(fp,bufsize,buffer, allocbufsize);
             }
 	    mysnprintf(fp,LINESIZE, "}\n");
             add_to_buffer(fp,bufsize,buffer, allocbufsize);
