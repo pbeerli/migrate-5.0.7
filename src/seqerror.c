@@ -98,18 +98,23 @@ void change_freq_tip(world_fmt *world, node *tip, MYREAL *errorrates)
 
 
 
-// log density of the Beta(1,10) prior of a sequencing error rate, up to a
-// constant: mean 1/11, highest at 0
+// the tip vector of an observed base is 1 - (sum of the other three rates),
+// so every rate stays below 1/3; hot chains crossed it (negative tip
+// probabilities, -HUGE likelihoods in the marginal likelihood sums)
+#define SEQERROR_MAX (1.0 / 3.0)
+
+// log density of the Beta(1,10) prior of a sequencing error rate, truncated
+// to [0, 1/3), up to a constant: highest at 0
 static MYREAL seqerror_logprior(MYREAL e)
 {
-  if (e <= 0.0 || e >= 1.0)
+  if (e <= 0.0 || e >= SEQERROR_MAX)
     return (MYREAL) -HUGE;
   return 9.0 * log(1.0 - e);
 }
 
 /// Metropolis-Hastings update of a sequencing error rate at a fixed
 /// genealogy: one rate (the combined one, or one of the four nucleotide
-/// rates) is moved by a reflected window on [0,1], the tips are rewritten,
+/// rates) is moved by a reflected window on [0,1/3), the tips are rewritten,
 /// and the move is accepted with the heated data-likelihood ratio times the
 /// Beta(1,10) prior ratio. It used to draw from Beta(10,1) (mean 0.91), had
 /// no prior or proposal term, rode on a tree move and restored only one of
@@ -138,8 +143,8 @@ void change_freq(world_fmt *world)
   enew = e + (UNIF_RANDUM() - 0.5) * width;
   if (enew < 0.0)
     enew = -enew;
-  if (enew > 1.0)
-    enew = 2.0 - enew;
+  if (enew >= SEQERROR_MAX)
+    enew = 2.0 * SEQERROR_MAX - enew;
   if (is_combined)
     prop[0] = prop[1] = prop[2] = prop[3] = enew;
   else

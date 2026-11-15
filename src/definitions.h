@@ -37,7 +37,7 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
 #define TI_NBINS 64          /* adaptive heating: beta bins for thermodynamic integration */
-#define MIGRATEVERSION "6.1.90"
+#define MIGRATEVERSION "6.1.91"
 #define MIGRATESUBVERSION "November-14-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
@@ -590,6 +590,9 @@ long chains is used */
 #define BIGGEST_SPLITSTD   1e9
 #define SMALLEST_RATE 1e-10
 #define BIGGEST_RATE  1e10 
+/* default prior of the locus rate modifiers: Gamma(shape 2), mean 1, at most 10 */
+#define RATE_PRIOR_MAX 10.0
+#define RATE_PRIOR_SHAPE 2.0
 #define SMALLEST_MLALPHA 0.3
 #define BIGGEST_MLALPHA  1.0 
 #define SMALLEST_DNASPECIES 0.0000001
@@ -727,6 +730,10 @@ long chains is used */
 #define MULTISTEP              2
 /* sequence stuff*/
 #define MAXCATEGS              9
+/* rates=N with prob-rates=laguerre:ALPHA: gamma rate categories from the parmfile */
+#define RCATEGS_SCHEME_NONE     0
+#define RCATEGS_SCHEME_LAGUERRE 1
+#define RCATEGS_SCHEME_EQUAL    2
 #define MANYCATEGS             2
 #define ONECATEG               1
 

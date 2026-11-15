@@ -494,6 +494,10 @@ void init_options (option_fmt * options)
     options->autocorr = FALSE;
     options->rrate[0] = 1.0;
     options->probcat[0] = 1.0;
+    options->rcategs_auto_pending = FALSE;
+    options->rcategs_auto_count = 0;
+    options->rcategs_auto_scheme = RCATEGS_SCHEME_NONE;
+    options->rcategs_auto_alpha = 0.0;
 
     options->probsum = 0.0;
 
@@ -1202,7 +1206,9 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	    mysnprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
 	    break;
 	  case MLFPRIOR:
-	    d=pa-nppg;
+	    /* label by the row (i): pa is the shared parameter for {1 1},
+	       which printed ML-alpha_1 twice */
+	    d=i-nppg;
 	    while (d < world->options->mlalphapops_numalloc && world->options->mlalphapops[d]==0 )
 	      d++;		       
 	    mysnprintf(s,LINESIZE, "Population ML-alpha (ML-alpha_%li)",d+1);
@@ -1369,6 +1375,8 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	      else
 		fprintf (file, "[User defined]");
 	    }
+	  else if (options->bayesmurates)
+	    fprintf (file, "Mutation rate modifier is estimated (prior: see Rate)\n");
 	  else
 	    fprintf (file, "Mutation rate is constant %s\n", world->loci > 1 ?
 		     "for all loci" : "");
@@ -3072,6 +3080,11 @@ void print_parm_rates(long *bufsize, char **buffer, long *allocbufsize, option_f
     long lbufsize = 0L;
     char *lbuffer;
     long alloclbufsize;
+    /* the alpha of rates=N / prob-rates=laguerre:ALPHA survives only here */
+    if (options->rcategs_auto_scheme != RCATEGS_SCHEME_NONE)
+      print_parm_mutable_comment(bufsize, buffer, allocbufsize,
+          "generated from prob-rates=laguerre:%.17g (rates=%li)",
+          options->rcategs_auto_alpha, options->rcategs);
     // rates
     lbuffer = (char *) mycalloc(LINESIZE,sizeof(char));
     alloclbufsize = LINESIZE;
@@ -4114,6 +4127,10 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_comment(&bufsize, buffer, allocbufsize, "               generated with gamma-deviated rates and then are derived");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               using Laguerre's quadrature, this should get better");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               results than equal probability methods.");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "         Short form: rates=<N> (a count, no values) together with");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               prob-rates=laguerre:<ALPHA> makes N gamma rate categories");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               (Gauss-Laguerre, shape ALPHA), as the menu does; the two");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               lines can come in either order.");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         autocorrelation=<NO | YES:VALUE> Default is NO");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               autocorrelation makes only sense with rates,");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               VALUE should be >1.0");
@@ -4466,7 +4483,8 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "  Syntax: mutation=<CONSTANT | ESTIMATE | OWN:loci: rate1 rate2 ... rate_loci>");
     //   print_parm_comment(&bufsize, buffer, allocbufsize, "     NOGAMMA      all loci have same mutation rate");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     CONSTANT     all loci have same mutation rate");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "     ESTIMATE     BAYESIAN estimate: mutation rate is drawn from prior");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "     ESTIMATE     one mutation rate modifier for all loci, estimated (prior: RATE);");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                  needs dated samples (tipdate-file), else it is held constant");
     //    print_parm_comment(&bufsize, buffer, allocbufsize, "     GAMMA:alpha  ML estimate: mutation rate has Gamma distribution with alpha");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     OWN          mutation rate is different for every locus, but fixed");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        :loci: rate1, ...     number of loci, rate of locus 1, locus 2 etc.");
@@ -4838,7 +4856,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     //
     print_parm_hyperprior(&bufsize,buffer,allocbufsize,options);
     print_parm_br(&bufsize, buffer, allocbufsize);
-    print_parm_mutable(&bufsize, buffer, allocbufsize, "long-chains=%li", options->lchains);
+    /* long-chains is always 1 (Bayesian inference): not written, still read */
     print_parm_mutable(&bufsize, buffer, allocbufsize, "long-inc=%li", options->lincrement);
     print_parm_mutable(&bufsize, buffer, allocbufsize, "long-sample=%li", options->lsteps);
     print_parm_mutable(&bufsize, buffer, allocbufsize, "burn-in=%li %c", options->burn_in, options->burnin_autostop);
@@ -5869,6 +5887,59 @@ void set_proposal_kind(option_fmt *options, long ptype, char *word)
     }
 }
 
+/// case-insensitive prefix match: does value start with keyword?
+boolean
+matches_keyword_ci (const char *value, const char *keyword)
+{
+  size_t i;
+  for (i = 0; keyword[i] != '\0'; i++)
+    if (value[i] == '\0'
+        || uppercase ((int) (unsigned char) value[i]) != uppercase ((int) (unsigned char) keyword[i]))
+      return FALSE;
+  return TRUE;
+}
+
+/// mutation=ESTIMATE estimates one mutation rate (modifier) for all loci;
+/// only dated samples make it identifiable: without a tipdate-file the rate
+/// is held constant (mutation=CONSTANT) with a warning
+void
+check_mutation_estimate (option_fmt * options)
+{
+  if (options->bayesmurates && !options->has_datefile)
+    {
+      warning ("mutation=ESTIMATE needs dated samples (tipdate-file); "
+               "the mutation rate is held constant (mutation=CONSTANT)\n");
+      options->bayesmurates = FALSE;
+      options->gamma = FALSE;
+      options->murates = FALSE;
+      options->murates_fromdata = FALSE;
+    }
+}
+
+/// rates=N with prob-rates=laguerre:ALPHA -> N gamma rate categories
+/// (Gauss-Laguerre, as the menu's "Regional rates" entry); called once after
+/// the parmfile is read, before the options go to the MPI workers (they get
+/// the explicit values)
+void
+resolve_gamma_rate_categories (option_fmt * options)
+{
+  char alpha_text[LINESIZE];
+  if (!options->rcategs_auto_pending)
+    return;
+  if (options->rcategs_auto_scheme == RCATEGS_SCHEME_NONE)
+    usererror ("rates=%li without values needs prob-rates=laguerre:ALPHA\n",
+               options->rcategs_auto_count);
+  if (options->rcategs_auto_scheme == RCATEGS_SCHEME_EQUAL)
+    usererror ("prob-rates=equal:ALPHA is not implemented; use prob-rates=laguerre:ALPHA "
+               "or explicit rates=N: ... / prob-rates=N: ... values\n");
+  options->rcategs = options->rcategs_auto_count;
+  options->rrate = (MYREAL *) myrealloc (options->rrate, sizeof (MYREAL) * (size_t) (options->rcategs + 1));
+  options->probcat = (MYREAL *) myrealloc (options->probcat, sizeof (MYREAL) * (size_t) (options->rcategs + 1));
+  mysnprintf (alpha_text, LINESIZE, "%.17g", options->rcategs_auto_alpha);
+  gamma_rates (options->rrate, options->probcat, options->rcategs, alpha_text);
+  options->rcategs_auto_pending = FALSE;
+}
+
 boolean
 numbercheck (option_fmt * options, char *var, char *value)
 {
@@ -6137,14 +6208,27 @@ numbercheck (option_fmt * options, char *var, char *value)
             set_filename(value, tmp2, &options->catfilename);
         }
         break;
-    case 14:   /*create rates=value:list of rates */
+    case 14:   /*create rates=value:list of rates, or rates=value (a count
+                 only) for prob-rates=laguerre:ALPHA */
         strncpy (tmp2, value, strcspn (value, ":"));
         if (strtol (tmp2, (char **) NULL, 10) /*;atoi (tmp) */  > 1)
         {   /* rate categories */
-            options->rcategs = strtol (tmp2, (char **) NULL, 10);
-            if (options->rcategs > MAXCATEGS)
+            long ratecategs = strtol (tmp2, (char **) NULL, 10);
+            char *colon = strchr (value, ':');
+            char *after = colon != NULL ? colon + 1 : NULL;
+            while (after != NULL && *after == ' ')
+              after++;
+            if (ratecategs > MAXCATEGS)
               usererror ("rates=%li: at most %d rate categories are supported\n",
-                         options->rcategs, MAXCATEGS);
+                         ratecategs, MAXCATEGS);
+            if (after == NULL || *after == '\0' || *after == '\n')
+            {   /* a count without values: made by resolve_gamma_rate_categories() */
+                options->rcategs_auto_pending = TRUE;
+                options->rcategs_auto_count = ratecategs;
+                break;
+            }
+            options->rcategs_auto_pending = FALSE;
+            options->rcategs = ratecategs;
             options->rrate =
                 (MYREAL *) myrealloc (options->rrate,
 				      sizeof (MYREAL) * (size_t) (options->rcategs + 1));
@@ -6182,6 +6266,17 @@ numbercheck (option_fmt * options, char *var, char *value)
                 options->probcat[z++] = atof (temp);
                 temp = strtok (NULL, " ,;\n");
             }
+            options->rcategs_auto_scheme = RCATEGS_SCHEME_NONE;
+        }
+        else if (matches_keyword_ci (value, "laguerre") || matches_keyword_ci (value, "equal"))
+        {
+            char *colon = strchr (value, ':');
+            options->rcategs_auto_scheme = matches_keyword_ci (value, "laguerre")
+                                              ? RCATEGS_SCHEME_LAGUERRE : RCATEGS_SCHEME_EQUAL;
+            if (colon != NULL && atof (colon + 1) > 0.0)
+                options->rcategs_auto_alpha = atof (colon + 1);
+            else
+                usererror ("check parmfile-option prob-rates=laguerre:ALPHA: missing or invalid alpha\n");
         }
         break;
     case 16:   /*micro-stepmax */

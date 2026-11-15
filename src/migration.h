@@ -936,6 +936,12 @@ typedef struct _option
   long rcategs;
   MYREAL *rrate;
   MYREAL *probcat;
+  /* rates=N (count only) with prob-rates=laguerre:ALPHA, resolved after the
+     parmfile is read (the two lines can come in either order) */
+  boolean rcategs_auto_pending;
+  long rcategs_auto_count;
+  int rcategs_auto_scheme;
+  MYREAL rcategs_auto_alpha;
   long seqrate_gamma_num; /*number of loci for gamma values*/
   MYREAL *seqrate_gamma; /* for gamma values for many loci*/
   MYREAL probsum;
