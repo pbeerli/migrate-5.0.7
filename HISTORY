@@ -12,6 +12,19 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 15  Migrate 6.1.91
+             Joint combination: migration out of a daughter population (forward in time),
+             which waits only up to the mean split time, is handled ({** D*} models).
+             Sequencing-error estimation: the rates stay below 1/3 (hot chains crossed it:
+             marginal likelihoods of -1e190). Default prior of the locus rate modifiers:
+             Gamma(mean 1, shape 2, max 10) instead of uniform 0-1e10. Output: rate-modifier
+             line and notes, ML-alpha prior rows of {1 1}, population-mlalpha comment.
+             rates=N with prob-rates=laguerre:ALPHA works (it ran without gamma rates).
+             The joint combination of split models with migration out of a daughter
+             ignored the split gate (wrong Joint rows); long-chains is not written.
+             population-mlalpha={1 1} crashed in the joint combination.
+             mutation=ESTIMATE (one rate for all loci) needs dated samples: without a
+             tipdate-file a warning, and the rate is held constant.
 November 14  Migrate 6.1.90 new option phased-infile=YES:filename writes, after a haplotyping
              run, the infile with the most probable phase (posterior mode) of every individual
              and locus, with the probability of each as a comment.

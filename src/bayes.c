@@ -3754,11 +3754,11 @@ void bayes_stat(world_fmt *world, data_fmt *data)
             mu = (double) world->options->meanmu[locus];
             mutot += (mu - mutot) / n;
             n++;
-            FPRINTF(world->outfile,"(*) Mutation rate for locus %li was set to %8.5e", locus, mu);
+            FPRINTF(world->outfile,"(*) Mutation rate for locus %li was set to %8.5e\n", locus + 1, mu);
 	  }
         if(world->loci>1)
 	  {
-            FPRINTF(world->outfile,"(*) Average mutation rate for all loci is  %8.5e", mutot);
+            FPRINTF(world->outfile,"(*) Average mutation rate for all loci is  %8.5e\n", mutot);
 	  }
       }
     //if (world->bayes->histogram[0].covariance != NULL)

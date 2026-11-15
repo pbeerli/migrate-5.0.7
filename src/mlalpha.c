@@ -324,14 +324,15 @@ void print_parm_mlalphapops(long *bufsize, char **buffer, long *allocbufsize, op
   long i;
   char *input;
   print_parm_br(bufsize, buffer, allocbufsize);
-  print_parm_comment(bufsize, buffer, allocbufsize, "      print the parmfile entry for the population mlalpha parameter setting and labeling");
-  print_parm_comment(bufsize, buffer, allocbufsize, "      0=no mlalpha, other labels are marking mlalpha either individual populations or combinations");
+  print_parm_comment(bufsize, buffer, allocbufsize, "Mittag-Leffler alpha per population");
+  print_parm_comment(bufsize, buffer, allocbufsize, "  Syntax population-mlalpha={label for each population}");
+  print_parm_comment(bufsize, buffer, allocbufsize, "      0 = Kingman coalescent (alpha 1), equal labels > 0 share one alpha");
   print_parm_comment(bufsize, buffer, allocbufsize, "      for example:");
-  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={0} # all populations are constant");
-  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1} # all populations are exponentially mlalphaing with the same mlalpha rate");
-  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1 2 3} # all 3 populations are mlalphaing with individual rates, if there are more than");
-  print_parm_comment(bufsize, buffer, allocbufsize, "                                # than 3 populations, pop 4 etc will mlalpha in lockstep with 3");
-  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1 0 1} # population 1 and 3 mlalpha in lockstep, population 2 is constant in size.");
+  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={0}     # all populations use the Kingman coalescent");
+  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1}     # all populations share one alpha");
+  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1 2 3} # each of the 3 populations has its own alpha; with more");
+  print_parm_comment(bufsize, buffer, allocbufsize, "                                 # populations, population 4 etc. share the alpha of 3");
+  print_parm_comment(bufsize, buffer, allocbufsize, "      population-mlalpha={1 0 1} # populations 1 and 3 share one alpha, population 2 is Kingman");
   input = (char *) mycalloc(options->mlalphapops_numalloc * 50, sizeof(char));
   pos = mysnprintf(input,LINESIZE, "population-mlalpha={%li", options->mlalphapops[0]);
   for(i=1; i < options->mlalphapops_numalloc; i++)

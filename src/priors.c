@@ -1510,6 +1510,7 @@ prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * opt
   r = &options->bayes_priors[options->bayes_priors_num-1];
   r->from = from;
   r->to = to;
+  r->kind = UNIFORMPRIOR; /* the new entry came from realloc: its kind was unset */
   switch(priortype)
     {
     case THETAPRIOR:
@@ -1519,7 +1520,9 @@ prior_fmt * find_prior_menu(long from, long to, long priortype, option_fmt * opt
 	set_option_prior(&r,MIGPRIOR, SMALLEST_MIGRATION, DNA_GUESS_MIG*10.0, DNA_GUESS_MIG, BAYESNUMBIN);
       break;
     case RATEPRIOR:
-      set_option_prior(&r,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
+      set_option_prior(&r,RATEPRIOR, 0.0, RATE_PRIOR_MAX, 1.0, BAYESNUMBIN);
+      r->kind = GAMMAPRIOR;
+      r->alpha = RATE_PRIOR_SHAPE;
       break;
     case SPECIESTIMEPRIOR:
       set_option_prior(&r,SPECIESTIMEPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
@@ -1555,7 +1558,7 @@ void default_prior(long priortype, option_fmt * options, prior_fmt *result)
         set_option_prior(&result,MIGPRIOR, SMALLEST_MIGRATION, ALLELE_GUESS_MIG*10.0, ALLELE_GUESS_MIG, BAYESNUMBIN);
       break;
     case RATEPRIOR:
-      set_option_prior(&result,RATEPRIOR, SMALLEST_RATE, BIGGEST_RATE, 1.0, BAYESNUMBIN);	
+      set_option_prior(&result,RATEPRIOR, 0.0, RATE_PRIOR_MAX, 1.0, BAYESNUMBIN);
       break;
     case SPECIESTIMEPRIOR:  /* replaced in check_bayes_priors() by the largest Theta prior */
       set_option_prior(&result,SPECIESTIMEPRIOR, SMALLEST_DNASPECIES, BIGGEST_DNASPECIES, DNA_GUESS_THETA , BAYESNUMBIN);
@@ -1573,6 +1576,13 @@ void default_prior(long priortype, option_fmt * options, prior_fmt *result)
       error("no default prior found");
     }
   result->kind = UNIFORMPRIOR;
+  if (priortype == RATEPRIOR)
+    {
+      /* locus rate modifiers are relative rates: a gamma prior centred
+         on 1 (the old Uniform(1e-10, 1e10) did not tie them to 1) */
+      result->kind = GAMMAPRIOR;
+      result->alpha = RATE_PRIOR_SHAPE;
+    }
 }
 
  // find_prior copies the prior for parameter (from, to) into result and

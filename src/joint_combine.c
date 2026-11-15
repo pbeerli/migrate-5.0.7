@@ -100,6 +100,8 @@ extern const MPI_Datatype mpisizeof;
 #define JC_DZ 8.0            /* local window: centre +- JC_DZ std */
 #define JC_DOUT (-1e30)      /* divergence term outside a row's window */
 #define JC_NS 17             /* divergence-time std grid (log-spaced cells) */
+#define JC_NGATE 257         /* gated migration: lineage time before the split mean, on a
+                                grid over the prior range of that mean */
 #define JC_BURNIN 2000       /* sweeps */
 #define JC_BURNWARM 500      /* sweeps of a chain started from the main run's last state
                                 (error blocks, stepping stones) */
@@ -198,6 +200,16 @@ typedef struct
   int mlscale;              /* ML: mittag-leffler-scale */
   long *apar;               /* per population: its alpha parameter, or -1 (fixed) */
   double *afix;             /* per population: its fixed alpha (1 without ML) */
+  /* gated migration (forward in time out of a daughter population: backward,
+     a lineage may move into the daughter only up to the mean split time D,
+     species_mig_gate()): the waiting term of the entry is M S(D) / mu with
+     S(D) the lineage time of the receiving population before D, and D must
+     be older than the entry's last migration event */
+  long ngate;
+  long *gate_k;            /* per matrix entry: the split whose mean gates it, or -1 */
+  long *off_G;             /* per matrix entry: offset of [last event age, S on the grid] */
+  double *gate_b, *gate_c; /* per matrix entry: upper bound and log density of its
+                              uniform M prior (Z(G) integrates M in closed form) */
 } jc_layout;
 
 /* phi index of tau_s (s >= 1) of free entry j */
@@ -238,6 +250,10 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->sky_hi);
   myfree (ly->apar);
   myfree (ly->afix);
+  myfree (ly->gate_k);
+  myfree (ly->off_G);
+  myfree (ly->gate_b);
+  myfree (ly->gate_c);
 }
 
 static void
@@ -408,6 +424,32 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
               }
         }
     }
+  /* gated migration entries: the gate is the first split whose daughter is
+     the entry's source population (as species_mig_gate()) */
+  ly->gate_k = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
+  ly->off_G = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
+  ly->gate_b = (double *) mycalloc ((size_t) world->numpop2, sizeof (double));
+  ly->gate_c = (double *) mycalloc ((size_t) world->numpop2, sizeof (double));
+  for (p = 0; p < world->numpop2; p++)
+    {
+      long from, to, k;
+      ly->gate_k[p] = -1;
+      if (p < numpop || ly->rep[p] < 0 || strchr ("0dDtT", world->options->custm2[p]) != NULL)
+        continue;
+      m2mm (p, numpop, &from, &to);
+      for (k = 0; k < ly->nsplit; k++)
+        if (world->species_model[ly->split_model[k]].to == from)
+          {
+            const long r = ly->rep[p];
+            ly->gate_k[p] = k;
+            ly->off_G[p] = ly->nrow;
+            ly->nrow += 1 + JC_NGATE;
+            ly->gate_b[p] = world->bayes->maxparam[r];
+            ly->gate_c[p] = scaling_prior (world, r, 0.5 * world->bayes->maxparam[r]);
+            ly->ngate++;
+            break;
+          }
+    }
   /* skyline=PARAM segments */
   ly->nseg = world->timeelements > 2 ? world->timeelements - 1 : 1;
   ly->sky_j = (long *) mycalloc ((size_t) world->numpop2, sizeof (long));
@@ -467,8 +509,13 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
           ly->afix[pop] = world->mlalpha[gw - 1];
           if (world->tri_mlalpha != FIXED)
             {
-              const long r = world->bayes->map[npg + pop][1];
-              ly->apar[pop] = (r >= npg && r < ly->np) ? r : -1;
+              /* populations sharing an alpha ({1 1}) use the parameter of
+                 the first of them (pick_parameter()); bayes->map is the
+                 identity here and pointed the second one at an unused
+                 slot without a prior */
+              long r = -1;
+              ly->apar[pop] = (!pick_parameter (npg + pop, &r, world, GROWTHPRIOR)
+                               && r >= npg && r < ly->np) ? r : -1;
             }
         }
       ly->off_nsp = ly->nrow;
@@ -500,6 +547,123 @@ static double jc_ml_term (const jc_layout *ly, const double *st, const double *s
 /* ------------------------------------------------------------- support */
 
 static long jc_nactive (world_fmt *world);
+static double jc_div_term (const jc_layout *ly, const double *st, long k, double mu, double sigma);
+static double jc_full_term (const jc_layout *ly, const boolean *active, const double *st, const double *sp,
+                            const double *phi, double mu);
+
+/* gated migration entry e: the age of grid point g of its split's mean */
+static double
+jc_gate_x (const jc_layout *ly, long e, long g)
+{
+  const long k = ly->gate_k[e];
+  return ly->mlo[k] + (ly->mhi[k] - ly->mlo[k]) * (double) g / (JC_NGATE - 1);
+}
+
+/* S_e(D): lineage time of the receiving population before D (linear on the
+   grid; S is piecewise linear in D) */
+static double
+jc_gate_S (const jc_layout *ly, const double *st, long e, double D)
+{
+  const long k = ly->gate_k[e];
+  const double *S = st + ly->off_G[e] + 1;
+  const double lo = ly->mlo[k], hi = ly->mhi[k];
+  double x = (hi > lo) ? (D - lo) / (hi - lo) * (JC_NGATE - 1) : 0.0;
+  long j;
+  if (x <= 0.0)
+    return S[0];
+  if (x >= JC_NGATE - 1)
+    return S[JC_NGATE - 1];
+  j = (long) floor (x);
+  x -= (double) j;
+  return S[j] + x * (S[j + 1] - S[j]);
+}
+
+/* migration term of a gated entry e at rate x and split mean D: zero density
+   when D is younger than its last migration event (bayes.c: a move into a
+   daughter before it exists, forward in time) */
+static double
+jc_gate_term (const jc_layout *ly, const double *st, long e, double x, double D, double mu)
+{
+  if (x <= 0.0 || D < st[ly->off_G[e]])
+    return -HUGE_VAL;
+  const double m = ly->mslot[e] >= 0 ? st[ly->off_m + ly->mslot[e]] : 0.0;
+  return (m > 0.0 ? m * log (x) : 0.0) - x * jc_gate_S (ly, st, e, D) / mu;
+}
+
+/* log int prior(M) M^m e^{-M s} dM for the uniform prior on [0, b]:
+   e^c gamma(m + 1, b s) / s^(m + 1) */
+static double
+jc_gate_logI (const jc_layout *ly, long e, double m, double s)
+{
+  const double b = ly->gate_b[e], c = ly->gate_c[e];
+  if (!(s * b > 1e-12))
+    return c + (m + 1.0) * log (b) - log (m + 1.0);
+  return c + lgamma (m + 1.0) + logincompletegamma (b * s, m + 1.0) - (m + 1.0) * log (s);
+}
+
+/* the gated M integrals of one genealogy on the grid of their split's mean
+   (set by jc_div_normalizer() for the genealogy it integrates) */
+static double *jc_gate_cur = NULL;
+
+static void
+jc_gate_table (const jc_layout *ly, const double *st, double mu)
+{
+  long e, g, n = 0;
+  jc_gate_cur = (double *) myrealloc (jc_gate_cur, sizeof (double) * (size_t) ((ly->ngate > 0 ? ly->ngate : 1) * JC_NGATE));
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->gate_k[e] >= 0)
+      {
+        const double m = ly->mslot[e] >= 0 ? st[ly->off_m + ly->mslot[e]] : 0.0;
+        for (g = 0; g < JC_NGATE; g++)
+          jc_gate_cur[n * JC_NGATE + g] = jc_gate_logI (ly, e, m, st[ly->off_G[e] + 1 + g] / mu);
+        n++;
+      }
+}
+
+/* sum of the gated M integrals of the entries gated by split group k at
+   mean D (-HUGE_VAL below an entry's last event) */
+static double
+jc_gate_group (const jc_layout *ly, const double *st, long k, double D)
+{
+  long e, n = 0;
+  double v = 0.0;
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->gate_k[e] >= 0)
+      {
+        if (ly->split_rep[ly->gate_k[e]] == k)
+          {
+            const double *I = jc_gate_cur + n * JC_NGATE;
+            const long kk = ly->gate_k[e];
+            if (D < st[ly->off_G[e]])
+              return -HUGE_VAL;
+            double x = (ly->mhi[kk] > ly->mlo[kk]) ? (D - ly->mlo[kk]) / (ly->mhi[kk] - ly->mlo[kk]) * (JC_NGATE - 1) : 0.0;
+            long j;
+            if (x <= 0.0)
+              v += I[0];
+            else if (x >= JC_NGATE - 1)
+              v += I[JC_NGATE - 1];
+            else
+              {
+                j = (long) floor (x);
+                x -= (double) j;
+                v += I[j] + x * (I[j + 1] - I[j]);
+              }
+          }
+        n++;
+      }
+  return v;
+}
+
+/* TRUE when matrix entry p is the parameter of a gated entry */
+static boolean
+jc_gate_param (const jc_layout *ly, long p)
+{
+  long e;
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->gate_k[e] >= 0 && ly->rep[e] == p)
+      return TRUE;
+  return FALSE;
+}
 
 /* experiments: MIGRATE_JC_MAXACTIVE raises the parameter limit */
 static long
@@ -520,8 +684,7 @@ jc_ml_supported (world_fmt *world)
   if (numpop > 3 || world->has_growth || world->timeelements > 2 || world->has_speciation
       || world->bayes->mu)
     return FALSE;
-  /* migration out of a daughter (forward in time) waits only up to the
-     split time, which couples its M with D in Z(G): not handled */
+  /* migration out of a daughter (forward in time): not with Mittag-Leffler */
   if (species_mig_gated_model (world))
     return FALSE;
   for (i = 0; i < world->numpop2; i++)
@@ -548,8 +711,8 @@ jc_ml_supported (world_fmt *world)
       for (i = 0; i < numpop && i < world->options->mlalphapops_numalloc; i++)
         if (world->options->mlalphapops[i] > 0)
           {
-            const long r = world->bayes->map[npg + i][1];
-            if (r < npg || r >= world->numparam || world->bayes->minparam[r] <= 0.0
+            long r = -1;
+            if (pick_parameter (npg + i, &r, world, GROWTHPRIOR) || r < npg || r >= world->numparam || world->bayes->minparam[r] <= 0.0
                 || world->bayes->maxparam[r] > 1.0)
               return FALSE;
           }
@@ -600,7 +763,27 @@ jc_supported (world_fmt *world)
             || world->bayes->map[sp->paramindex_mu][1] != sp->paramindex_mu)
           return FALSE;   /* (type is lower case: d/D -> 'd', tied t/T -> 't') */
       }
-
+  /* migration out of a daughter (forward in time) waits only up to the
+     mean split time, which couples its M with D: handled for an entry with
+     its own M ('*', not shared) under a uniform prior from 0, without
+     skyline segments (Z(G) integrates M at each D in closed form) */
+  if (species_mig_gated_model (world))
+    for (i = world->numpop; i < world->numpop2; i++)
+      {
+        long from, to, j;
+        if (strchr ("0dDtT", world->options->custm2[i]) != NULL)
+          continue;
+        m2mm (i, world->numpop, &from, &to);
+        if (species_mig_gate (world, from) >= (double) HUGE)
+          continue;
+        if (world->options->custm2[i] != '*' || world->bayes->map[i][1] != i || world->timeelements > 2
+            || !migration_is_M (world, i) || log_prior_1 == NULL
+            || log_prior_1[i] != (logprior1ptr) log_prior_uni1 || world->bayes->minparam[i] != 0.0)
+          return FALSE;
+        for (j = 0; j < world->numpop2; j++)
+          if (j != i && world->bayes->map[j][1] == i)
+            return FALSE;
+      }
   for (i = 0; i < world->numpop2; i++)
     {
       const char c = world->options->custm2[i];
@@ -1039,6 +1222,34 @@ jc_record_sample (world_fmt *world)
             }
         }
     }
+  /* gated migration entries: last event age and S(D) on the grid */
+  for (pop = ly.numpop; pop < ly.numpop2; pop++)
+    if (ly.gate_k[pop] >= 0)
+      {
+        long from, to;
+        double last = 0.0;
+        double *S = st + ly.off_G[pop] + 1;
+        m2mm (pop, numpop, &from, &to);
+        for (i = 1; i < T - 1; i++)
+          if (tl[i].eventnode->type == 'm'
+              && m2mmm (tl[i].eventnode->pop, tl[i].eventnode->actualpop, numpop) == pop
+              && tl[i].age > last)
+            last = tl[i].age;
+        st[ly.off_G[pop]] = last;
+        for (g = 0; g < JC_NGATE; g++)
+          {
+            const double x = jc_gate_x (&ly, pop, g);
+            double v = 0.0;
+            for (i = 1; i < T - 1; i++)
+              {
+                const double t0 = tl[i - 1].age, t1 = tl[i].age;
+                if (t0 >= x)
+                  break;
+                v += (double) tl[i].lineages[to] * ((t1 < x ? t1 : x) - t0);
+              }
+            S[g] = v;
+          }
+      }
   /* the locus coalesces at inheritance scalar x the reference Theta: scale
      the coalescence integrals by 1/scalar; the remaining factor scalar^-c
      is the same for every Theta and cancels in p(G|phi)/Z(G) */
@@ -1163,6 +1374,46 @@ jc_record_sample (world_fmt *world)
         {
           b->seen = 0;
           jc_record_divergence (world, &ly, st);   /* only for kept rows */
+          if (getenv ("MIGRATE_JC_GATECHECK") != NULL && !ly.ml)
+            {   /* the joint's term at the sampler's parameters against
+                   probg_treetimes(): the difference must not depend on G */
+              static double dmin = HUGE_VAL, dmax = -HUGE_VAL;
+              boolean *act = (boolean *) mycalloc ((size_t) ly.nphi, sizeof (boolean));
+              long q;
+              for (q = 0; q < ly.nphi; q++)
+                act[q] = TRUE;
+              const double d = jc_full_term (&ly, act, st, NULL, world->param0, st[ly.off_mu])
+                - probg_treetimes (world);
+              if (d < dmin) dmin = d;
+              if (d > dmax) dmax = d;
+              fprintf (stderr, "JC_GATECHECK locus %ld: joint - probg = %.6f (range %.6f)\n",
+                       world->locus + 1, d, dmax - dmin);
+              for (q = 0; q < ly.nsplit; q++)
+                {
+                  const double mu0 = world->param0[ly.split_pmu[q]];
+                  const double sg0 = ly.split_psig[q] >= 0 ? world->param0[ly.split_psig[q]] : ly.split_sfix[q];
+                  fprintf (stderr, "JC_DIVCHECK locus %ld split %ld grid %g exact %g\n", world->locus + 1, q,
+                           jc_div_term (&ly, st, q, mu0, sg0), jc_div_exact (world, ly.split_model[q], mu0, sg0));
+                }
+              for (q = ly.numpop; q < ly.numpop2; q++)
+                if (ly.gate_k[q] >= 0)
+                  {   /* the interpolated S(D) against the exact one */
+                    long fr, to2, ii;
+                    const double D = world->param0[ly.split_pmu[ly.gate_k[q]]];
+                    double ex = 0.0;
+                    m2mm (q, numpop, &fr, &to2);
+                    for (ii = 1; ii < T - 1; ii++)
+                      {
+                        const double a0 = tl[ii - 1].age, a1 = tl[ii].age;
+                        if (a0 >= D)
+                          break;
+                        ex += (double) tl[ii].lineages[to2] * ((a1 < D ? a1 : D) - a0);
+                      }
+                    fprintf (stderr, "JC_GATESCHECK locus %ld entry %ld D %g last %g S grid %g exact %g M %g\n",
+                             world->locus + 1, q, D, st[ly.off_G[q]], jc_gate_S (&ly, st, q, D), ex, world->param0[q]);
+                  }
+              myfree (act);
+            }
           jc_append (js, world->locus, st, spells, nsp);
           if (b->n >= 2 * jc_maxsamples (world, js->nrow))
             {
@@ -1661,6 +1912,8 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
       if (x[g] > hi)
         x[g] = hi;
       v[g] = scaling_prior (q->world, pm, x[g]);
+      if (ly->ngate > 0)
+        v[g] += jc_gate_group (ly, st, k, x[g]);
       for (m = 0; m < ly->nsplit; m++)
         if (ly->split_rep[m] == k)
           v[g] += jc_div_term (ly, st, m, x[g], sigma);
@@ -1750,7 +2003,8 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
         x[g] = lo;
       if (x[g] > hi)
         x[g] = hi;
-      const double pr = scaling_prior (q->world, pm, x[g]);
+      const double pr = scaling_prior (q->world, pm, x[g])
+        + (ly->ngate > 0 ? jc_gate_group (ly, st, k, x[g]) : 0.0);
       if (ly->split_psig[k] < 0)
         {
           H[g] = pr;
@@ -2159,7 +2413,7 @@ jc_log_normalizer (const jc_layout *ly, const boolean *active,
   myfree (xpop);
   /* M parameters: all entries that share it (xNm ones are done above) */
   for (p = numpop; p < numpop2; p++)
-    if (active[p] && !ly->xnm[p] && !jc_sky_param (ly, p))
+    if (active[p] && !ly->xnm[p] && !jc_sky_param (ly, p) && !jc_gate_param (ly, p))
       {
         for (g = 0; g < JC_GRID; g++)
           {
@@ -2189,6 +2443,8 @@ jc_log_normalizer (const jc_layout *ly, const boolean *active,
         }
       lz += jc_logtrapz (w, gg, JC_NG);
     }
+  if (ly->ngate > 0)   /* the gated M integrals, used inside the divergence integrals */
+    jc_gate_table (ly, st, mu);
   lz += jc_div_normalizer (ly, st, dq);
   return lz;
 }
@@ -2591,7 +2847,9 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
           for (sg = 0; sg < ly->nseg; sg++)
             v += jc_mig_seg_term (ly, st, e, sg, phi[ly->rep[e]] * (sg ? phi[JC_TAU (ly, j, sg)] : 1.0), mu);
         else
-          v += jc_mig_term (ly, st, e, jc_rate (ly, phi, e), mu);
+          v += ly->gate_k[e] >= 0
+            ? jc_gate_term (ly, st, e, jc_rate (ly, phi, e), phi[ly->split_pmu[ly->gate_k[e]]], mu)
+            : jc_mig_term (ly, st, e, jc_rate (ly, phi, e), mu);
       }
   for (e = 0; e < ly->nsplit; e++)
     v += jc_div_term (ly, st, e, phi[ly->split_pmu[e]],
@@ -2699,6 +2957,8 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
           break;
         case JC_U_MIG:
           jc_units_dep (U, ly->nphi, ly->rep[i], u);
+          if (ly->gate_k[i] >= 0)
+            jc_units_dep (U, ly->nphi, ly->split_pmu[ly->gate_k[i]], u);
           if (ly->xnm[i])
             {
               long from, to;
@@ -2746,6 +3006,8 @@ jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, 
     case JC_U_POPSEG:
       return jc_pop_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);
     case JC_U_MIG:
+      if (ly->gate_k[i] >= 0)
+        return jc_gate_term (ly, st, i, jc_rate (ly, phi, i), phi[ly->split_pmu[ly->gate_k[i]]], mu);
       return jc_mig_term (ly, st, i, jc_rate (ly, phi, i), mu);
     case JC_U_MIGSEG:
       return jc_mig_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);

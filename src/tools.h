@@ -50,6 +50,7 @@ extern char *my_strdup(const char *s);
 extern char *strsep(char **, const char *);
 #endif
 extern boolean shortcut(long j0, world_fmt *world, long *j);
+extern boolean pick_parameter(long j0, long *j, world_fmt *world, long start);
 extern int finddigits(long number);
 extern MYREAL lengthof (node * p);
 extern MYINLINE node *crawlback (const node * theNode);

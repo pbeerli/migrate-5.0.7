@@ -222,5 +222,10 @@ extern void print_parm_comment(long *bufsize, char **buffer, long *allocbufsize,
 extern void print_parm_mutable_comment(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);
 extern void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);
 extern void print_parm(long *bufsize, char **buffer, long *allocbufsize, char string[]);
+// rates=N with prob-rates=laguerre:ALPHA: make the N gamma rate categories (after the parmfile is read)
+extern void resolve_gamma_rate_categories (option_fmt * options);
+// mutation=ESTIMATE without a tipdate-file: warning, mutation=CONSTANT
+extern void check_mutation_estimate (option_fmt * options);
+extern boolean matches_keyword_ci (const char *value, const char *keyword);
 
 #endif /*OPTIONS_INCLUDE */

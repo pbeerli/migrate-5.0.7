@@ -520,9 +520,11 @@ main (int argc, char **argv)
 	printf("%i> parmfilename=%s\n",myID, options->parmfilename);
 #endif
 	read_options_master (options);
+	resolve_gamma_rate_categories (options);
 	options->menu = set_usemenu(usemenu, options->menu);
 	print_menu_title (stdout, options, EARTH);
 	get_menu (options, EARTH, data);
+	check_mutation_estimate (options);
 	check_force_moves (options); /* active forces get a move weight > 0, inactive ones 0 */
 	//check_bayes_options(options);
 
