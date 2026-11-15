@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 15  Migrate 6.1.92 Growth and Mittag-Leffler parameters have one slot per population
+             (as 7.0.25): with population-growth={0 1} no growth was estimated, and
+             {1 0} or {1 0 2} used a different random number stream than Migrate 7.
+             Prior table: shared growth ({1 1}) listed Growth_1 twice.
 November 15  Migrate 6.1.91
              Joint combination: migration out of a daughter population (forward in time),
              which waits only up to the mean split time, is handled ({** D*} models).
