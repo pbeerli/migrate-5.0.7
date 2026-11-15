@@ -4261,8 +4261,14 @@ void set_numparam(world_fmt* world)
   world->numparamvec[RATEPRIOR] = world->bayes->mu;
   world->numparamvec[SPLITPRIOR] = world->species_model_size;
   world->numparamvec[SPLITSTDPRIOR] = world->species_model_size ;
-  world->numparamvec[GROWTHPRIOR] = world->grownum;
-  world->numparamvec[MLFPRIOR] =  world->mlalphanum;
+  /* one slot per population (world->options->*_numalloc is numpop when the
+     force is on, 0 when off): bayes proposals and setup_bayes_map() index
+     these blocks through growpops[which-npx]/mlalphapops[which-npg], and
+     grouped populations are collapsed by the bayes map. The distinct counts
+     grownum/mlalphanum lost the growth of population 2 with
+     population-growth={0 1} (as codex 7.0.25) */
+  world->numparamvec[GROWTHPRIOR] = world->options->growpops_numalloc;
+  world->numparamvec[MLFPRIOR] = world->options->mlalphapops_numalloc;
   long i;
   world->numparamcumvec[THETAPRIOR] =   world->numparamvec[THETAPRIOR];
   world->numparamcumvec[MIGPRIOR]   =   world->numparamvec[MIGPRIOR]; 

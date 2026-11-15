@@ -1200,7 +1200,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	    z++;
 	    break;
 	  case GROWTHPRIOR:
-	    d=pa-npp;
+	    d=i-npp;   /* the row, not the shared parameter of {1 1} */
 	    while (d < world->options->growpops_numalloc && world->options->growpops[d]==0 )
 	      d++;		       
 	    mysnprintf(s,LINESIZE, "Population growth (Growth_%li)",d+1);
