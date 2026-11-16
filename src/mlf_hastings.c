@@ -54,6 +54,7 @@
 #include "mlf_hastings.h"
 #include "world.h"
 #include "speciate.h"
+#include "bayes.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -474,6 +475,57 @@ static double mlh_logS_mig(world_fmt *world, long pop, double dt)
   return mlh_logS_mig_s(world, pop, dt, 0);
 }
 
+/* migration out of a daughter population (forward in time): backwards, a
+   lineage may take route i into a daughter only up to its mean split time
+   (species_mig_gate(), as time_to_migration() and probg_treetimes_local());
+   only with alpha = 1 (main.c refuses Mittag-Leffler with such routes) */
+static boolean mlh_gated(world_fmt *world)
+{
+  return world->has_speciation && species_mig_gated_model(world);
+}
+
+static double mlh_route_gate(world_fmt *world, long i)
+{
+  long from, to;
+  m2mm(i, world->numpop, &from, &to);
+  return species_mig_gate(world, from);
+}
+
+/* integral over [a, b] of the migration rate of one lineage in pop
+   (segment seg), each route only up to its gate */
+static double mlh_migexp_s(world_fmt *world, long pop, long seg, double a, double b)
+{
+  long i;
+  double sum = 0.0;
+  for (i = world->mstart[pop]; i < world->mend[pop]; i++)
+    {
+      double e;
+      if (world->options->custm2[i] == '0')
+        continue;
+      e = mlh_route_gate(world, i);
+      if (e > b)
+        e = b;
+      if (e > a)
+        sum += world->data->geo[i] * migration_M(world, i, pop) * world->timek[seg * world->numpop2 + i] * (e - a);
+    }
+  return sum / world->options->mu_rates[world->locus];
+}
+
+/* the migration rate of one lineage in pop at age t (routes past their gate
+   are closed) */
+static double mlh_migtotal_at(world_fmt *world, long pop, long seg, double t)
+{
+  long i;
+  double sum = 0.0;
+  for (i = world->mstart[pop]; i < world->mend[pop]; i++)
+    {
+      if (world->options->custm2[i] == '0' || t > mlh_route_gate(world, i))
+        continue;
+      sum += world->data->geo[i] * migration_M(world, i, pop) * world->timek[seg * world->numpop2 + i];
+    }
+  return sum / world->options->mu_rates[world->locus];
+}
+
 #ifdef MIGRATE_MLH_VERIFY
 /* ---- the interval density of probg_treetimes() before the per-population
    model (one alpha per whole-tree interval); kept as a reference: equal to
@@ -543,12 +595,19 @@ static double mlh_u_spell(world_fmt *world, long pop, long kp, double a, double 
   const double alpha = mlh_alpha(world, pop);
   const double g = mlh_growth(world, pop);
   long s = mlh_seg(world, a), last = mlh_seg(world, b);
+  const boolean gated = mlh_gated(world);
   double u = 0.0;
   for (; s <= last; s++)
     {
       double x = (s == mlh_seg(world, a)) ? a : world->times[s];
       double y = (s == last) ? b : world->times[s + 1];
       double A = (kp > 1) ? kp * (kp - 1) * mlh_pairrate_s(world, pop, s) / 2.0 : 0.0;
+      if (gated)   /* alpha = 1: u is additive, the migration part per route */
+        {
+          u += mlh_u_scaled(world, A, 0.0, g, alpha, x, y)
+            + ((kp > 0) ? kp * mlh_migexp_s(world, pop, s, x, y) : 0.0);
+          continue;
+        }
       double B = (kp > 0) ? kp * mlh_migtotal_s(world, pop, s) : 0.0;
       u += mlh_u_scaled(world, A, B, g, alpha, x, y);
     }
@@ -560,6 +619,7 @@ static double mlh_u_spell(world_fmt *world, long pop, long kp, double a, double 
 static double mlh_logp_perpop_sky(world_fmt *world, const mlh_list *L, double *a)
 {
   const long numpop = L->numpop;
+  const boolean gated = mlh_gated(world);
   long i, pop, x;
   double logp = 0.0;
   for (i = 0; i < L->n; i++)
@@ -576,7 +636,14 @@ static double mlh_logp_perpop_sky(world_fmt *world, const mlh_list *L, double *a
           alpha = mlh_alpha(world, x);
           g = mlh_growth(world, x);
           A = (kb[x] > 1) ? kb[x] * (kb[x] - 1) * mlh_pairrate_s(world, x, s) / 2.0 : 0.0;
-          B = kb[x] * mlh_migtotal_s(world, x, s);
+          if (gated)
+            {
+              if (e->type == 'm' && e->age > mlh_route_gate(world, m2mmm(e->above, x, world->numpop)))
+                return (double) -HUGE;   /* into a daughter before it exists (forward) */
+              B = kb[x] * mlh_migtotal_at(world, x, s, e->age);
+            }
+          else
+            B = kb[x] * mlh_migtotal_s(world, x, s);
           lam_end = A * exp(g * e->age) + B;
           rate = (e->type == 'c') ? mlh_pairrate_s(world, x, s) * exp(g * e->age)
             : mlh_migrate_s(world, e->above, x, s);
@@ -839,6 +906,34 @@ double mlh_probg_treetimes(world_fmt *world)
 #else
   {
     const double a0 = a[0];
+    if (getenv("MIGRATE_MLH_GATECHECK") != NULL && world->timeelements > 2 && !world->has_mlalpha)
+      {   /* with every skyline multiplier at 1 the segment density must equal
+             probg_treetimes_local() (gated migration included) */
+        static double worst = 0.0;
+        const long nk = (world->timeelements - 1) * world->numpop2;
+        double *keep = (double *) mycalloc((size_t) nk, sizeof(double));
+        double *b = (double *) mycalloc((size_t) numpop, sizeof(double));
+        long q;
+        memcpy(keep, world->timek, sizeof(double) * (size_t) nk);
+        for (q = 0; q < nk; q++)
+          world->timek[q] = 1.0;
+        for (pop = 0; pop < numpop; pop++)
+          b[pop] = a[pop];
+        const double x1 = mlh_logp_perpop(world, &L, b) + mlh_div_logp(world, &L, a0);
+        const long te = world->timeelements;
+        world->timeelements = 2;   /* the standard density */
+        const double x2 = probg_treetimes_local(world, world->treetimes);
+        world->timeelements = te;
+        memcpy(world->timek, keep, sizeof(double) * (size_t) nk);
+        if (fabs(x1 - x2) > worst)
+          {
+            worst = fabs(x1 - x2);
+            fprintf(stderr, "MLH_GATECHECK segments (multipliers 1) vs probg_treetimes_local: worst |diff| = %g (logp %g)\n",
+                    worst, x2);
+          }
+        myfree(keep);
+        myfree(b);
+      }
     return mlh_logp_perpop(world, &L, a) + mlh_div_logp(world, &L, a0);
   }
 #endif
@@ -936,6 +1031,16 @@ static double mlh_clocks_s(world_fmt *world, long pop, long kcoal, long which,
     logq = mlh_logf(mlh_rate(world, lc, alpha), alpha, dt);
   else
     logq = mlh_logS(mlh_rate(world, lc, alpha), alpha, dt);
+  if (alpha >= 1.0 && mlh_gated(world))
+    {   /* each route only up to its gate (time_to_migration()) */
+      if (which >= 0)
+        {
+          if (t0 + dt > mlh_route_gate(world, m2mmm(which, pop, world->numpop)))
+            return (double) -HUGE;
+          logq += log(mlh_migrate_s(world, which, pop, seg));
+        }
+      return logq - mlh_migexp_s(world, pop, seg, t0, t0 + dt);
+    }
   if (which >= 0)
     {
       double lm = mlh_migrate_s(world, which, pop, seg);
