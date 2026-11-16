@@ -12,6 +12,8 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 15  Migrate 6.1.93 skyline=PARAM with migration out of a daughter population
+             (gated at the split time); not with Mittag-Leffler.
 November 15  Migrate 6.1.92 Growth and Mittag-Leffler parameters have one slot per population
              (as 7.0.25): with population-growth={0 1} no growth was estimated, and
              {1 0} or {1 0 2} used a different random number stream than Migrate 7.

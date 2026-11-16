@@ -766,7 +766,7 @@ jc_supported (world_fmt *world)
   /* migration out of a daughter (forward in time) waits only up to the
      mean split time, which couples its M with D: handled for an entry with
      its own M ('*', not shared) under a uniform prior from 0, without
-     skyline segments (Z(G) integrates M at each D in closed form) */
+     skyline segments of that M (Z(G) integrates M at each D in closed form) */
   if (species_mig_gated_model (world))
     for (i = world->numpop; i < world->numpop2; i++)
       {
@@ -776,7 +776,10 @@ jc_supported (world_fmt *world)
         m2mm (i, world->numpop, &from, &to);
         if (species_mig_gate (world, from) >= (double) HUGE)
           continue;
-        if (world->options->custm2[i] != '*' || world->bayes->map[i][1] != i || world->timeelements > 2
+        /* skyline=PARAM is fine when the gated M itself has no segments:
+           its term uses the lineage time before D over all segments */
+        if (world->options->custm2[i] != '*' || world->bayes->map[i][1] != i
+            || (world->timeelements > 2 && (world->skymodel2 == NULL || world->skymodel2[i] == '*'))
             || !migration_is_M (world, i) || log_prior_1 == NULL
             || log_prior_1[i] != (logprior1ptr) log_prior_uni1 || world->bayes->minparam[i] != 0.0)
           return FALSE;
@@ -1382,8 +1385,16 @@ jc_record_sample (world_fmt *world)
               long q;
               for (q = 0; q < ly.nphi; q++)
                 act[q] = TRUE;
-              const double d = jc_full_term (&ly, act, st, NULL, world->param0, st[ly.off_mu])
+              /* phi: the parameters, then the skyline multipliers (tau) */
+              double *phi = (double *) mycalloc ((size_t) ly.nphi, sizeof (double));
+              long jj, sg2;
+              memcpy (phi, world->param0, sizeof (double) * (size_t) ly.np);
+              for (jj = 0; jj < ly.nfree; jj++)
+                for (sg2 = 1; sg2 < ly.nseg; sg2++)
+                  phi[JC_TAU (&ly, jj, sg2)] = world->timek[sg2 * world->numpop2 + ly.sky_k[jj]];
+              const double d = jc_full_term (&ly, act, st, NULL, phi, st[ly.off_mu])
                 - probg_treetimes (world);
+              myfree (phi);
               if (d < dmin) dmin = d;
               if (d > dmax) dmax = d;
               fprintf (stderr, "JC_GATECHECK locus %ld: joint - probg = %.6f (range %.6f)\n",

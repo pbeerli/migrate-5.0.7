@@ -2191,8 +2191,10 @@ run_replicate (long locus,
     if (EARTH->has_speciation)
       {
         const long nw = options->heating ? options->heated_chains : 1;
-        if (species_mig_gated_model (EARTH) && mlh_density_applies (EARTH))
-          error ("Migration out of a daughter population (forward in time) is limited to the time after its split; this is not available with skyline=PARAM or Mittag-Leffler alpha yet\n");
+        /* skyline=PARAM handles it (mlf_hastings.c, alpha = 1); the
+           Mittag-Leffler clocks do not separate the routes */
+        if (species_mig_gated_model (EARTH) && EARTH->has_mlalpha)
+          error ("Migration out of a daughter population (forward in time) is limited to the time after its split; this is not available with Mittag-Leffler alpha yet\n");
         long w;
         species_order_check (EARTH);
         for (w = 0; w < nw; w++)
