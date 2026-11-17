@@ -493,7 +493,7 @@ void print_dead_tree(long numpop, timelist_fmt * timevector, world_fmt *world)
     {
       for (pop = 0; pop < numpop; pop++)
 	fprintf(stderr,"%li ",timevector->tl[ii].lineages[pop]);
-      fprintf(stderr,"%20.10f %20.10f | %f %c %li -> %li (%li)(%li)\n",timevector->tl[ii].age,
+      fprintf(stderr,"%.17g %.17g | %f %c %li -> %li (%li)(%li)\n",timevector->tl[ii].age,
 	      timevector->tl[ii].eventnode->tyme, timevector->tl[ii].eventnode->tyme,
 	      timevector->tl[ii].eventnode->type, timevector->tl[ii].from,
 	      timevector->tl[ii].to, timevector->tl[ii].eventnode->id,

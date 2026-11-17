@@ -13,6 +13,7 @@ extern double mlh_alpha(world_fmt *world, long pop);
 extern double mlh_locus_sites(world_fmt *world, long locus);
 extern double mlh_rate(world_fmt *world, double lambda, double alpha);
 extern void mlh_rate_growth(world_fmt *world, double *lam0, double *g, double alpha);
+extern double mlh_gstart(world_fmt *world, long pop, long seg);
 extern long mlh_count_events(world_fmt *world);
 extern long mlh_spells(world_fmt *world, double **buf, long *alloc);
 extern double mlh_spells_logp(world_fmt *world, const double *sp, long n);

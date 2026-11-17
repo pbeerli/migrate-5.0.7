@@ -611,8 +611,8 @@ static void skyline_param_setup(world_fmt *world, option_fmt *options, long loci
             && options->growpops[k] != 0;
           if (world->skymodel2[k] == 'g' && !grows)
             usererror("skyline-model: 'g' for Theta_%li needs population-growth for population %li\n", k + 1, k + 1);
-          if (world->skymodel2[k] == '*' && grows)
-            usererror("skyline-model: Theta_%li has free segments and population growth; use 'g' to link it to growth\n", k + 1);
+          /* '*' with growth: the growth restarts at every segment start,
+             Theta(t) = Theta tau_s exp(-g (t - t_s)) (mlf_hastings.c) */
         }
       else if (world->skymodel2[k] == 'g')
         error("skyline-model: 'g' (growth-linked) is only possible for Theta, not for M\n");
