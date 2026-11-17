@@ -349,14 +349,14 @@ static double mlh_u_growth(double A, double B, double g, double alpha,
   if (b <= a)
     return 0.0;
   if (alpha >= 1.0)
-    return (g != 0.0 ? A / g * (exp(g * b) - exp(g * a)) : A * (b - a)) + B * (b - a);
+    return (g != 0.0 ? A * exp(g * a) * expm1(g * (b - a)) / g : A * (b - a)) + B * (b - a);
   if (A <= 0.0)
     return pow(B, 1.0 / alpha) * (b - a);
   if (B <= 0.0 || g == 0.0)
     {
       if (g == 0.0)
         return pow(A + B, 1.0 / alpha) * (b - a);
-      return pow(A, 1.0 / alpha) * alpha / g * (exp(g * b / alpha) - exp(g * a / alpha));
+      return pow(A, 1.0 / alpha) * alpha / g * exp(g * a / alpha) * expm1(g * (b - a) / alpha);
     }
   /* Gauss-Legendre (8 points) on pieces over which exp(g s / alpha)
      changes by at most a factor e^0.25 */
@@ -587,6 +587,21 @@ static double mlh_lambda(world_fmt *world, long pop, long kp)
   return lam;
 }
 
+/* origin of pop's growth clock in segment seg: with skyline=PARAM a Theta
+   with free multipliers ('*') restarts its growth at the start of every
+   segment, Theta(t) = Theta tau_s exp(-g (t - t_s)) (2026-11-17); a constant
+   ('c') or growth-linked ('g') Theta grows continuously from time 0; the
+   tree proposal (time_to_coalescence()) draws with the same origin, since
+   without Mittag-Leffler the tree moves have no Hastings correction */
+static boolean mlh_norestart = FALSE;   /* MIGRATE_MLH_RESTARTCHECK only */
+
+double mlh_gstart(world_fmt *world, long pop, long seg)
+{
+  if (mlh_norestart || seg <= 0 || world->skymodel2 == NULL || world->skymodel2[pop] != '*')
+    return 0.0;
+  return world->times[seg];
+}
+
 /* rescaled time of pop's clock with kp lineages from a to b; the rate
    changes at skyline=PARAM segment boundaries (the clock does not restart
    there) and, with growth, continuously */
@@ -602,14 +617,15 @@ static double mlh_u_spell(world_fmt *world, long pop, long kp, double a, double 
       double x = (s == mlh_seg(world, a)) ? a : world->times[s];
       double y = (s == last) ? b : world->times[s + 1];
       double A = (kp > 1) ? kp * (kp - 1) * mlh_pairrate_s(world, pop, s) / 2.0 : 0.0;
+      const double t0 = (g != 0.0) ? mlh_gstart(world, pop, s) : 0.0;
       if (gated)   /* alpha = 1: u is additive, the migration part per route */
         {
-          u += mlh_u_scaled(world, A, 0.0, g, alpha, x, y)
+          u += mlh_u_scaled(world, A, 0.0, g, alpha, x - t0, y - t0)
             + ((kp > 0) ? kp * mlh_migexp_s(world, pop, s, x, y) : 0.0);
           continue;
         }
       double B = (kp > 0) ? kp * mlh_migtotal_s(world, pop, s) : 0.0;
-      u += mlh_u_scaled(world, A, B, g, alpha, x, y);
+      u += mlh_u_scaled(world, A, B, g, alpha, x - t0, y - t0);
     }
   return u;
 }
@@ -644,8 +660,9 @@ static double mlh_logp_perpop_sky(world_fmt *world, const mlh_list *L, double *a
             }
           else
             B = kb[x] * mlh_migtotal_s(world, x, s);
-          lam_end = A * exp(g * e->age) + B;
-          rate = (e->type == 'c') ? mlh_pairrate_s(world, x, s) * exp(g * e->age)
+          const double gt = (g != 0.0) ? g * (e->age - mlh_gstart(world, x, s)) : 0.0;
+          lam_end = A * exp(gt) + B;
+          rate = (e->type == 'c') ? mlh_pairrate_s(world, x, s) * exp(gt)
             : mlh_migrate_s(world, e->above, x, s);
           logp += mlh_logf_u(mlh_u_spell(world, x, kb[x], a[x], e->age),
                              mlh_rate(world, lam_end, alpha), alpha)
@@ -930,6 +947,36 @@ double mlh_probg_treetimes(world_fmt *world)
             worst = fabs(x1 - x2);
             fprintf(stderr, "MLH_GATECHECK segments (multipliers 1) vs probg_treetimes_local: worst |diff| = %g (logp %g)\n",
                     worst, x2);
+          }
+        myfree(keep);
+        myfree(b);
+      }
+    if (getenv("MIGRATE_MLH_RESTARTCHECK") != NULL && world->timeelements > 2 && world->has_growth)
+      {   /* restarted growth with tau_s equals continuous growth with
+             tau_s exp(g t_s) */
+        static double worst = 0.0;
+        const long nk = (world->timeelements - 1) * world->numpop2;
+        double *keep = (double *) mycalloc((size_t) nk, sizeof(double));
+        double *b = (double *) mycalloc((size_t) numpop, sizeof(double));
+        long sg;
+        for (pop = 0; pop < numpop; pop++)
+          b[pop] = a[pop];
+        const double x1 = mlh_logp_perpop(world, &L, b);
+        memcpy(keep, world->timek, sizeof(double) * (size_t) nk);
+        for (sg = 1; sg < world->timeelements - 1; sg++)
+          for (pop = 0; pop < numpop; pop++)
+            world->timek[sg * world->numpop2 + pop] *= exp(mlh_growth(world, pop) * mlh_gstart(world, pop, sg));
+        mlh_norestart = TRUE;
+        for (pop = 0; pop < numpop; pop++)
+          b[pop] = a[pop];
+        const double x2 = mlh_logp_perpop(world, &L, b);
+        mlh_norestart = FALSE;
+        memcpy(world->timek, keep, sizeof(double) * (size_t) nk);
+        if (fabs(x1 - x2) / (1.0 + fabs(x1)) > worst)
+          {
+            worst = fabs(x1 - x2) / (1.0 + fabs(x1));
+            fprintf(stderr, "MLH_RESTARTCHECK restart vs rescaled continuous: worst relative |diff| = %g (logp %g, diff %g)\n",
+                    worst, x1, x1 - x2);
           }
         myfree(keep);
         myfree(b);

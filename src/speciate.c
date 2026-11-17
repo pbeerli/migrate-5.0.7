@@ -1375,7 +1375,10 @@ MYREAL time_to_coalescence(world_fmt * world, long pop, double age, long timesli
 	      //invdenom    = (rate*timethetarate) / lines;		
 	      //interval =  -(logr * invdenom);	     
 	      //interval = interval_growth(r, age, world->param0[pop], growth[growpops[pop]-1], lines, 0.0, 1.0);
-	      interval = get_time_for_growth(rate*timethetarate, growth[growpops[pop]-1], lines, age);
+	      /* skyline=PARAM: a Theta with free multipliers restarts its
+	         growth at the segment start (mlh_gstart()) */
+	      interval = get_time_for_growth(rate*timethetarate, growth[growpops[pop]-1], lines,
+	                                     age - mlh_gstart(world, pop, timeslice));
 	    }
 	  else
 	    {
