@@ -37,7 +37,8 @@ noinst_HEADERS = \
     romberg.h savitzky_golay.h seqerror.h sequence.h sighandler.h \
     skyline.h skyparam.h slice.h sort.h speciate.h tables.h tools.h \
     tree.h uep.h watterson.h windows_timveval.h windowupdate.h world.h \
-    znzlib.h hpdf_ua.h hpdf_ua_private.h pretty_ua.h pdf_fonts_embedded.h
+    znzlib.h hpdf_ua.h hpdf_ua_private.h pretty_ua.h pdf_fonts_embedded.h \
+    joint_combine.h joint_ml.h mlf_hastings.h
 
 # Shared flags (common defines + local includes)
 COMMON_CPPFLAGS = \
