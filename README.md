@@ -1,6 +1,6 @@
 <img src="migrate_logo.png" alt="Migrate logo: two populations, red and blue, with a genealogy connecting their samples" width="120">
 
-# Migrate 6.1.80
+# Migrate 6.1.93
 
 Released November 2026
 
@@ -72,7 +72,8 @@ Data types
   model (the stepwise model is slow); repeat numbers or fragment lengths.
 - Electrophoretic/allelic data (infinite allele model).
 - Unphased diploid data: haplotype phases can be integrated over
-  (haplotyping; use heating).
+  (haplotyping; use heating); phased-infile=YES:filename writes the infile
+  with the most probable phase of every individual and locus.
 
 
 Models and analyses
@@ -80,13 +81,18 @@ Models and analyses
 - Structured coalescent: mutation-scaled population sizes (Theta) and
   immigration rates (M) for a full or custom migration matrix (fixed,
   symmetric or tied parameters), n-island models and geographic distance.
-- Population divergence (split times) with or without migration.
+- Population divergence (split times) with or without migration; split
+  times follow the population tree (divergence-order=TREE, default), are
+  unordered (NONE) or ranked by age (RANK). Migration into or out of a
+  daughter population starts only at its split.
 - Population growth.
 - Fractional (Mittag-Leffler) coalescent: one alpha per population for
   environmentally heterogeneous reproduction; time scale chosen with
   mittag-leffler-scale=SITE|LOCUS|INVARIANT (default INVARIANT).
-- Skyline plots of parameters through time; skyline=PARAM estimates
-  piecewise-constant multipliers of Theta and M.
+- Skyline plots of parameters through time: skyline=YES reports the
+  maximum-likelihood value of Theta and M in each time bin given the
+  sampled genealogies; skyline=PARAM estimates piecewise-constant
+  multipliers of Theta and M.
 - Dated samples (tip dates) with a mutation rate per generation and
   generations per year.
 - Rate variation among loci, inheritance scalars (e.g. mtDNA, X, Y).
@@ -152,8 +158,8 @@ History, documentation, guidance
 - HISTORY lists bug fixes and new features by version.
 - GUIDANCE gives advice when migrate does not deliver the answers you
   expect.
-- The manual (migratedoc.pdf) and tutorials are available from
-  https://peterbeerli.com/migrate-html5/index.html
+- The manual (migratedoc.pdf), tutorials and step-by-step cookbooks are
+  available from https://peterbeerli.com/software/migrate/
 
 
 Contact
@@ -186,4 +192,4 @@ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTIO
 CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-Last update: November 7, 2026
+Last update: November 17, 2026
