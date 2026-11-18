@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 17  Migrate 6.1.95 Fix crash 'extracting lineages from timelist failed': the window move
+             could place a migration event at the time of a split event; such
+             collisions now reject the move (also guarded in the tree proposal).
 November 17  Migrate 6.1.94 skyline=PARAM with growth: '*' segments restart growth at each
              segment start; the joint combination handles skyline with growth.
              Joint: guard for impossible states, optional split-time smoothing

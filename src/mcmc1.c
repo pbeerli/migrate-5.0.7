@@ -971,6 +971,10 @@ migrate (proposal_fmt * proposal, node * up, char event, long from, long to)
     {
         return 0;
     }
+    /* collision: an event at (or below) the time of the previous event on
+       this lineage cannot be ordered in the timelist; reject */
+    if (!(proposal->time > (i > 0 ? array[i - 1].time : up->tyme)))
+        return 0;
     if (i > 0)
         array[i].to = array[i - 1].from;
     else
@@ -1043,6 +1047,8 @@ migrateb (proposal_fmt * proposal, node * up, char event, long from, long to)
     {
         return 0;
     }
+    if (!(proposal->time > (i > 0 ? array[i - 1].time : up->tyme)))
+        return 0;   /* collision, see migrate() */
     if (i > 0)
         array[i].to = array[i - 1].from;
     else

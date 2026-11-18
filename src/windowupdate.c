@@ -1761,6 +1761,25 @@ draw_segments (const MYREAL * Q, long d, MYREAL t_up, MYREAL t_down, long a,
       t1 = (i == n) ? t_down : fixed[i].time;
       e = (i == n) ? b : fixed[i].to;
       seg = ctmc_bridge (Q, d, t1 - t0, s, e, t0, &ns);
+      /* collision: on a segment only a few ulp long, t0 + u T can round
+         onto t0, t1 or the previous event; two events at one time leave
+         the timelist unordered (lineage count -1 in add_partlineages).
+         Such a history cannot be represented: reject the move, as the
+         tree proposal does for sub-ulp waiting times */
+      if (ns > 0)
+        {
+          MYREAL tp = t0;
+          for (k = 0; k < ns; k++)
+            {
+              if (!(seg[k].time > tp && seg[k].time < t1))
+                {
+                  myfree (seg);
+                  ns = -1;
+                  break;
+                }
+              tp = seg[k].time;
+            }
+        }
       if (ns < 0)
         {
           if (out != NULL)
