@@ -593,6 +593,10 @@ long chains is used */
 /* default prior of the locus rate modifiers: Gamma(shape 2), mean 1, at most 10 */
 #define RATE_PRIOR_MAX 10.0
 #define RATE_PRIOR_SHAPE 2.0
+/* mutation=ESTIMATE with dated samples: fewer expected substitutions per
+   lineage over the sampling span (summed over all sites and loci) than this
+   gives a warning that the rate posterior may be the prior */
+#define MUESTIMATE_MIN_SUBST 1.0
 #define SMALLEST_MLALPHA 0.3
 #define BIGGEST_MLALPHA  1.0 
 #define SMALLEST_DNASPECIES 0.0000001

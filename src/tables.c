@@ -248,6 +248,12 @@ void print_bayesfactor(world_fmt **universe, option_fmt * options)
 		      bfsum + dj, bfsum2 + dj, ss_str (sallratio + dj, ssb), hsum + dj);
 	      fprintf(file,"[Scaling factor: independent parameters = %f, joint = %f (MC error %f)]\n",
 		      scaling_factor, jlogc, jerr);
+	      {
+		double cess;
+		if (jc_collapsed (world, &cess))
+		  fprintf(file,"[The joint row is NOT reliable: the joint combination collapsed (median\n"
+			  " reweighting ESS %.0f); compare models with the independent-parameters row]\n", cess);
+	      }
 	    }
 	  else
 	    fprintf(file,"  All    %12.2f  %12.2f  %12s  %12.2f\n[Scaling factor = %f]\n",

@@ -26,6 +26,7 @@ extern long jc_mcerr_rows (world_fmt *world, jc_mcerr_row **rows);
 extern void jc_mcerr_info (world_fmt *world, long *nblock, boolean *byrep, double *bootess);
 extern boolean jc_param_flagged (world_fmt *world, long p);
 extern boolean jc_joint_scaling (world_fmt *world, double *logc, double *err);
+extern boolean jc_collapsed (world_fmt *world, double *ess);
 #ifdef MPI
 extern void jc_worker_service (world_fmt *world, long part);
 #endif
