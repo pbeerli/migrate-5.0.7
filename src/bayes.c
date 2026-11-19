@@ -1773,6 +1773,151 @@ void print_bayes_verbose(long which, world_fmt *world, MYREAL newparam, boolean 
     }
 }
 
+/* Divergence slide (2026-11-19). A proposal of a split-time mean D changes D
+   at a fixed genealogy, but every crossing of that split ('d' event) lies
+   within a few S of D, so with a small S the D move is pinned by the
+   crossings and the crossings by D: the chain creeps in steps of about S
+   (per-locus D coverage 0.78 for S < 1e-4). With probability 1/2 the D
+   proposal D -> D' = D + delta also shifts every crossing of that split (and
+   of the splits tied to it, 't') by delta. The shift is deterministic given
+   D', Jacobian 1, its reverse is the shift by -delta, so the Hastings ratio
+   of the D proposal is unchanged; a crossing that would pass a neighbouring
+   node is a zero-probability proposal (rejected). Crossing nodes do not
+   enter the branch lengths (set_v crawls past them), so the data likelihood
+   is unchanged and only p(G) is recomputed. On by default (narrow-S
+   coverage: per-locus D 0.80 -> 0.95; exact under NODATA, 24 seeds);
+   MIGRATE_DSLIDE=0 turns it off, MIGRATE_DSLIDE_CHECK=1 checks that the
+   data likelihood is unchanged and prints acceptance counts. */
+static node **dslide_node = NULL;
+static MYREAL *dslide_old = NULL;
+static long dslide_n = 0;
+static long dslide_alloc = 0;
+static long dslide_stat[5] = {0, 0, 0, 0, 0}; /* D moves, slides, valid, accepted; plain accepted */
+
+static boolean dslide_on (void)
+{
+  static int on = -1;
+  if (on < 0)
+    {
+      const char *e = getenv ("MIGRATE_DSLIDE");
+      on = (e != NULL && atoi (e) <= 0) ? 0 : 1;
+    }
+  return on == 1;
+}
+
+static boolean dslide_check (void)
+{
+  static int chk = -1;
+  if (chk < 0)
+    chk = getenv ("MIGRATE_DSLIDE_CHECK") != NULL ? 1 : 0;
+  return chk == 1;
+}
+
+static boolean dslide_in_set (node *p)
+{
+  long j;
+  for (j = 0; j < dslide_n; j++)
+    if (dslide_node[j] == p)
+      return TRUE;
+  return FALSE;
+}
+
+/* shifts the crossings of split specid (and its 't' group) by delta; FALSE
+   (nothing changed) when a crossing would leave its branch segment */
+static boolean dslide_apply (world_fmt *world, long specid, MYREAL delta)
+{
+  species_fmt *s = &world->species_model[specid];
+  timelist_fmt *tv = &world->treetimes[0];
+  long i, j;
+  dslide_n = 0;
+  for (i = 0; i < tv->T; i++)
+    {
+      node *E = tv->tl[i].eventnode;
+      species_fmt *m;
+      if (E == NULL || E->type != 'd')
+        continue;
+      m = get_fixed_species_model (E->pop, E->actualpop, world->species_model, world->species_model_size);
+      if (m == NULL || !(m == s || (s->type == 't' && m->type == 't' && m->from == s->from)))
+        continue;
+      if (dslide_n == dslide_alloc)
+        {
+          dslide_alloc = dslide_alloc * 2 + 16;
+          dslide_node = (node **) myrealloc (dslide_node, (size_t) dslide_alloc * sizeof (node *));
+          dslide_old = (MYREAL *) myrealloc (dslide_old, (size_t) dslide_alloc * sizeof (MYREAL));
+        }
+      dslide_node[dslide_n] = showtop (E);
+      dslide_old[dslide_n] = showtop (E)->tyme;
+      dslide_n++;
+    }
+  if (dslide_n == 0)
+    return TRUE;
+  /* the neighbours that do not move bound each crossing (a neighbour that
+     moves with it keeps its order, so the check is symmetric) */
+  for (j = 0; j < dslide_n; j++)
+    {
+      /* parent and child from the structure: only the top nodelet of a
+         node carries a reliable time (a crossing above another crossing
+         read 0 through its lower nodelet, 2026-11-19) */
+      node *top = showtop (dslide_node[j]);
+      node *up = top->back != NULL ? showtop (top->back) : NULL;
+      node *dn = top->next->back != NULL ? showtop (top->next->back) : NULL;
+      const MYREAL t = top->tyme + delta;
+      if (dn == NULL || top->next->next != top)
+        {
+          dslide_n = 0;
+          return FALSE;
+        }
+      if (!(t > 0.0)
+          || (!dslide_in_set (dn) && !(t > dn->tyme))
+          || (up != NULL && !dslide_in_set (up) && up->type != 'r' && !(t < up->tyme)))
+        {
+          dslide_n = 0;
+          return FALSE;
+        }
+    }
+  for (j = 0; j < dslide_n; j++)
+    adjust_time_all (dslide_node[j], dslide_old[j] + delta);
+  construct_tymelist (world, tv);
+  if (dslide_check ())
+    {   /* the data likelihood must not change */
+      const MYREAL old = world->likelihood[world->G];
+      MYREAL nl;
+      first_smooth (world, world->locus);
+      nl = treelikelihood (world);
+      if (fabs (nl - old) > 1e-6 * (1.0 + fabs (old)))
+        fprintf (stderr, "DSLIDECHECK locus %li: data likelihood %.10g -> %.10g (n %li, delta %g)\n",
+                 world->locus, old, nl, dslide_n, delta);
+      world->likelihood[world->G] = old;
+      for (j = 0; j < dslide_n; j++)
+        {
+          node *E = dslide_node[j], *top = showtop (E), *r;
+          long nl = 1;
+          for (r = top->next; r != top; r = r->next)
+            nl++;
+          for (r = top->next; !r->top; r = r->next)
+            if (r->back != NULL && showtop (r->back)->tyme > top->tyme)
+              fprintf (stderr, "DSLIDEBAD node %li type %c E-is-top %d nodelets %li old %g new %g child type %c t %g; "
+                       "E->back %c %g E->next->back %c %g\n", top->id, top->type, E->top, nl, dslide_old[j], top->tyme,
+                       showtop (r->back)->type, showtop (r->back)->tyme,
+                       E->back ? E->back->type : '-', E->back ? E->back->tyme : -1.0,
+                       E->next->back ? E->next->back->type : '-', E->next->back ? E->next->back->tyme : -1.0);
+        }
+      traverse_check (crawlback (world->root->next));
+    }
+  return TRUE;
+}
+
+static void dslide_undo (world_fmt *world)
+{
+  long j;
+  if (dslide_n == 0)
+    return;
+  for (j = 0; j < dslide_n; j++)
+    adjust_time_all (dslide_node[j], dslide_old[j]);
+  construct_tymelist (world, &world->treetimes[0]);
+  dslide_n = 0;
+}
+
 //
 // standard metropolis proposal
 MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean *success)
@@ -1798,6 +1943,7 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
   MYREAL    * param0 = world->param0;
   bayes_fmt * bayes = world->bayes;
   boolean is_mu=FALSE;//this is the mean of the speciation time mu
+  boolean slid = FALSE; // divergence slide: the crossings moved with D
   const boolean verbose = (world->heat > (1.0  - SMALLEPSILON)) && myID==MASTER && world->options->verbose;
   
   // calculate the probability for the old parameter set
@@ -1880,6 +2026,12 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
          the split that created its ancestor */
       if (is_mu && !species_order_ok(world, world->param0))
         hastingsratio = -HUGE;
+      else if (is_mu && dslide_on() && UNIF_RANDUM() < 0.5)
+        {
+          slid = TRUE;
+          if (!dslide_apply(world, specid, newparam - oldparam[which]))
+            hastingsratio = -HUGE;
+        }
       reprecalc_world(world, which);
       // calculate prob(G|params)
       newval = probg_treetimes(world);
@@ -1945,6 +2097,21 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
     *success = bayes_accept(acc_new, acc_old, accept_heat, hastingsratio);
   else
     *success = bayes_accept(newval, oldval, 1.0, hastingsratio);
+  if (is_mu && world->cold && dslide_check ())
+    {
+      dslide_stat[0]++;
+      if (slid)
+        {
+          dslide_stat[1]++;
+          dslide_stat[2] += hastingsratio > -HUGE;
+          dslide_stat[3] += *success;
+        }
+      else
+        dslide_stat[4] += *success;
+      if (dslide_stat[0] % 20000 == 0)
+        fprintf (stderr, "DSLIDESTAT locus %li: D moves %li, slides %li (valid %li, accepted %li), plain accepted %li\n",
+                 world->locus, dslide_stat[0], dslide_stat[1], dslide_stat[2], dslide_stat[3], dslide_stat[4]);
+    }
   if(*success)
     {
       if(verbose)
@@ -1974,6 +2141,8 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
       // speciation stuff undo
       else if(which < npx)
 	{
+	  if (slid)
+	    dslide_undo(world);
 	  world->param0[which] = oldparam[which];
 	  if(is_mu)
 	    world->species_model[specid].mu = (double) oldparam[which];

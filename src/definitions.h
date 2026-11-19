@@ -37,8 +37,8 @@ OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 // force VERSIONS (in earlier versions this was defined in the Makefiles
 // it is cleaner to do here
 #define TI_NBINS 64          /* adaptive heating: beta bins for thermodynamic integration */
-#define MIGRATEVERSION "6.1.95"
-#define MIGRATESUBVERSION "November-17-2026"
+#define MIGRATEVERSION "6.1.96"
+#define MIGRATESUBVERSION "November-19-2026"
 
 #define MAINTAINER "Peter Beerli <beerli@fsu.edu>"
 /* compiler directives */
