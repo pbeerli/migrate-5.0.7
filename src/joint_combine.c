@@ -4999,6 +4999,28 @@ jc_combine (world_fmt *world)
   const double jt1 = jc_now ();
   jc_boot_errors (js, bootD);
   myfree (bootD);
+  if (js->has_boot && js->boot_ess < 0.25 * JC_BOOTK)
+    record_warnings (world, "Joint combination collapsed: the median reweighting ESS is %.0f (below %d), "
+                     "a few stored genealogies carry almost all the weight. Every Joint value is flagged "
+                     "(Joint*, the tables and plots use All) and the joint marginal likelihood is not reliable: "
+                     "compare models with the row for independent parameters",
+                     js->boot_ess, JC_BOOTK / 4);
+  else if (js->has_boot)
+    {   /* split models: the split-time terms of a stored genealogy are narrow
+           spikes at its split events; the product over loci can then lock on
+           a few of them, and more genealogies do not help (2026-11-18: three
+           seeds of a 20-locus run gave non-overlapping joint intervals of D,
+           at 2000 and at 20000 genealogies per locus) */
+      long k, nf = 0;
+      for (k = 0; k < ly.nsplit; k++)
+        if (ly.split_pmu[k] >= 0 && ly.split_pmu[k] < js->np && js->boot_flag[ly.split_pmu[k]])
+          nf++;
+      if (nf > 0)
+        record_warnings (world, "Joint split time flagged (Joint*) for %ld split%s: in split models the joint "
+                         "estimates of the split time D and its spread S can be far off even with a reweighting "
+                         "ESS above %d (independent runs disagreed beyond their intervals); use the All values "
+                         "for D and S", nf, nf > 1 ? "s" : "", JC_BOOTK / 4);
+    }
   /* Monte Carlo error: the same combination on each block of every locus'
      genealogies (its replicates, or consecutive stretches of its chain);
      sd(block medians) scaled by the share of genealogies a block holds is
@@ -5377,6 +5399,21 @@ jc_joint_scaling (world_fmt *world, double *logc, double *err)
   *logc = js->logc;
   *err = js->logc_err;
   return TRUE;
+}
+
+/// TRUE when the reweighting of the joint combination collapsed (median
+/// bootstrap reweighting ESS below a quarter of the trace points): every
+/// parameter is then flagged and the joint marginal likelihood is not
+/// reliable; *ess gets that median ESS
+boolean
+jc_collapsed (world_fmt *world, double *ess)
+{
+  jc_store *js = (jc_store *) world->jointstats;
+  if (js == NULL || !js->done || !js->has_boot)
+    return FALSE;
+  if (ess != NULL)
+    *ess = js->boot_ess;
+  return js->boot_ess < 0.25 * JC_BOOTK;
 }
 
 /// TRUE when the joint estimate of parameter p has a large genealogy-sampling error (bootstrap

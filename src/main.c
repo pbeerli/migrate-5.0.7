@@ -967,6 +967,8 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
 
   init_world (EARTH, data, options);
   record_option_notes (EARTH, options); /* into "Potential problems" */
+  if (myID == MASTER)
+    check_mutation_estimate_dates (EARTH, options, data);
   //  set_meanmu(EARTH,options);
   if(EARTH->cold)
     {

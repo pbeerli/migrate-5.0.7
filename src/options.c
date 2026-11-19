@@ -4484,7 +4484,7 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     //   print_parm_comment(&bufsize, buffer, allocbufsize, "     NOGAMMA      all loci have same mutation rate");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     CONSTANT     all loci have same mutation rate");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     ESTIMATE     one mutation rate modifier for all loci, estimated (prior: RATE);");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                  needs dated samples (tipdate-file), else it is held constant");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                  needs dated samples (tipdate-file), else the run stops");
     //    print_parm_comment(&bufsize, buffer, allocbufsize, "     GAMMA:alpha  ML estimate: mutation rate has Gamma distribution with alpha");
     print_parm_comment(&bufsize, buffer, allocbufsize, "     OWN          mutation rate is different for every locus, but fixed");
     print_parm_comment(&bufsize, buffer, allocbufsize, "        :loci: rate1, ...     number of loci, rate of locus 1, locus 2 etc.");
@@ -5900,20 +5900,53 @@ matches_keyword_ci (const char *value, const char *keyword)
 }
 
 /// mutation=ESTIMATE estimates one mutation rate (modifier) for all loci;
-/// only dated samples make it identifiable: without a tipdate-file the rate
-/// is held constant (mutation=CONSTANT) with a warning
+/// only dated samples make it identifiable: without a tipdate-file the run
+/// stops with an error
 void
 check_mutation_estimate (option_fmt * options)
 {
   if (options->bayesmurates && !options->has_datefile)
+    usererror ("mutation=ESTIMATE needs dated samples (tipdate-file=YES:filename): without\n"
+               "sampling dates the data inform only Theta = 4 Ne mu, not the mutation rate.\n"
+               "Use mutation=CONSTANT, or give the sampling dates.\n");
+}
+
+/// mutation=ESTIMATE with dated samples: the dates inform the rate only if
+/// the sampling span is long enough for substitutions to accumulate. The
+/// expected number of substitutions per lineage during the span, summed
+/// over all sites of all loci (span in years x generations per year x
+/// mutation rate per generation and site x sites), below
+/// MUESTIMATE_MIN_SUBST gives a warning; the run continues
+void
+check_mutation_estimate_dates (world_fmt * world, option_fmt * options, data_fmt * data)
+{
+  double expected = 0.0;
+  long locus, pop, ind;
+  if (!options->bayesmurates || !options->has_datefile || data == NULL || data->sampledates == NULL)
+    return;
+  for (locus = 0; locus < data->loci; locus++)
     {
-      warning ("mutation=ESTIMATE needs dated samples (tipdate-file); "
-               "the mutation rate is held constant (mutation=CONSTANT)\n");
-      options->bayesmurates = FALSE;
-      options->gamma = FALSE;
-      options->murates = FALSE;
-      options->murates_fromdata = FALSE;
+      double lo = DBL_MAX, hi = -DBL_MAX;
+      long sites = 1;
+      for (pop = 0; pop < data->numpop; pop++)
+        for (ind = 0; ind < data->numind[pop][locus]; ind++)
+          {
+            const double d = data->sampledates[pop][locus][ind].date;
+            if (d < lo) lo = d;
+            if (d > hi) hi = d;
+          }
+      if (hi < lo)
+        continue;
+      if (data->seq != NULL && data->seq[0] != NULL && data->seq[0]->sites != NULL
+          && data->seq[0]->sites[locus] > 0)
+        sites = data->seq[0]->sites[locus];
+      expected += (hi - lo) * world->options->generation_year * world->options->meanmu[locus] * (double) sites;
     }
+  if (expected < MUESTIMATE_MIN_SUBST)
+    record_warnings (world, "mutation=ESTIMATE: the sampling dates span only %.3g expected substitutions per lineage "
+                     "(span x generations per year x mutation rate x sites, summed over loci). The dates carry little "
+                     "information about the mutation rate: its posterior may simply return its prior. Compare the "
+                     "posterior of the rate with its prior before using it", expected);
 }
 
 /// rates=N with prob-rates=laguerre:ALPHA -> N gamma rate categories

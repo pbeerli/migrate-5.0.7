@@ -81,6 +81,7 @@ extern char * getpriortype(int kind);
 #define DEFAULT_SEQERROR_UPDATEFREQ 0.1
 extern void check_force_moves (option_fmt * options);
 extern void record_option_notes (world_fmt * world, option_fmt * options);
+extern void check_mutation_estimate_dates (world_fmt * world, option_fmt * options, data_fmt * data);
 //
 // reads the custom migration matrix from the parmfile
 // \param file { pointer to the parmfile}  

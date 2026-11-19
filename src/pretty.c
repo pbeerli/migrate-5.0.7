@@ -3540,6 +3540,16 @@ pdf_bayes_factor_comment(world_fmt *world,  MYREAL scaling_factor)
             pdf_printf(left_margin, page_height, 'L',
                        "Joint: scaling factor %f (MC error %f) from the joint multi-locus combination",
                        jlogc, jerr);
+            {
+                double cess;
+                if (jc_collapsed(world, &cess))
+                {
+                    pdf_advance(&page_height);
+                    pdf_printf(left_margin, page_height, 'L',
+                               "The Joint row is NOT reliable: the joint combination collapsed (median reweighting ESS %.0f).",
+                               cess);
+                }
+            }
         }
         else
             pdf_printf(left_margin, page_height,'L',"[Scaling factor = %f]", scaling_factor);
