@@ -777,9 +777,13 @@ jc_supported (world_fmt *world)
     for (i = 0; i < world->species_model_size; i++)
       {
         const species_fmt *sp = &world->species_model[i];
-        if (!strchr ("dt", sp->type) || sp->paramindex_mu < 0 || sp->paramindex_mu >= world->numparam
-            || world->bayes->map[sp->paramindex_mu][1] != sp->paramindex_mu)
+        if (!strchr ("dt", sp->type) || sp->paramindex_mu < 0 || sp->paramindex_mu >= world->numparam)
           return FALSE;   /* (type is lower case: d/D -> 'd', tied t/T -> 't') */
+        /* D free, or fixed (a prior of zero width: bayes_fill() maps it out) */
+        if (world->bayes->map[sp->paramindex_mu][1] != sp->paramindex_mu
+            && (world->bayes->map[sp->paramindex_mu][1] != INVALID
+                || world->bayes->maxparam[sp->paramindex_mu] > world->bayes->minparam[sp->paramindex_mu]))
+          return FALSE;
       }
   /* migration out of a daughter (forward in time) waits only up to the
      mean split time, which couples its M with D: handled for an entry with
@@ -1837,6 +1841,8 @@ jc_row_value (const jc_layout *ly, const double *st, long k, long b, double mu)
     return JC_DOUT;
   if (mu > U)   /* without a split event the term is flat above its window */
     return (st[ly->off_D[k] + 1] == 0.0) ? D[JC_NM - 1] : JC_DOUT;
+  if (!(U > L))   /* a fixed D: every node is at D */
+    return D[0];
   /* quadratic through the nearest node and its neighbours (the term is
      close to quadratic in mu, exactly so for the split-event densities),
      clamped to the nodes' range so that it cannot overshoot */
@@ -2004,6 +2010,14 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
   const double lo = ly->mlo[k], hi = ly->mhi[k];
   double L = hi, U = lo;
   long m;
+  if (!(hi > lo))
+    {   /* a fixed D: the per-locus chains sampled at D, no integral and no prior */
+      double v = ly->ngate > 0 ? jc_gate_group (ly, st, k, lo) : 0.0;
+      for (m = 0; m < ly->nsplit; m++)
+        if (ly->split_rep[m] == k)
+          v += jc_div_term (ly, st, m, lo, sigma);
+      return v;
+    }
   /* the union of the windows of all members' rows around sigma */
   for (m = 0; m < ly->nsplit; m++)
     {
@@ -2139,6 +2153,11 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
       if (x[g] > hi)
         x[g] = hi;
     }
+  if (!(hi > lo))   /* a fixed D: the single point D */
+    {
+      x[0] = lo;
+      n = 1;
+    }
   qsort (x, (size_t) n, sizeof (double), jc_cmp_double);
   {   /* drop repeated points */
     long u = 0;
@@ -2154,7 +2173,8 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
         x[g] = lo;
       if (x[g] > hi)
         x[g] = hi;
-      const double pr = scaling_prior (q->world, pm, x[g])
+      /* a fixed D (one point, n = 1 below) has no prior density */
+      const double pr = (hi > lo ? scaling_prior (q->world, pm, x[g]) : 0.0)
         + (ly->ngate > 0 ? jc_gate_group (ly, st, k, x[g]) : 0.0);
       if (ly->split_psig[k] < 0)
         {
@@ -2250,7 +2270,9 @@ jc_div_order_normalizer (const jc_layout *ly, const double *st, const jc_divquad
             if (inorder[c] && ly->split_par[c] == k)
               for (g = 0; g < n[k]; g++)
                 Fk[g] += jc_log_cum_at (x + c * nmax, F + c * nmax, cum + c * nmax, n[c], xk[g]);
-          ck[0] = -HUGE_VAL;
+          /* a fixed D is one point: its mass is e^F there (the cumulative
+             below it is empty, at and above it the mass itself) */
+          ck[0] = n[k] == 1 ? Fk[0] : -HUGE_VAL;
           for (g = 1; g < n[k]; g++)
             {   /* cumulative trapezoid: log of the integral up to xk[g] */
               const double a = Fk[g - 1], bb = Fk[g], w = xk[g] - xk[g - 1];
@@ -2263,7 +2285,7 @@ jc_div_order_normalizer (const jc_layout *ly, const double *st, const jc_divquad
           ready[k] = TRUE;
           done[k] = TRUE;
           if (ly->split_par[k] < 0)
-            lz += jc_logtrapz (Fk, xk, n[k]);
+            lz += n[k] == 1 ? Fk[0] : jc_logtrapz (Fk, xk, n[k]);
         }
     }
   while (left > 0);
@@ -4937,7 +4959,12 @@ jc_combine (world_fmt *world)
   for (long pass = 0; pass <= ly.nsplit && !jc_order_ok (&ly, phi, -1, 0.0); pass++)
     for (long k = 0; k < ly.nsplit; k++)
       if (ly.split_par[k] >= 0 && phi[ly.split_pmu[k]] > phi[ly.split_pmu[ly.split_par[k]]])
-        phi[ly.split_pmu[k]] = phi[ly.split_pmu[ly.split_par[k]]];
+        {   /* a fixed D stays: then the parent moves up to it */
+          if (active[ly.split_pmu[k]])
+            phi[ly.split_pmu[k]] = phi[ly.split_pmu[ly.split_par[k]]];
+          else if (active[ly.split_pmu[ly.split_par[k]]])
+            phi[ly.split_pmu[ly.split_par[k]]] = phi[ly.split_pmu[k]];
+        }
   /* skyline multipliers: 1 (or the geometric mean of log-uniform bounds
      that exclude 1), moved inside the range rule */
   for (long j = 0; j < ly.nfree; j++)

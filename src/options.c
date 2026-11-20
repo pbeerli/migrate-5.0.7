@@ -1193,6 +1193,9 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	      {
 		continue;
 	      }
+	    /* from the parameter index: a fixed S (or the exponential model's
+	       S) is skipped above, so counting printed rows shifted the labels */
+	    z = i - world->numparamcumvec[RATEPRIOR];
 	    from = world->species_model[z/2].from;
 	    to = world->species_model[z/2].to;
 	    mysnprintf(s,LINESIZE, "Ancestor %li to %li %s",
@@ -5068,6 +5071,24 @@ void set_bayes_options(char *value, option_fmt *options)
   strcpy(ptypename[GROWTHPRIOR],"GROWTH");
   strcpy(ptypename[MLFPRIOR],"MLF");
   
+  /* "x" stands for "*" in the population fields, as in custom-migration:
+     bayes-priors= SPLITSTD x x ... is bayes-priors= SPLITSTD * * ... */
+  {
+    char *c = value;
+    long tok = 0;
+    while (*c != '\0' && tok < 3)
+      {
+        while (*c == ' ' || *c == '\t')
+          c++;
+        if (*c == '\0')
+          break;
+        tok++;
+        if (tok > 1 && (*c == 'x' || *c == 'X') && (c[1] == ' ' || c[1] == '\t' || c[1] == '\0'))
+          *c = '*';
+        while (*c != '\0' && *c != ' ' && *c != '\t')
+          c++;
+      }
+  }
   sscanf(value,"%s%s", paramtype, priortype);
   if (!strncmp(paramtype, "SKY", 3) || !strncmp(paramtype, "sky", 3))
     {

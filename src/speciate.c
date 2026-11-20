@@ -2421,10 +2421,13 @@ long propose_new_spec_mu(world_fmt * world, long which, boolean *is_mu, MYREAL *
   if (which == s->paramindex_mu)
     {
       *is_mu = TRUE;
-      do{
-	*newparam = (*propose_new[which])(world->param0[which],which,world,&r);
-	check_min_max_param(newparam,(double) s->min, (double) s->max);
-      } while (*newparam <= (double) s->min && *newparam >= (double) s->max);
+      if (!(s->max > s->min))   /* a zero-width range: the value is fixed */
+	*newparam = (double) s->min;
+      else
+	do{
+	  *newparam = (*propose_new[which])(world->param0[which],which,world,&r);
+	  check_min_max_param(newparam,(double) s->min, (double) s->max);
+	} while (*newparam <= (double) s->min && *newparam >= (double) s->max);
       s->mu = (double) (*newparam);
     }
   else
@@ -2432,10 +2435,13 @@ long propose_new_spec_mu(world_fmt * world, long which, boolean *is_mu, MYREAL *
       if (which != s->paramindex_sigma)
 	error("wrong index for change if species std variable");
       *is_mu = FALSE;
-      do{
-      	*newparam = (*propose_new[which])(world->param0[which],which,world,&r);
-      	check_min_max_param(newparam, (double) s->sigmamin,(double) s->sigmamax);
-      } while (*newparam <= (double) s->sigmamin && *newparam >= (double) s->sigmamax);
+      if (!(s->sigmamax > s->sigmamin))   /* a zero-width range: the value is fixed */
+	*newparam = (double) s->sigmamin;
+      else
+	do{
+	  *newparam = (*propose_new[which])(world->param0[which],which,world,&r);
+	  check_min_max_param(newparam, (double) s->sigmamin,(double) s->sigmamax);
+	} while (*newparam <= (double) s->sigmamin && *newparam >= (double) s->sigmamax);
       s->sigma = (double) (*newparam);
     }
   if (s->type == 't')
