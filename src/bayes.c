@@ -3682,6 +3682,27 @@ void bayes_fill(world_fmt *world, option_fmt *options)
         }
         
     }
+    /* a split time D or spread S whose prior has min >= max is fixed at
+       min: no proposals (the proposal loops in propose_new_spec_mu() never
+       ended for min == max); the joint combination then keeps one S cell, and
+       a fixed D is not a coordinate of its sampler */
+    for (i = 0; i < world->species_model_size; i++)
+      {
+        species_fmt *sp = &world->species_model[i];
+        const long pm = sp->paramindex_mu;
+        const long ps = sp->paramindex_sigma;
+        /* param0 does not exist yet: the start values are clamped to [min,max] later */
+        if (pm >= 0 && pm < np && bayes->map[pm][1] == pm && !(bayes->maxparam[pm] > bayes->minparam[pm]))
+          {
+            bayes->map[pm][1] = INVALID;
+            sp->mu = bayes->minparam[pm];
+          }
+        if (ps >= 0 && ps < np && bayes->map[ps][1] == ps && !(bayes->maxparam[ps] > bayes->minparam[ps]))
+          {
+            bayes->map[ps][1] = INVALID;
+            sp->sigma = bayes->minparam[ps];
+          }
+      }
     // attach to the custm migration matrix
     bayes->custm2 = world->options->custm2;
 
