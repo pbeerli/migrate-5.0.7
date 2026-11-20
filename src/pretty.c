@@ -530,6 +530,42 @@ double prettytick(double mi, double ma, long ticks,
 }
 
 ///
+/// horizontal axis for log10 coordinates: ticks at whole decades labelled
+/// with the parameter values (0.001, 0.01, ...), every other decade when
+/// the range spans more than six
+static boolean pdf_hist_logaxis = FALSE;
+
+static void pdf_create_log_axis(double lmin, double lmax, double lx, double ly, double length)
+{
+  long k;
+  const long k0 = (long) ceil(lmin - 0.02), k1 = (long) floor(lmax + 0.02);   /* the axis may end a bin short of a decade */
+  const long step = (k1 - k0 > 6) ? 2 : 1;
+  pdf_draw_line(lx, ly, lx + length, ly);
+  if (lmax <= lmin)
+    return;
+  if (lmax - lmin <= 3.0)
+    {   /* a short range: also 2 and 5 times each decade */
+      static const double mult[3] = {1.0, 2.0, 5.0};
+      for (k = (long) floor(lmin) ; k <= k1; k++)
+        {
+          long m;
+          for (m = 0; m < 3; m++)
+            {
+              const double lv = (double) k + log10(mult[m]);
+              if (lv < lmin - 0.02 || lv > lmax + 0.02)
+                continue;
+              pdf_draw_tick(lx + (lv - lmin) / (lmax - lmin) * length, ly, HORIZONTAL, 3,
+                            mult[m] * pow(10.0, (double) k), k < 0 ? (int) -k : 0);
+            }
+        }
+      return;
+    }
+  for (k = k0; k <= k1; k += step)
+    pdf_draw_tick(lx + ((double) k - lmin) / (lmax - lmin) * length, ly, HORIZONTAL, 3,
+                  pow(10.0, (double) k), k < 0 ? (int) -k : 0);
+}
+
+///
 /// create a vertical or horizontal axis
 /// \param up is either HORIZONTAL=1 or VERTICAL
 /// \param xmin  real start value
@@ -840,7 +876,10 @@ void pdf_histogram(double *binvals, char *set50, char *set95, long bins, double 
     }
     else
         pdf_create_axes(VERTICAL, 0, binvalsmax/*(total)**@#@#@#@***/, 5, lx, ly, height);
-    pdf_create_axes(HORIZONTAL, binmin , binmax, 5, lx, ly, width);
+    if (pdf_hist_logaxis)
+      pdf_create_log_axis(binmin, binmax, lx, ly, width);
+    else
+      pdf_create_axes(HORIZONTAL, binmin , binmax, 5, lx, ly, width);
     HPDF_Page_SetLineWidth(page, (float) delta);
     
     x = (double) (delta/2.0);
@@ -4094,7 +4133,32 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
     else
       maxival = (double) maxi[rpa];
     long nbhere = bins[rpa];
-    if (bayes->prettyhist == PRETTY_P99 || bayes->prettyhist == PRETTY_P100)
+    if (bayes->logbin[rpa] > 0.0 && minival > 0.0 && maxival > minival)
+      {   /* LOGUNIFORM prior: the bins are uniform in log(parameter), so the
+             histogram is drawn on a log10 axis, starting at the decade below
+             the first non-empty bin (a wide prior otherwise leaves most of
+             the axis empty) */
+        long f = 0;
+        while (f < bins[rpa] - 1 && results[numbins + f] <= 0.0)
+          f++;
+        const double dec = pow (10.0, floor (log10 (bayes_hist_lower (bayes, rpa, minival, f)) + 1e-9));
+        long f2 = bayes_hist_bin (bayes, rpa, minival, dec);
+        if (f2 < 0)
+          f2 = 0;
+        if (f2 > f)
+          f2 = f;
+        minival = bayes_hist_lower (bayes, rpa, minival, f2);
+        numbins += f2;
+        nbhere -= f2;
+        minival = log10 (minival);
+        maxival = log10 (maxival);
+        delta = bayes->deltahist[rpa] / log (10.0);
+        themin = themin > 0.0 ? log10 (themin) : minival;
+        themax = themax > 0.0 ? log10 (themax) : maxival;
+        pdf_print_contents_at (lx + 120, ly - 25, "(log scale)");
+        pdf_hist_logaxis = TRUE;
+      }
+    else if (bayes->prettyhist == PRETTY_P99 || bayes->prettyhist == PRETTY_P100)
       {   /* start the axis at the first bin with mass (2 bins margin), as the
              right end already stops at the mass; the axis used to start at
              the prior minimum, which for a wide two-sided prior (growth in
@@ -4116,7 +4180,7 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
     {
         case PRETTY_MAX:
             pdf_histogram( &results[numbins],&set50[numbins], &set95[numbins],
-                          bins[pa],(double) delta, (double) minival, (double) maxival,
+                          nbhere,(double) delta, (double) minival, (double) maxival,
                           lx,ly,187,116, FALSE, &world->bayes->priors[numbins]);
             break;
         case PRETTY_P99:
@@ -4137,6 +4201,7 @@ void pdf_pretty_histogram(long pa, long rpa,long numbins, double * results, long
                           lx,ly,187,116, FALSE, &world->bayes->priors[numbins]);
             break;
     }
+    pdf_hist_logaxis = FALSE;
 }
 
 

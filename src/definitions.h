@@ -524,7 +524,7 @@ long chains is used */
 #define RANDOMPRIOR 100
 #define VERBOSE  (boolean) 1 
 /* prior kind */
-#define NUMPRIORKIND 12
+#define NUMPRIORKIND 13
 #define PRIORKINDLENGTH 15
 #define TUNIFORMPRIOR "Uniform      "
 #define TEXPPRIOR     "Exponential  "
@@ -537,6 +537,7 @@ long chains is used */
 #define TWGAMMAPRIOR  "Wind. Gamma  "
 #define TWBETAPRIOR   "Wind. Beta   "
 #define TWNORMALPRIOR "Wind. Normal "
+#define TLOGUNIFORMPRIOR "Log-uniform  "
 #define UNIFORMPRIOR 0
 #define EXPPRIOR     1
 #define WEXPPRIOR    2
@@ -548,6 +549,9 @@ long chains is used */
 #define WGAMMAPRIOR  8
 #define WBETAPRIOR   9
 #define WNORMALPRIOR 10
+/* LOGUNIFORMPRIOR: density 1/x on [min,max] (min > 0), proposal = window of
+   width delta on log x reflected at the bounds */
+#define LOGUNIFORMPRIOR 12
 /* WEXPPRIOR/WGAMMAPRIOR/WBETAPRIOR/WNORMALPRIOR ("W" = windowed) draw a
    local Metropolis move param + (U-0.5)*delta reflected at [min,max],
    unlike the plain EXPPRIOR/GAMMAPRIOR/BETAPRIOR/NORMALPRIOR independence

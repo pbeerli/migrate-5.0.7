@@ -1042,7 +1042,50 @@ propose_uni_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
   return np;
 }
 
+///
+/// log-uniform prior: window of width delta on log(param), reflected at the
+/// bounds; symmetric in log(param)
+MYREAL propose_logunif_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  bayes_fmt *bayes = world->bayes;
+  return EXP(propose_reflect_window(LOG(param), LOG(bayes->minparam[which]),
+                                    LOG(bayes->maxparam[which]), r, bayes->delta[which]));
+}
 
+///
+/// Hastings ratio of the log-scale window: q(old|new)/q(new|old) = new/old,
+/// which cancels the prior ratio old/new
+MYREAL hastings_ratio_logunif(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam)
+{
+  (void) delta;
+  (void) r;
+  (void) bayes;
+  (void) whichparam;
+  return LOG(newparam / oldparam);
+}
+
+///
+/// multiplier move for a LOGUNIFORMPRIOR: there delta is the window width
+/// on log(param) already, so it is the multiplier's lambda; reflected in
+/// log space as in propose_mult_newparam()
+MYREAL
+propose_mult_log_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r)
+{
+  const MYREAL minparam = world->bayes->minparam[which];
+  const MYREAL maxparam = world->bayes->maxparam[which];
+  const MYREAL multiplier = EXP(world->bayes->delta[which] * ((*r) - 0.5));
+  MYREAL np = multiplier * param;
+  long bounce = 0;
+  (*r) = multiplier;
+  while((np > maxparam || (minparam > 0.0 && np < minparam)) && bounce++ < 100)
+    {
+      if (np > maxparam)
+        np = maxparam * maxparam / np;
+      else
+        np = minparam * minparam / np;
+    }
+  return np;
+}
 
 ///
 /// Hastings ratio calculator for uniform distribution
@@ -1361,14 +1404,14 @@ void is_priorkind(prior_fmt *p, char *priorkind)
 {
   // index must track the prior kind values in definitions.h: 0..6 are the
   // direct kinds, 7 (SLICE) intentionally falls back to TOTHER, 8..10 are
-  // WGAMMAPRIOR/WBETAPRIOR/WNORMALPRIOR's own text, 11 is the final
-  // catch-all for anything else.
-  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER, TWGAMMAPRIOR, TWBETAPRIOR, TWNORMALPRIOR, TOTHER};
+  // WGAMMAPRIOR/WBETAPRIOR/WNORMALPRIOR's own text, 11 is unused, 12 is
+  // LOGUNIFORMPRIOR.
+  const char text[NUMPRIORKIND][PRIORKINDLENGTH] = {TUNIFORMPRIOR, TEXPPRIOR, TWEXPPRIOR, TMULTPRIOR, TGAMMAPRIOR, TNORMALPRIOR, TBETAPRIOR, TOTHER, TWGAMMAPRIOR, TWBETAPRIOR, TWNORMALPRIOR, TOTHER, TLOGUNIFORMPRIOR};
   //const int numkind = NUMPRIORKIND;
   if (p->kind < NUMPRIORKIND)
     strncpy(priorkind,text[p->kind],PRIORKINDLENGTH);
   else
-    strncpy(priorkind,text[NUMPRIORKIND-1],PRIORKINDLENGTH);
+    strncpy(priorkind,TOTHER,PRIORKINDLENGTH);
   return;
 }
   

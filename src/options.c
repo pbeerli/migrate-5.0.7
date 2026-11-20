@@ -3747,6 +3747,7 @@ char * show_parmpriortype(int priorset)
     case UNIFORMPRIOR: return "UNIFORMPRIOR";
     case NORMALPRIOR: return "NORMALPRIOR";
     case WNORMALPRIOR: return "WNORMALPRIOR";
+    case LOGUNIFORMPRIOR: return "LOGUNIFORMPRIOR";
     default: return "UNIFORMPRIOR";
     }
 }
@@ -3805,6 +3806,8 @@ char * getpriortype(int kind)
       return "NORMALPRIOR";
     case WNORMALPRIOR:
       return "WNORMALPRIOR";
+    case LOGUNIFORMPRIOR:
+      return "LOGUNIFORMPRIOR";
     }
   return "";
 }
@@ -4697,7 +4700,9 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "              SPLIT is used for mean of the normal distributed population divergence");    
     print_parm_comment(&bufsize, buffer, allocbufsize, "              SPLITSTD is used for the standard deviation of the population divergence");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       PRIORdistribution is one of UNIFORMPRIOR, EXPPRIOR, WEXPPRIOR, GAMMAPRIOR, WGAMMAPRIOR,");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "                            BETAPRIOR, WBETAPRIOR, NORMALPRIOR, WNORMALPRIOR");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                            BETAPRIOR, WBETAPRIOR, NORMALPRIOR, WNORMALPRIOR,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                            LOGUNIFORMPRIOR: min max delta (density 1/x, min > 0,");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "                            delta = window width on log scale)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               unipriorvalues: min max delta");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               exppriorvalues: min mean max");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               wexppriorvalues: min mean max delta");
@@ -5200,6 +5205,22 @@ void set_bayes_options(char *value, option_fmt *options)
   prior->number = options->bayes_priors_num - 1;
   switch(uppercase(priortype[0]))
     {
+    case 'L'/*loguniformprior: min max delta (delta on log scale)*/:
+      delta = 1.0;
+      sscanf(valueptr,"%s%f%f%f", priortype, &mini, &maxi, &delta);
+      if (!(mini > 0.0 && maxi > mini))
+	{
+	  warning("bayes-priors: LOGUNIFORMPRIOR needs 0 < min < max; using min = max/1e6\n");
+	  mini = maxi * 1e-6f;
+	}
+      if (!(delta > 0.0))
+	delta = 1.0;
+      prior->min = (MYREAL) mini;
+      prior->max = (MYREAL) maxi;
+      prior->mean = (maxi - mini) / log(maxi / mini);   /* mean of the log-uniform */
+      prior->delta = (MYREAL) delta;
+      prior->kind = LOGUNIFORMPRIOR;
+      break;
     case 'Z'/*slice sampler with uniform prior*/:
       /* there is no SLICE prior kind in which_prior() (it stopped the run):
          a uniform prior on [min,max] sampled with the slice sampler */
@@ -5316,6 +5337,12 @@ void set_bayes_options(char *value, option_fmt *options)
 	prior->delta = (MYREAL) delta;
 	prior->kind = UNIFORMPRIOR;
 	break;
+      default:
+	/* an unknown prior kind left the prior zeroed (Uniform 0 0) and the
+	   run went on with chains that never moved */
+	usererror("bayes-priors= %s: unknown prior distribution \"%s\"; use UNIFORMPRIOR,\n"
+		  "EXPPRIOR, WEXPPRIOR, GAMMAPRIOR, WGAMMAPRIOR, BETAPRIOR, WBETAPRIOR, NORMALPRIOR,\n"
+		  "WNORMALPRIOR or LOGUNIFORMPRIOR\n", ptypename[ptype], priortype);
     }
 }
 

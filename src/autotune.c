@@ -27,6 +27,7 @@
 #include "migrate_mpi.h"
 #include "random.h"
 #include "bayes.h"
+#include "priors.h"
 #include "windowupdate.h"
 #include "mcmc.h"
 #include "reporter.h"
@@ -61,6 +62,14 @@ void autotune_proposal(world_fmt *world, long which, long w)
     MYREAL ma = bayes->maxparam[w];
     MYREAL mi = bayes->minparam[w];
     MYREAL mindelta = (ma-mi)/200.;
+    /* log-scale proposals (LOGUNIFORM window, its multiplier): delta is a
+       width on log x, so its bounds are too */
+    if ((propose_new[w] == (profuncptr) propose_logunif_newparam
+         || propose_new[w] == (profuncptr) propose_mult_log_newparam) && mi > 0.0)
+      {
+        ma = log(ma / mi);
+        mindelta = ma / 200.;
+      }
 
     if(world->in_burnin && world->cold && !world->options->prioralone)
     {

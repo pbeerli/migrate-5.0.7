@@ -85,4 +85,8 @@ extern profuncptr * propose_new;
 extern hastratioptr * hastings_ratio;
 
 extern MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes);
+extern long bayes_hist_bin (const bayes_fmt *bayes, long pa, MYREAL mini, MYREAL value);
+extern MYREAL bayes_hist_lower (const bayes_fmt *bayes, long pa, MYREAL mini, long bin);
+extern MYREAL bayes_hist_width (const bayes_fmt *bayes, long pa, MYREAL mini, long bin);
+extern MYREAL bayes_hist_mid (const bayes_fmt *bayes, long pa, MYREAL mini, long bin);
 #endif

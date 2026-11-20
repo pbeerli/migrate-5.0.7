@@ -5202,7 +5202,7 @@ jc_fill_histogram (world_fmt *world, bayeshistogram_fmt *hist)
           memset (hist->results + off, 0, sizeof (double) * (size_t) nb);
           for (i = 0; i < js->nsweeps; i++)
             {
-              long b = (long) floor ((x[i] - lo) / world->bayes->deltahist[pa]);
+              long b = bayes_hist_bin (world->bayes, pa, lo, x[i]);
               if (b < 0)
                 b = 0;
               if (b >= nb)
