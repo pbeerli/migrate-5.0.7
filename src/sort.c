@@ -130,33 +130,23 @@ paircmp_first (const void *v1, const void *v2)
 
 
 
+/* by the second element, ties by the first */
+static int
+paircmp_second_first (const void *v1, const void *v2)
+{
+    const int c = paircmp (v1, v2);
+    return c != 0 ? c : paircmp_first (v1, v2);
+}
+
+/// sort pairs by their second element (the histogram height in
+/// calc_hpd_credibility()), ties by the first (the bin). The former second
+/// pass meant to order ties re-sorted, at every tie, the run of DIFFERENT
+/// heights before it by the first element (and its tie test was an absolute
+/// DBL_EPSILON), so the order and with it the HPD sets depended on the scale
+/// of the heights.
 void paired_qsort2(pair *x, long xelem)
 {
-    long oldli;
-    long li;
-    long elements;
-    
-    // sort using the second element
-    qsort(x,(size_t) xelem,sizeof(pair),paircmp);
-    
-    // with elements of the same histogram size sort by their first element
-    oldli = 0;
-    elements = 1;
-    for(li=1; li < xelem; li++)
-    {
-      if(fabs(x[li][1]- x[li-1][1])> (double) DBL_EPSILON)
-        {
-            elements++;
-            continue;
-        }
-        else
-        {
-            if(elements > 1)
-	      qsort(x+oldli,(size_t) elements,sizeof(pair),paircmp_first);
-            elements=1;
-            oldli = li;
-        }
-    }
+    qsort(x,(size_t) xelem,sizeof(pair),paircmp_second_first);
 }
 
 
