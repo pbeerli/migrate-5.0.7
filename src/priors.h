@@ -74,6 +74,12 @@ extern MYREAL log_prior_wbeta(world_fmt *world, long numparam);
 extern MYREAL log_prior_wnormal(world_fmt *world, long numparam);
 
 extern MYREAL log_prior_uni1  (world_fmt * world, long numparam, MYREAL);
+extern MYREAL log_prior_logunif1(world_fmt * world, long numparam, MYREAL val);
+extern MYREAL log_prior_logunif(world_fmt * world, long numparam);
+extern MYREAL log_prior_ratio_logunif(MYREAL newparam, MYREAL oldparam, bayes_fmt *bayes, long which);
+extern MYREAL propose_logunif_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+extern MYREAL propose_mult_log_newparam (MYREAL param, long which, world_fmt *world, MYREAL *r);
+extern MYREAL hastings_ratio_logunif(MYREAL newparam, MYREAL oldparam, MYREAL delta, MYREAL r, bayes_fmt * bayes, long whichparam);
 extern MYREAL log_prior_exp1  (world_fmt * world, long numparam, MYREAL);
 extern MYREAL log_prior_wexp1 (world_fmt * world, long numparam, MYREAL);
 extern MYREAL log_prior_mult1 (world_fmt * world, long numparam, MYREAL);

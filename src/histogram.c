@@ -465,7 +465,7 @@ void read_bayes_fromfile(znzFile fmdimfile, world_fmt *world,option_fmt *options
 		    bin = hist->bins[jj] - 1;
 		  else
 		    {
-		      bin = (long) ((params[j]-lowerbound[jj]) / delta[jj]);
+		      bin = bayes_hist_bin(bayes, jj, lowerbound[jj], params[j]);
 		      if (bin < 0)
 			bin = 0;
 		      if (bin >= hist->bins[jj])

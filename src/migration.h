@@ -662,6 +662,7 @@ typedef struct _bayes
   bayeshistogram_fmt *histogram;
   boolean jointrow; /* histogram[loci + 1] holds the product of the per-locus marginals,
                       histogram[loci] the joint multi-locus combination */
+  MYREAL *logbin;    // 1.0: histogram bins uniform in log(param) (LOGUNIFORM prior), deltahist in log units
   MYREAL *deltahist; // delta for all histograms per parameters [important for multilocus case 
   char * custm2; //pointer to the world->options->custm2;
   boolean mu;

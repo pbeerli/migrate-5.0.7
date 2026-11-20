@@ -2830,7 +2830,9 @@ void record_parameters(world_fmt *world)
 	  bayes->maxparam[i] = s->max;
 	  bayes->meanparam[i] = s->mu;
 	  if(options->prior->alpha[i]
+	  bayes->logbin[z] = 0.0;
 	  bayes->deltahist[z++] = (s->max - s->min)/ options->bayespriorm[world->numpop].bins;//use M number bins TODO FIX DEBUG
+	  bayes->logbin[z] = 0.0;
 	  bayes->deltahist[z++] = (s->sigmamax - s->sigmamin)/ options->bayespriorm[world->numpop].bins;//use M number bins TODO FIX DEBUG
 	}
 */

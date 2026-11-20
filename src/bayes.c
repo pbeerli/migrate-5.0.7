@@ -182,6 +182,34 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes);
 
 /// \brief set param within min max
 ///
+/* ---- histogram bins: uniform in the parameter, or in log(parameter) for a
+   LOGUNIFORM prior (bayes->logbin); mini is the histogram's lower bound ---- */
+long bayes_hist_bin (const bayes_fmt *bayes, long pa, MYREAL mini, MYREAL value)
+{
+  if (bayes->logbin[pa] > 0.0)
+    return (value > 0.0 && mini > 0.0) ? (long) floor (log (value / mini) / bayes->deltahist[pa]) : 0;
+  return (long) floor ((value - mini) / bayes->deltahist[pa]);
+}
+
+MYREAL bayes_hist_lower (const bayes_fmt *bayes, long pa, MYREAL mini, long bin)
+{
+  if (bayes->logbin[pa] > 0.0)
+    return mini * exp ((MYREAL) bin * bayes->deltahist[pa]);
+  return mini + (MYREAL) bin * bayes->deltahist[pa];
+}
+
+MYREAL bayes_hist_width (const bayes_fmt *bayes, long pa, MYREAL mini, long bin)
+{
+  if (bayes->logbin[pa] > 0.0)
+    return bayes_hist_lower (bayes, pa, mini, bin) * expm1 (bayes->deltahist[pa]);
+  return bayes->deltahist[pa];
+}
+
+MYREAL bayes_hist_mid (const bayes_fmt *bayes, long pa, MYREAL mini, long bin)
+{
+  return bayes_hist_lower (bayes, pa, mini, bin) + 0.5 * bayes_hist_width (bayes, pa, mini, bin);
+}
+
 void check_min_max_param(MYREAL *param0, MYREAL minparam, MYREAL maxparam)
 {
     if(*param0 > maxparam)
@@ -331,6 +359,13 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
                 propose_new[i] = (MYREAL (*) (MYREAL,  long, world_fmt *, MYREAL * )) propose_wbeta_newparam;
                 hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_wbeta;
                 break;
+            case LOGUNIFORMPRIOR:
+                log_prior_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, bayes_fmt *, long)) log_prior_ratio_logunif;
+                log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_logunif;
+                log_prior_1[i] = (MYREAL (*) (world_fmt *, long, MYREAL)) log_prior_logunif1;
+                propose_new[i] = (MYREAL (*) (MYREAL, long, world_fmt *, MYREAL *)) propose_logunif_newparam;
+                hastings_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, MYREAL, MYREAL, bayes_fmt *, long)) hastings_ratio_logunif;
+                break;
             case WNORMALPRIOR:
                 log_prior_ratio[i] = (MYREAL (*) (MYREAL,  MYREAL, bayes_fmt *, long)) log_prior_ratio_wnormal;
                 log_prior[i] = (MYREAL (*) (world_fmt *, long)) log_prior_wnormal;
@@ -364,6 +399,9 @@ void which_prior (prior_fmt *bayes_priors,  world_fmt *world)
                 break;
               case NORMALPRIOR:
                 log_prior_ratio[i] = (MYREAL (*) (MYREAL, MYREAL, bayes_fmt *, long)) log_prior_ratio_wnormal;
+                break;
+              case LOGUNIFORMPRIOR:   /* delta is the log-window width */
+                propose_new[i] = (MYREAL (*) (MYREAL, long, world_fmt *, MYREAL *)) propose_mult_log_newparam;
                 break;
               default:
                 break;
@@ -1359,6 +1397,50 @@ MYREAL log_prior_uni(world_fmt *world, long numparam)
 }
 
 //
+// log-uniform prior: density 1/(x log(b/a)) on [a,b], a > 0
+MYREAL log_prior_logunif1(world_fmt *world, long numparam, MYREAL val)
+{
+  bayes_fmt * bayes = world->bayes;
+  const MYREAL a = bayes->minparam[numparam], b = bayes->maxparam[numparam];
+  if (val < a || val > b || a <= 0.0 || val <= 0.0)
+    return (double) -HUGE;
+  return -LOG(val) - LOG(LOG(b / a));
+}
+
+MYREAL log_prior_ratio_logunif(MYREAL newparam, MYREAL oldparam, bayes_fmt * bayes, long which)
+{
+  if (newparam > bayes->maxparam[which] || newparam < bayes->minparam[which] || newparam <= 0.0)
+    return (double) -HUGE;
+  /* the slice sampler (expslice) passes oldparam = -1 and expects the log
+     prior density up to a constant */
+  if (oldparam <= 0.0)
+    return -LOG(newparam);
+  return LOG(oldparam / newparam);
+}
+
+// log-uniform prior of a parameter group, as log_prior_uni() (heating)
+MYREAL log_prior_logunif(world_fmt *world, long numparam)
+{
+  long numpop = (long) world->numpop;
+  long start = (long) ((numparam <= numpop || numpop==1) ? 0 : numpop);
+  long stop = (long) ((start == numpop) ? (long) world->numpop2 : numpop);
+  long i;
+  MYREAL value = 0.0, lp;
+  if (numparam > stop) // rate change
+    return log_prior_logunif1(world, (long) (world->numpop2 + world->locus),
+                              world->options->mu_rates[world->locus]);
+  for (i = start; i < stop; i++)
+    if (!strchr("0c", world->options->custm2[i]))
+      {
+        lp = log_prior_logunif1(world, i, world->param0[i]);
+        if (lp <= (double) -HUGE)
+          return (double) -HUGE;
+        value += lp;
+      }
+  return value;
+}
+
+//
 // uniform prior distribution, returns log(1/(b-a))
 MYREAL log_prior_uni1(world_fmt *world, long numparam, MYREAL val)
 {
@@ -1697,24 +1779,23 @@ void calculate_plotter_priors(world_fmt *world)
         if(visited[pa]==TRUE)
             continue;
         visited[pa] = TRUE;
-        w = world->bayes->deltahist[pa];
-        logw = log(w);
+        (void) w; (void) h; (void) logw;
         maxpriors[pa] = (double) -HUGE;
         for(bin=targetsumbin; bin < targetsumbin + bins[pa]; bin++)
         {
-            h = world->bayes->deltahist[pa];
-            v = world->bayes->histogram[0].minima[pa] + (bin-targetsumbin) * h + h/2;
+            v = bayes_hist_mid(world->bayes, pa, world->bayes->histogram[0].minima[pa], bin-targetsumbin);
             priors[bin] = scaling_prior(world,pa,v);
             if(priors[bin] > maxpriors[pa])
                 maxpriors[pa] = (MYREAL) priors[bin];
         }
         totalspriors[pa]=0.0;
         for(bin=targetsumbin; bin < targetsumbin + bins[pa]; bin++)
-        {
-            totalspriors[pa] += exp(priors[bin] - maxpriors[pa]);
+        {   /* prior mass of the bin: density times its width (log bins vary) */
+            totalspriors[pa] += exp(priors[bin] - maxpriors[pa])
+              * bayes_hist_width(world->bayes, pa, world->bayes->histogram[0].minima[pa], bin-targetsumbin);
         }
         if(totalspriors[pa]>=0.0)
-            totalspriors[pa] = log(totalspriors[pa]) + maxpriors[pa] + logw;
+            totalspriors[pa] = log(totalspriors[pa]) + maxpriors[pa];
         else
             totalspriors[pa]= (double) -HUGE;
         for(bin=targetsumbin; bin < targetsumbin + bins[pa]; bin++)
@@ -3401,6 +3482,7 @@ void bayes_init(bayes_fmt *bayes, world_fmt *world, option_fmt *options)
     bayes->maxparam = bayes->minparam + sizeg;
     bayes->meanparam = bayes->maxparam + sizeg;
     bayes->deltahist = bayes->meanparam + sizeg;
+    bayes->logbin = bayes->deltahist + sizeg;
     bayes->alphaparam = (MYREAL *) mycalloc((3*sizeg),sizeof(MYREAL));
     bayes->alphaorigparam = bayes->alphaparam + sizeg;
     bayes->betaparam =  bayes->alphaorigparam + sizeg;
@@ -3500,6 +3582,12 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
     bayes->maxparam[i] = prior->max;
     bayes->meanparam[i] = prior->mean;
     bayes->deltahist[i] = (prior->max - prior->min)/ (prior->bins);//bins-1
+    bayes->logbin[i] = 0.0;
+    if (selector == LOGUNIFORMPRIOR && prior->min > 0.0)
+      {   /* bins uniform in log(param): a log-uniform prior spans decades */
+        bayes->logbin[i] = 1.0;
+        bayes->deltahist[i] = log (prior->max / prior->min) / (prior->bins);
+      }
     switch(selector)
     {
         case MULTPRIOR:
@@ -3514,6 +3602,10 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
         case UNIFORMPRIOR:
             bayes->priormean[i] = prior->mean; // fill mean for the call to bayes_epxb_newparam
             bayes->delta[i] =  prior->delta; //(prior->max - prior->min)/(10.); // 1/10 of the max span
+            break;
+        case LOGUNIFORMPRIOR:   // delta is the window width on log(param)
+            bayes->priormean[i] = prior->mean;
+            bayes->delta[i] = prior->delta;
             break;
         case BETAPRIOR:
         case WBETAPRIOR:
@@ -3551,9 +3643,14 @@ MYINLINE  void select_prior_param(int selector, long i, bayes_fmt *bayes, prior_
     /* a prior line without a delta leaves the proposal window at 0: no
        move at all unless auto-tune widens it, and auto-tune is off without
        data (NODATA=YES), where the chain then never left its start value;
-       default to a tenth of the prior range */
+       default to a tenth of the prior range (of log(param) for LOGUNIFORM) */
     if (bayes->delta[i] <= 0.0)
-      bayes->delta[i] = (prior->max - prior->min) / 10.0;
+      {
+        if (selector == LOGUNIFORMPRIOR && prior->min > 0.0)
+          bayes->delta[i] = log (prior->max / prior->min) / 10.0;
+        else
+          bayes->delta[i] = (prior->max - prior->min) / 10.0;
+      }
 }
 
 // fill the Bayesian framework with values
@@ -4441,7 +4538,7 @@ void construct_param_hist(world_fmt *world, long locus, long npa, long pa, long 
         }
         else
         {
-            bin = (long) ((value - mini[pa])/delta);
+            bin = bayes_hist_bin(bayes, pa, mini[pa], value);
             if(bin<0)
                 bin=0;
         }
@@ -4802,9 +4899,10 @@ void print_locus_histogram(FILE *bayesfile, world_fmt *world, long locus, long n
         {
             freq = results[numbins + bin];// /total;
             sumfreq += freq;
+            value = bayes_hist_mid(bayes, pa, mini[pa], bin);
             fprintf(bayesfile,"%li %li %c %c %f %f %f %f %f\n", locus+1, pa+1, set50[numbins+bin], set95[numbins+bin], value,
-                    results[numbins + bin],freq,sumfreq, delta * exp(scaling_prior(world,pa,value)));
-            value += delta;
+                    results[numbins + bin],freq,sumfreq,
+                    bayes_hist_width(bayes, pa, mini[pa], bin) * exp(scaling_prior(world,pa,value)));
         }
         fprintf(bayesfile,"\n");
     }
@@ -4861,9 +4959,9 @@ void print_loci_histogram(FILE *bayesfile, world_fmt * world, long locus, long n
             freq = (MYREAL) results[numbins + bin];
             sumfreq += freq;
             //total = (MYREAL) bayes->trials[pa];
+            value = bayes_hist_mid(bayes, pa, mini[pa], bin);
             fprintf(bayesfile,"%li %li %c %c %f %f %f %f %f\n", locus+1, pa+1, set50[numbins+bin], set95[numbins+bin], value,
                     results[numbins+bin] , freq, sumfreq, bayes->priors[numbins+bin]);
-            value += delta;
         }
         fprintf(bayesfile,"\n");
     }
@@ -5156,7 +5254,7 @@ void     find_bayes_mode(world_fmt *world, long locus, long numparam)
             if (tmp < (double) results[numbin + bin])
             {
                 tmp = (double) results[numbin+bin];
-                modes[pa] = (MYREAL) bin * bayes->deltahist[pa] + mini[pa];
+                modes[pa] = bayes_hist_lower(bayes, pa, mini[pa], bin);
             }
         }
         //      numbin += bins[pa];
@@ -5276,7 +5374,10 @@ void bayes_smooth(double *x, long xelem, long el, boolean lastfirst, boolean bou
 // descriptors. the statistics are filled into the statistics part of the bayes structure (datastore)
 /// shortest run of contiguous bins [*lo, *hi] of x[0..n-1] whose mass is at
 /// least target (two pointers; the first one wins ties)
-static void shortest_interval(const double *x, long n, double target, long *lo, long *hi)
+/* shortest run of contiguous bins with mass >= target; with bin edges
+   (n+1 values, log bins) "shortest" is measured in parameter units */
+static void shortest_interval(const double *x, long n, double target, const double *edge,
+                              long *lo, long *hi)
 {
   long i = 0, j;
   double sum = 0.0;
@@ -5287,7 +5388,8 @@ static void shortest_interval(const double *x, long n, double target, long *lo, 
       sum += x[j];
       while (i < j && sum - x[i] >= target)
         sum -= x[i++];
-      if (sum >= target && j - i < *hi - *lo)
+      if (sum >= target
+          && (edge == NULL ? (j - i < *hi - *lo) : (edge[j + 1] - edge[i] < edge[*hi + 1] - edge[*lo])))
         {
           *lo = i;
           *hi = j;
@@ -5484,18 +5586,19 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
             results2[numbins + li] /= (double) total2;
             tmp = (double) results[numbins + li];
             tmp2 = (double) results2[numbins + li];
-            parts[li][1] = tmp;
+            /* sort by density (mass / bin width): with log bins the widths differ */
+            parts[li][1] = tmp / bayes_hist_width(bayes, rpa, mini[rpa], li);
             total += tmp;
 	    total22 += tmp2;
-            parts[li][0] = delta/2.0 + mini[rpa] + li * delta;
+            parts[li][0] = (double) li;
             // NOTE: locmedian holds the MODE bin, not the median bin.
             // The former "&& li>1" excluded bins 0 and 1 from ever being the
             // mode, which misplaces the mode for any posterior that peaks at
             // its lower boundary (e.g. an exponential prior on M, whose mode
             // is 0) and then anchors the HPD walk below at the wrong bin.
-            if(tmp > biggestcolumn)
+            if(parts[li][1] > biggestcolumn)
             {
-                biggestcolumn = tmp;
+                biggestcolumn = parts[li][1];
                 locmedian = li;
             }
         }
@@ -5504,7 +5607,7 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
 #endif
         //
         // mode is the value with largest column
-        modes[pa] = parts[locmedian][0];
+        modes[pa] = bayes_hist_mid(bayes, rpa, mini[rpa], locmedian);
         //
         // median is at 0.5 of the cumulative probability distribution
         li = 0;
@@ -5516,7 +5619,7 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
             tmp += results2[numbins + li];
             li++;
         }
-        medians[pa] = parts[li > 0 && tmp >= total22/2 ? li - 1 : li][0];
+        medians[pa] = bayes_hist_mid(bayes, rpa, mini[rpa], li > 0 && tmp >= total22/2 ? li - 1 : li);
         //
         // sort parts using the histogram y-axis for easy finding of quantiles
         paired_qsort2(parts, bins[rpa]);
@@ -5529,9 +5632,9 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         while(cdf < alpha50 && li>0)
         {
             li--;
-            cdf += parts[li][1] /total;
+            cdf += results[numbins + (long) parts[li][0]] /total;
         }
-        cutoff50 = parts[li][1]; // anything lower than this will be in the 50% credibility set
+        cutoff50 = parts[li][1]; // a lower density is outside the 50% credibility set
 #ifdef DEBUG
 	printf("pa=%li c50=%f\n",rpa,cutoff50);
 #endif
@@ -5539,9 +5642,9 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         while(cdf < alpha95 && li>0)
         {
             li--;
-            cdf += parts[li][1] /total;
+            cdf += results[numbins + (long) parts[li][0]] /total;
         }
-        cutoff95 = parts[li][1]; // anything lower than this will be in the 95% credibility set
+        cutoff95 = parts[li][1]; // a lower density is outside the 95% credibility set
 #ifdef DEBUG
 	printf("pa=%li c95=%f\n",rpa,cutoff95);
 #endif
@@ -5549,7 +5652,8 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         // fill the credibility sets (are printed into Bayesfile
         for(li=numbins;li<numbins + bins[rpa]; li++)
         {
-            if(results[li] < cutoff95)
+            const double dens = results[li] / bayes_hist_width(bayes, rpa, mini[rpa], li - numbins);
+            if(dens < cutoff95)
             {
                 set50[li] = '0';
                 set95[li] = '0';
@@ -5557,7 +5661,7 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
             else
             {
                 set95[li] = '1';
-                if(results[li] < cutoff50)
+                if(dens < cutoff50)
                     set50[li] = '0';
                 else
                     set50[li] = '1';
@@ -5575,12 +5679,23 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
         // (set50/set95, used for plotting) is unchanged.
         /* the unsmoothed histogram: the interval is a mass criterion and
            needs no smoothing, which smears mass down to the prior bound */
-        shortest_interval(results2 + numbins, bins[rpa], total22 * alpha50, &lo50, &hi50);
-        shortest_interval(results2 + numbins, bins[rpa], total22 * alpha95, &lo95, &hi95);
-        cred50[pa] = mini[rpa] + lo50 * delta;
-        cred50[pa + numparam] = mini[rpa] + (hi50 + 1) * delta;
-        cred95[pa] = mini[rpa] + lo95 * delta;
-        cred95[pa + numparam] = mini[rpa] + (hi95 + 1) * delta;
+        {
+          double *edge = NULL;
+          if (bayes->logbin[rpa] > 0.0)
+            {
+              edge = (double *) mycalloc ((size_t) (bins[rpa] + 1), sizeof (double));
+              for (li = 0; li <= bins[rpa]; li++)
+                edge[li] = bayes_hist_lower(bayes, rpa, mini[rpa], li);
+            }
+          shortest_interval(results2 + numbins, bins[rpa], total22 * alpha50, edge, &lo50, &hi50);
+          shortest_interval(results2 + numbins, bins[rpa], total22 * alpha95, edge, &lo95, &hi95);
+          myfree (edge);
+        }
+        (void) delta;
+        cred50[pa] = bayes_hist_lower(bayes, rpa, mini[rpa], lo50);
+        cred50[pa + numparam] = bayes_hist_lower(bayes, rpa, mini[rpa], hi50 + 1);
+        cred95[pa] = bayes_hist_lower(bayes, rpa, mini[rpa], lo95);
+        cred95[pa + numparam] = bayes_hist_lower(bayes, rpa, mini[rpa], hi95 + 1);
 #ifdef DEBUG
 	printf("pa=%li cred50=%f..%f [%li]\n",rpa,cred50[pa],cred50[pa+numparam],numparam);
 	printf("pa=%li cred95=%f..%f [%li]\n",rpa,cred95[pa],cred95[pa+numparam],numparam);
@@ -5776,11 +5891,14 @@ void bayes_combine_loci(world_fmt * world)
         visited[pa] = TRUE;
         w = world->bayes->deltahist[pa];
       logw = log(w); //7. ln(dx)
+      if (world->bayes->logbin[pa] > 0.0)   /* the same constant as linear bins */
+        logw = log((world->bayes->maxparam[pa] - world->bayes->minparam[pa]) / bins[pa]);
       for(bin=targetsumbin; bin < targetsumbin + bins[pa]; bin++)
 	{
-	  v = source->minima[pa] + (bin-targetsumbin) * w + w/2;
-	  //priors
-	  priors[bin] = logw + scaling_prior(world,pa,v); //calculate log prior for parameter
+	  v = bayes_hist_mid(world->bayes, pa, source->minima[pa], bin-targetsumbin);
+	  //priors: log prior mass of the bin (density times its width)
+	  priors[bin] = log(bayes_hist_width(world->bayes, pa, source->minima[pa], bin-targetsumbin))
+	    + scaling_prior(world,pa,v); //calculate log prior for parameter
             if(touched[bin] == '1')
 	      {
                 // posteriors
@@ -5856,7 +5974,7 @@ void bayes_combine_loci(world_fmt * world)
 	      {
 	      results[bin] /= /*(float)*/ (sumprob);//this takes care of the maxvala scaling
 		total +=  results[bin];
-	      target->means[pa] += results[bin] * (minima[pa] +  w/2. + w * (bin-targetsumbin));
+	      target->means[pa] += results[bin] * bayes_hist_mid(world->bayes, pa, minima[pa], bin-targetsumbin);
 	      }
 	  }
 	target->means[pa] /= total;
