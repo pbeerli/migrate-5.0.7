@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 20  Migrate 6.1.97 LOGUNIFORMPRIOR (port from 7.x): log-window and multiplier proposals,
+             log-scale histogram bins and PDF axis. HPD intervals: one sort by height then
+             bin (50% sets held 6-94%). Unknown prior kinds stop the run. Fixed split time
+             or spread (prior min = max) no longer hangs the proposal loop; the joint
+             combination evaluates a fixed D at its value. Split prior labels by parameter
+             index; 'x' is a wildcard in bayes-priors.
 November 19  Migrate 6.1.96 Divergence: new joint move for the mean split time D (on by default;
              MIGRATE_DSLIDE=0 turns it off): with probability 1/2 a D proposal shifts all
              lineage crossings of that split by the same amount. With small split-time
