@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 21  Migrate 6.1.99 SNP loci without a variable site (for example after removing a
+             population) are skipped with a warning instead of stopping the run. SNP loci
+             with base frequencies from the data read freed loci (crash). The obsolete
+             datatype u (UnlinkedSNPData) stops with a message: use (n1) loci.
 November 21  Migrate 6.1.98 MPI: the master sets its start values (the joint combination
              dropped runs with a fixed split time and read constant parameters as 0);
              fixed split times no longer shift the histograms sent by the workers;
