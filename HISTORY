@@ -12,6 +12,13 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 21  Migrate 6.1.98 MPI: the master sets its start values (the joint combination
+             dropped runs with a fixed split time and read constant parameters as 0);
+             fixed split times no longer shift the histograms sent by the workers;
+             skyline=NO with mig-histogram crashed the master. Split times out of order
+             are repaired before the start genealogy. Sites line: the infile header loci
+             count is taken from the sites line when it differs, a shortened linked group
+             ([10o3_7]) is closed, named loci (ldh=s234) are rejected.
 November 20  Migrate 6.1.97 LOGUNIFORMPRIOR (port from 7.x): log-window and multiplier proposals,
              log-scale histogram bins and PDF axis. HPD intervals: one sort by height then
              bin (50% sets held 6-94%). Unknown prior kinds stop the run. Fixed split time
