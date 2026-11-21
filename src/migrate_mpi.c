@@ -3928,8 +3928,12 @@ long pack_hist_bayes_buffer(MYREAL **buffer, bayeshistogram_fmt *hist, world_fmt
 		   (results is already smoothed here) */
 		(*buffer)[z++] = (MYREAL) (hist->results2 != NULL ? hist->results2[numbins + j] : hist->results[numbins + j]);
 	      }
+	    /* results holds only the mapped-in parameters (the histogram code
+	       skips the others, see shortcut()); a fixed split time (prior
+	       min == max) is mapped out but keeps its bin count, which moved
+	       the next parameters onto empty bins */
+	    numbins += hist->bins[i];
 	  }
-	numbins += hist->bins[i];
       }
     /* the covariance matrix is no longer computed or sent */
     return z;
@@ -4860,6 +4864,8 @@ void handle_message(char *rawmessage,int sender, world_fmt * world)
     set_filehandle(rawmessage, world, &file, &pos);
     //fprintf(stderr,"%i> handle_message: pos=%li\n",myID,pos);
     //fprintf(stderr,"%i> handle_message: %s\n",myID, rawmessage + pos);
+    if (file == NULL)   /* the target file is not open on the master */
+      return;
     fprintf((FILE *) file,"%s", rawptr + pos);
     fflush((FILE *) file);
 }

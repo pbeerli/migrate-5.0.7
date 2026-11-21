@@ -149,6 +149,7 @@ void read_uepfile (data_fmt * data, option_fmt * options, long numpop);
 
 long read_sublocus(char *input, long *z, long locus, data_fmt * data, world_fmt *world);
 void read_sites_new (data_fmt * data, world_fmt *world, option_fmt *options);
+static void sites_line_subloci(FILE *infile, data_fmt *data);
 void read_site(FILE *infile, char *site, long locus, long sublocus, long pop, long ind, world_fmt *world, data_fmt *data, option_fmt *options);
 void read_comments(option_fmt *options, data_fmt *data, world_fmt *world);
 MYREAL create_mixed_data (data_fmt * data, option_fmt *options);
@@ -367,6 +368,7 @@ get_new_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *w
   // if we have the new haplotype input then there should be no delimiter
   // needed
   read_header (infile, data, options);
+  sites_line_subloci (infile, data);
   data->haplotyping = options->haplotyping;
   data->haplotyping_report = options->haplotyping_report;
   init_data_structure1 (&data);
@@ -1125,7 +1127,6 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
     {
       linking = atol(vallinked+1);
     }
-  printf("repeats = %li\n",repeats);
   size = locate_char(input + *z,'(');
   *z += size;//location of '('
   size = locate_char(input+ *z,')');
@@ -1151,10 +1152,8 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
       assign_random_startsites(&random_startsites,numsites, shortsites,repeats);
     }
   newnumsites = numsites / repeats;
-  printf("all loci except last = %li sites\n",newnumsites);
   rest = numsites % repeats;
   lastnumsites = newnumsites + rest;
-  printf("last locus = %li sites\n",lastnumsites);
   if(startsitetype == '0')
     startsite = -newnumsites;
   else
@@ -1270,16 +1269,10 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
     {
       if(linking>1)
 	{
-	  if(count==linking-1)
-	    {
-	      startloc=' ';
-	      stoploc=')';
-	    }
-	  if(count==0)
-	    {
-	      startloc='(';
-	      stoploc=')';	  
-	    }
+	  /* the last piece always closes its group: a group cut short
+	     ([10o3_7]: 7 + 3 pieces) was left open */
+	  startloc = (count==0) ? '(' : ' ';
+	  stoploc=')';
 	}
       else
 	{
@@ -1321,6 +1314,97 @@ void handle_bracket(char *c, char *input, char **newinput, long *allocbufsize, l
 //  [10o3](s1000)--> (0s3) (99s3) (198s3) (297s3) ...
 //  [10r3] (s1000) ---> (5s3) (10s3) (169s3) .....
 //  [10o3_2](s1000)--> (0s3 99s3) (198s3 297s3) ...
+/// expand the [n...] repeat forms of a new-style sites line ([10](s1000),
+/// [10o3](s1000), [10r3](s1000), [10o3_2](s1000)); returns the expanded line
+/// (input is freed) or input itself when it has no '['
+static char *expand_sites_brackets(char *input, long *allocbufsize)
+{
+  if (count_char(input,'[') == 0)
+    return input;
+  char c = input[0];
+  long z = 1;
+  long z2 = 0;
+  long pos = 0;
+  char *newinput = (char *) mycalloc(*allocbufsize,sizeof(char));
+  while (c != '\0')
+    {
+      switch (c){
+      case '[':
+	z2=0;
+	handle_bracket(&c,input,&newinput, allocbufsize, &z,&z2, &pos);
+	break;
+      default:
+	pos += mysnprintf(newinput+pos,LINESIZE,"%c",input[z]);
+	c = input[z++];
+      }
+    }
+  myfree(input);
+  return newinput;
+}
+
+/// number of subloci a new-style sites line defines: the site
+/// specifications (s1000, n1, 5s10, ldh=s234) inside parentheses, after the
+/// [n...] forms are expanded; 0 for an old-style line (no parentheses)
+static long count_site_specs(const char *input)
+{
+  long count = 0;
+  long depth = 0;
+  boolean inword = FALSE;
+  const char *p;
+  for (p = input; *p != '\0'; p++)
+    {
+      if (*p == '(')
+	{
+	  depth++;
+	  inword = FALSE;
+	}
+      else if (*p == ')')
+	{
+	  depth--;
+	  inword = FALSE;
+	}
+      else if (isspace((unsigned char) *p) || *p == ',')
+	inword = FALSE;
+      else if (depth > 0 && !inword)
+	{
+	  count++;
+	  inword = TRUE;
+	}
+    }
+  return count;
+}
+
+/// the second header number must equal the number of subloci; the sites
+/// line (new syntax) defines them, so read it ahead and use its count when
+/// the header differs (with the [n] forms this is easy to get wrong)
+static void sites_line_subloci(FILE *infile, data_fmt *data)
+{
+  fpos_t here;
+  long allocbufsize = LINESIZE;
+  char *input = (char *) mycalloc(allocbufsize,sizeof(char));
+  if (fgetpos(infile, &here) != 0)
+    {
+      myfree(input);
+      return;
+    }
+  do
+    FGETS2(&input,&allocbufsize,infile);
+  while (input[0] == '#' && !feof(infile));
+  if (count_char(input,'(') > 0)
+    {
+      input = expand_sites_brackets(input, &allocbufsize);
+      const long n = count_site_specs(input);
+      if (n > 0 && n != data->allsubloci)
+	{
+	  warning("The infile header gives %li loci, the sites line defines %li loci and linked pieces (subloci); using %li\n",
+		  data->allsubloci, n, n);
+	  data->allsubloci = n;
+	}
+    }
+  fsetpos(infile, &here);
+  myfree(input);
+}
+
 void read_sites_new(data_fmt * data, world_fmt *world, option_fmt *options)
 {
   long z=0;
@@ -1394,37 +1478,13 @@ void read_sites_new(data_fmt * data, world_fmt *world, option_fmt *options)
 	}
     }
   // count (): loci
-  long repeatcount = count_char(input,'[');
-  long locicount=0;
-  if (repeatcount==0)
-    {
-      locicount = count_char(input,'(');
-    }
-  else
-    {
-      char c = input[0];
-      z=1;
-      long z2=0;
-      long pos = 0;
-      char *newinput;
-      newinput = (char *) mycalloc(allocbufsize,sizeof(char));
-      while (c != '\0')
-	{
-	  switch (c){
-	    case '[':
-	      z2=0;
-	      handle_bracket(&c,input,&newinput, &allocbufsize, &z,&z2, &pos);
-	      break;
-	  default:
-	    pos += mysnprintf(newinput+pos,LINESIZE,"%c",input[z]);
-	    c = input[z++];
-	  }
-	}
-      printf("%s\n",newinput);
-      myfree(input);
-      input = newinput;
-      locicount = count_char(input,'(');
-    }
+  input = expand_sites_brackets(input, &allocbufsize);
+  /* named loci (ldh=s234) crashed the reader; not allowed for now (may come
+     back with VCF input) */
+  if (strchr(input,'=') != NULL)
+    usererror("Named loci on the sites line (for example ldh=s234) are not supported;\n"
+              "remove the names and keep only the site specifications, e.g. (s234)\n");
+  long locicount = count_char(input,'(');
   // count ',': regions
   data->numregions = 1 + count_char(input,',');
   if (locicount == 0)
