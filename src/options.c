@@ -6259,7 +6259,8 @@ numbercheck (option_fmt * options, char *var, char *value)
             break;
         case 'u':
         case 'U':
-            options->datatype = 'u';
+            usererror("The unlinked-SNP datatype u (UnlinkedSNPData) is obsolete: write unlinked SNPs as\n"
+              "SNP loci of one site, (n1) (n1) ..., or compactly [4480](n4480) for 4480 loci\n");
             break;
         case 'f':
         case 'F':

@@ -351,6 +351,68 @@ void decide_full_variable_dataset(data_fmt * data, option_fmt *options, long loc
 // loci so that it may look like this
 // ind11......ACA ATTAGA 13 15 5 3 2 A ATACG A AT 13
 // ind12......ACA ATTCGA 12 15 6 3 2 A ATACG T CT 5
+/// SNP loci (datatype n) without a variable site in this sample, for example
+/// after a population was removed, carry no information and conflict with the
+/// variable-sites correction: they are skipped with a warning, like loci
+/// without data. A two-base IUPAC code (R, Y, M, K, S, W: a heterozygote)
+/// counts as variable; N, ?, - and X are missing.
+static void skip_invariant_snp_loci(data_fmt *data, world_fmt *world)
+{
+  long locus;
+  long nskip = 0;
+  for (locus = 0; locus < data->loci; locus++)
+    {
+      long sublocus;
+      boolean allsnp = TRUE;
+      boolean variable = FALSE;
+      if (data->skiploci[locus])
+	continue;
+      for (sublocus = world->sublocistarts[locus]; sublocus < world->sublocistarts[locus+1] && !variable; sublocus++)
+	{
+	  mutationmodel_fmt *s = &world->mutationmodels[sublocus];
+	  long site;
+	  long sites = s->numsites - (s->baseref_used ? 4 : 0);
+	  if (s->datatype != 'n')
+	    {
+	      allsnp = FALSE;
+	      break;
+	    }
+	  for (site = 0; site < sites && !variable; site++)
+	    {
+	      char first = '\0';
+	      long pop;
+	      for (pop = 0; pop < data->numpop && !variable; pop++)
+		{
+		  long ind;
+		  for (ind = 0; ind < data->numind[pop][locus] && !variable; ind++)
+		    {
+		      char c = (char) toupper((unsigned char) data->yy[pop][ind][sublocus][0][site][0]);
+		      if (strchr("RYMKSW", c) != NULL)
+			variable = TRUE;
+		      else if (strchr("ACGTU", c) != NULL)
+			{
+			  if (c == 'U')
+			    c = 'T';
+			  if (first == '\0')
+			    first = c;
+			  else if (c != first)
+			    variable = TRUE;
+			}
+		    }
+		}
+	    }
+	}
+      if (allsnp && !variable)
+	{
+	  data->skiploci[locus] = TRUE;
+	  nskip++;
+	  warning("Locus %li (SNP data) has no variable site in this sample and is skipped\n", locus + 1);
+	}
+    }
+  if (nskip > 0 && nskip == data->loci)
+    usererror("No locus has a variable site in this sample: the SNP data cannot be analysed\n");
+}
+
 void
 get_new_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *world)
 {
@@ -405,6 +467,7 @@ get_new_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *w
     if (options->progress)
         fprintf (stdout, "\n\n");
     init_data_structure3 (data, options, world);
+    skip_invariant_snp_loci (data, world);
     if ((options->onlyvariable || options->has_variableandone) && !options->murates_fromdata)
       {
 	saved_option_murate = TRUE;
@@ -538,6 +601,7 @@ get_data (FILE * infile, data_fmt * data, option_fmt * options, world_fmt *world
     if (options->progress)
         fprintf (stdout, "\n\n");
     init_data_structure3 (data, options, world);
+    skip_invariant_snp_loci (data, world);
     if ((options->onlyvariable || options->has_variableandone) && !options->murates_fromdata)
       {
 	saved_option_murate = TRUE;
@@ -1479,6 +1543,15 @@ void read_sites_new(data_fmt * data, world_fmt *world, option_fmt *options)
     }
   // count (): loci
   input = expand_sites_brackets(input, &allocbufsize);
+  /* the old unlinked-SNP datatype u ((u1) loci) has no likelihood code */
+  {
+    const char *q;
+    for (q = input; *q != '\0'; q++)
+      if ((*q == 'u' || *q == 'U') && isdigit((unsigned char) q[1])
+	  && (q == input || q[-1] == '(' || q[-1] == ' ' || isdigit((unsigned char) q[-1])))
+	usererror("The unlinked-SNP datatype u (UnlinkedSNPData) is obsolete: write unlinked SNPs as\n"
+              "SNP loci of one site, (n1) (n1) ..., or compactly [4480](n4480) for 4480 loci\n");
+  }
   /* named loci (ldh=s234) crashed the reader; not allowed for now (may come
      back with VCF input) */
   if (strchr(input,'=') != NULL)
