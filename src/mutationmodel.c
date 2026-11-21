@@ -523,9 +523,26 @@ void calc_seq_basefreq(mutationmodel_fmt *s, world_fmt *world, option_fmt *optio
   // counts across the whole dataset instead, and only fall back to flat
   // 0.25 uniform frequencies if even the pooled counts are still too
   // sparse (e.g. a single-locus, single-SNP dataset).
+  /* the counts over all loci are taken once, at the first call, while every
+     locus still has its data: run_loci() frees the data of a finished locus
+     (free_datapart), so pooling at a later locus read freed memory */
+  {
+    static boolean pooled_done = FALSE;
+    static MYREAL pool[5];
+    if (!pooled_done)
+      {
+	pool[0] = pool[1] = pool[2] = pool[3] = pool[4] = 0.0;
+	accumulate_basefreq_counts_all(world, options, data, &pool[0], &pool[1], &pool[2], &pool[3], &pool[4]);
+	pooled_done = TRUE;
+      }
+    pooled_freqa = pool[0];
+    pooled_freqc = pool[1];
+    pooled_freqg = pool[2];
+    pooled_freqt = pool[3];
+    pooled_total = pool[4];
+  }
   if (strchr(SNPTYPES, s->datatype) != NULL && count_present_bases(freqa, freqc, freqg, freqt) <= 2)
     {
-      accumulate_basefreq_counts_all(world, options, data, &pooled_freqa, &pooled_freqc, &pooled_freqg, &pooled_freqt, &pooled_total);
       if (pooled_total > EPSILON && count_present_bases(pooled_freqa, pooled_freqc, pooled_freqg, pooled_freqt) >= 3)
 	{
 	  freqa = pooled_freqa;
