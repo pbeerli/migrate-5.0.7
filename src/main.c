@@ -1058,6 +1058,11 @@ run_sampler (option_fmt * options, data_fmt * data, world_fmt ** universe,
 		reset_haplotypes(EARTH,locus);
 	      }
 	  }
+	/* the master runs no chain, so its param0 was never set (all zero):
+	   the joint combination reads constant ('c') and fixed (prior
+	   min == max) values from it; set them as a worker does per locus */
+	EARTH->locus = 0;
+	set_param (EARTH, data, options, 0);
 	mpi_runloci_master (data->loci, EARTH->who, EARTH, options, data, options->menu);
       }
     else
@@ -1417,6 +1422,12 @@ setup_locus (long locus, world_fmt * world, option_fmt * options,
      2026-11-14; the heated chains reset G in heating_prepare2()) */
   world->G = 0;
   set_param (world, data, options, locus);
+  /* divergence-order TREE/RANK: start split times out of order stranded the
+     lineages of a daughter whose parent had already merged ("lineages are
+     left in populations"); repair before the start genealogy is built (the
+     repair after setup_locus() came too late for it) */
+  if (world->has_speciation)
+    species_order_repair (world);
   // replaced with more informative reporting in burnin_bayes(). 
   //if (world->options->progress)
   //  print_menu_locus (stdout, world, locus);

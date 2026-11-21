@@ -928,10 +928,14 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
 		    openfile (&world->skylinefile, options->skylinefilename, "a+", NULL);
 		  else
 		    openfile (&world->skylinefile, options->skylinefilename, "w+", NULL);
-	    }
 #ifdef MPI
-	  setup_filehandle_db((void *) world->skylinefile, world, options, data);
-#endif			
+	      /* only an open file: the workers take the entries in this order
+		 and read skylinefile only with skyline on; an extra entry
+		 (skyline=NO) shifted their logfile onto it, and the master then
+		 wrote their log lines to a NULL file (segmentation fault) */
+	      setup_filehandle_db((void *) world->skylinefile, world, options, data);
+#endif
+	    }
 	}
       
       if (options->writelog)
@@ -1105,7 +1109,7 @@ init_files (world_fmt * world, data_fmt * data, option_fmt * options)
 	world->treefile = filedb[j++].file;
       if (options->mighist)
 	world->mighistfile = filedb[j++].file;
-      if (options->skyline)
+      if (options->mighist && options->skyline)
 	world->skylinefile = filedb[j++].file;
       if (options->writelog)
 	options->logfile = filedb[j++].file;
