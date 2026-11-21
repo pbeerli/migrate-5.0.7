@@ -10,9 +10,10 @@
 #
 # Created: 2020
 # Considerably modified and improved December 2025
+# last update: November 21, 2026 (--popmap, --iupac, locus selection, references by name)
 #
 # MIT licence
-# (c) Peter Beerli, Tallahassee 2020-2025
+# (c) Peter Beerli, Tallahassee 2020-2026
 import sys
 import gzip
 import datetime as dt
@@ -30,6 +31,17 @@ NONIUPAC = '?????????????'
 CHROMLINK = -1
 DELIM = "|/"
 NMLEN = 10 
+POPMAPFILE = None   # --popmap: sample -> population
+IUPACOUT = False    # --iupac: one sequence per individual, heterozygotes as IUPAC codes
+MINVAR = 0          # --minvar
+MAXMISSING = 1.0    # --maxmissing
+MAXLOCI = None      # --maxloci
+SEED = 1            # --seed
+LOCSUMMARY = None   # --locsummary
+POPNAMES = None     # population names from --popmap
+IUPACCODE = {frozenset('AG'): 'R', frozenset('CT'): 'Y', frozenset('AC'): 'M', frozenset('GT'): 'K',
+             frozenset('CG'): 'S', frozenset('AT'): 'W', frozenset('ACT'): 'H', frozenset('CGT'): 'B',
+             frozenset('ACG'): 'V', frozenset('AGT'): 'D', frozenset('ACGT'): 'N'}
 
 def help(args):
     print("syntax: vcf2mig --vcf vcffile.vcf")
@@ -67,6 +79,21 @@ def help(args):
     print("                  if all chromosomes are used ignore this option")
     print("  --bound start,stop specifies the left and right bound of the reference sequence,")
     print("                  snps are only reported within the bound")
+    print("  --popmap file: two columns per line, sample name and population name; the samples")
+    print("                  are regrouped by population (in the order the populations first appear)")
+    print("                  and samples not listed are dropped. Replaces --popspec and --pop")
+    print("  --iupac        one sequence per individual: a heterozygous site is written as its")
+    print("                  IUPAC code (A/G -> R); use this for unphased genotypes (0/1), which")
+    print("                  otherwise are split into two sequences in an arbitrary phase")
+    print("  --minvar n     keep only loci (CHROM) with at least n variable sites in the sample")
+    print("  --maxmissing f keep only loci with at most a fraction f of missing genotype calls")
+    print("  --maxloci n    keep at most n loci, chosen at random (with --seed s) among those")
+    print("                  that pass --minvar and --maxmissing")
+    print("  --locsummary file: write a table of all loci (sites with SNPs, variable sites,")
+    print("                  missing fraction, kept or not)")
+    print("  Do not filter the VCF for minor allele frequency, Hardy-Weinberg equilibrium or")
+    print("  linkage disequilibrium before converting: Migrate uses all variable sites of a")
+    print("  locus, and these filters remove informative sites selectively.")
     print("  --out migratedatafile:  specify a name for the converted dataset in migrate format")
     print("  --strict: replaces all characters that are not ACGTN? with ?")    
     print("")
@@ -74,6 +101,8 @@ def help(args):
     print("vcf2mig.py --vcf vcffile.vcf.gz --ref ref.fasta --popspec 2 10,10 --out migratefile")
     print("vcf2mig.py --vcf vcffile.vcf --popspec 3 10,10,10 --out migratefile")
     print("vcf2mig.py --vcf vcffile.vcf --linksnp 10000 --popspec 2 5,10 --out migratefile") 
+    print("vcf2mig.py --vcf gbs.vcf.gz --ref catalog.fasta --popmap samples.txt --iupac \\")
+    print("           --minvar 1 --maxmissing 0.2 --maxloci 500 --seed 1 --locsummary loci.tsv --out migratefile")
     print("")
     print(f"\n\nYou specified:{args}")
 
@@ -90,6 +119,7 @@ def parse_args(args):
     migratefile = None
     strictvcf = False
     refabbrev= False
+    global POPMAPFILE, IUPACOUT, MINVAR, MAXMISSING, MAXLOCI, SEED, LOCSUMMARY
     argstring = " ".join(args)
     if "--help" in argstring or "-h" in argstring or "-help" in argstring:
         help(args)
@@ -135,7 +165,6 @@ def parse_args(args):
         # search for populationspec
         key = '--popspec'
         if key in argstring:
-            numpop = int(args[args.index(key)+1])
             numind = args[args.index(key)+2]
             numind = [int(x) for x in numind.split(',')]
             populationfile = None
@@ -145,9 +174,21 @@ def parse_args(args):
         if key in argstring:
             use_chrom = args[args.index(key)+1]
             use_chrom = use_chrom.strip().split(',')
+        # sample -> population map
+        key = '--popmap'
+        if key in args:
+            POPMAPFILE = args[args.index(key)+1]
+            popset = True
+        key = '--iupac'
+        IUPACOUT = key in args
+        for key, conv, name in (('--minvar', int, 'MINVAR'), ('--maxmissing', float, 'MAXMISSING'),
+                                ('--maxloci', int, 'MAXLOCI'), ('--seed', int, 'SEED'),
+                                ('--locsummary', str, 'LOCSUMMARY')):
+            if key in args:
+                globals()[name] = conv(args[args.index(key)+1])
         # search for populationfile
         key = '--pop'
-        if key in argstring and not popset:
+        if key in args and not popset:
             populationfile = args[args.index(key)+1]
             numind,numloc = read_populations(populationfile)
             popset=True
@@ -162,7 +203,7 @@ def parse_args(args):
             strictvcf = True
         else:
             strictvcf = False
-    except:
+    except Exception:
         print(key)
         print(args)
         help(args)
@@ -319,8 +360,8 @@ def read_reference(file):
 
 def harmonize_use_chroms(use_chrom, chroms):
         
-    if use_chrom == None:
-        if references == None:
+    if use_chrom is None:
+        if references is None:
             use_chrom = sorted(chroms)
             return use_chrom
         if len(chroms) == len(references):
@@ -333,12 +374,12 @@ def harmonize_use_chroms(use_chrom, chroms):
     else:
         lu = len(use_chrom)            
         use_chrom = list(set(use_chrom).intersection(chroms))
-        if use_chrom == None:
+        if not use_chrom:
             #check for : or = and remove those
             print("Mismatch with names in --chrom and reference file")
             chroms = [ ch.replace(':','').replace('=','') for ch in chroms ]
             use_chrom = list(set(use_chrom).intersection(chroms))
-            if use_chrom == None:
+            if not use_chrom:
                 print("Warning, no match with vcf CHROM tag")
         if len(use_chrom) != lu:
             print("the --chrom list did only partly match with the vcf, used these:")
@@ -565,50 +606,8 @@ def build_dataset(vcf, names, numind, use_chrom, ploidy,
 
 
 
-def filter_vcf_by_bound(vcf, use_chrom, bound):
-    if bound is None:
-        return vcf
-    start, stop = bound
-    if start > stop:
-        start, stop = stop, start
-    use_set = set(use_chrom)
-    out = []
-    for row in vcf:
-        if row[0] not in use_set:
-            continue
-        if start <= row[1] <= stop:
-            out.append(row)
-    return out
-
-
 def make_positions_rel(positions_abs, base0_by_chrom):
     return [(ci, pos - base0_by_chrom[ci]) for ci, pos in positions_abs]
-
-    if use_chrom == None:
-        if references == None:
-            use_chrom = sorted(chroms)
-            return use_chrom
-        if len(chroms) == len(references):
-            use_chrom = sorted(chroms)
-        else:
-            print("Number of chromosomes and number of references mismatch")
-            print(use_chrom,len(references))
-            print(chroms)
-            sys.exit(-10)
-    else:
-        lu = len(use_chrom)            
-        use_chrom = list(set(use_chrom).intersection(chroms))
-        if use_chrom == None:
-            #check for : or = and remove those
-            print("Mismatch with names in --chrom and reference file")
-            chroms = [ ch.replace(':','').replace('=','') for ch in chroms ]
-            use_chrom = list(set(use_chrom).intersection(chroms))
-            if use_chrom == None:
-                print("Warning, no match with vcf CHROM tag")
-        if len(use_chrom) != lu:
-            print("the --chrom list did only partly match with the vcf, used these:")
-            print(f"{use_chrom}")
-    return use_chrom
 
 
 
@@ -633,17 +632,30 @@ def create_pop_snps(vcf, begin, stop, use_chrom, ploidy):
         ref = v[3]
         alt = v[4].split(',')
 
+        missing = '?'
         if local_allowindel:
             lr = len(ref)
             if lr > 1:
+                # deletion: pad shorter alts with '-' to match ref length
                 for i in range(len(alt)):
-                    alt[i] = alt[i].ljust(lr, '-')
+                    if alt[i] != '*':
+                        alt[i] = alt[i].ljust(lr, '-')
+                missing = '?' * lr
             else:
-                maxla = max(len(a) for a in alt)
+                non_spanning = [len(a) for a in alt if a != '*']
+                maxla = max(non_spanning) if non_spanning else 1
                 if maxla > 1:
+                    # insertion: mark with '@' so fix_haplotypes_bytes expands it
                     ref = '@' + ref.ljust(maxla, '-')
                     for i in range(len(alt)):
-                        alt[i] = '@' + alt[i].ljust(maxla, '-')
+                        if alt[i] != '*':
+                            alt[i] = '@' + alt[i].ljust(maxla, '-')
+                    # missing genotype must also expand by the same amount
+                    missing = '@' + '?' * maxla
+        # spanning-deletion alleles (*) are deleted by an upstream indel — treat as missing
+        for i in range(len(alt)):
+            if alt[i] == '*':
+                alt[i] = missing
 
         popinds = v[9][begin:stop]
         sdata = []
@@ -666,7 +678,7 @@ def create_pop_snps(vcf, begin, stop, use_chrom, ploidy):
                 elif x != '.':
                     sdata_append(alt_get(int(x) - 1))
                 else:
-                    sdata_append('?')
+                    sdata_append(missing)
 
         idata.append(sdata)
 
@@ -722,10 +734,8 @@ def create_pop_references(references, snps, positions, use_chrom, ploidy):
 def fix_haplotypes_bytes(haplotypes, insertionmuts):
     for hi, ins in insertionmuts:
         h = haplotypes[hi]
-        while True:
-            idx = h.find(b'@')
-            if idx == -1:
-                break
+        idx = h.find(b'@')
+        if idx != -1:
             h[idx:idx+1] = ins
 
             
@@ -756,26 +766,26 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
     sites = list(map(len,[di[0] for di in data[0]]))
     loci = len(sites)
     chrompos = convert_chrompos(positions)
-    if references != None and refabbrev == False:
+    if references is not None and not refabbrev:
         f.write(f'{numpop} {loci} {vcffile}\n')
         f.write(f"# VCF file used:      {vcffile}\n")
         f.write(f"# Translated from VCF {dt.date.today()}\n")
         f.write(f"# Reference file: {referencefile}\n")
         f.write(f"# Migrate input file: {migratefile}\n")
-        f.write(f"# References augmented with VCF data file!\n")
+        f.write("# References augmented with VCF data file!\n")
         f.write(f"# {comment}\n")
         sitestr = " ".join([f'(s{si})' for si in sites])
         f.write(f"{sitestr}\n")
     else:
-        if linkedsnps == None:
+        if linkedsnps is None:
             unlinked_loci = len(sites)
             f.write(f'{numpop} {unlinked_loci} {vcffile}\n')
             f.write(f"# VCF file used:      {vcffile}\n")
             f.write(f"# Translated from VCF {dt.date.today()}\n")
             f.write(f"# Migrate input file: {migratefile}\n")
-            f.write(f"# SNP data file!\n")
+            f.write("# SNP data file!\n")
             f.write(f"# {comment}\n")
-            sitestr = " ".join([f'(n1)' for _ in sites])
+            sitestr = " ".join(['(n1)' for _ in sites])
             f.write(f"{sitestr}\n")
         elif linkedsnps == CHROMLINK:
             chrompos = convert_chrompos(positions)
@@ -785,12 +795,11 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
             f.write(f"# VCF file used:      {vcffile}\n")
             f.write(f"# Translated from VCF {dt.date.today()}\n")
             f.write(f"# Migrate input file: {migratefile}\n")
-            f.write(f"# SNP data file!\n")
+            f.write("# SNP data file!\n")
             f.write(f"# {comment}\n")
             f.write(f"{sitestr}\n")
         else:
             nucs = []
-            delta = linkedsnps
             chrompos = convert_chrompos(positions)  # (chrom_index, [POS...])
 
             # bound-fixed origin (inclusive)
@@ -842,7 +851,7 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
             f.write(f"# VCF file used:      {vcffile}\n")
             f.write(f"# Translated from VCF {dt.date.today()}\n")
             f.write(f"# Migrate input file: {migratefile}\n")
-            f.write(f"# SNP data file!\n")
+            f.write("# SNP data file!\n")
             f.write(f"# {comment}\n")
             f.write(f"{sitestr}\n")
     # write out the frequencies if present
@@ -852,8 +861,27 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
         # Only do the old estimate-based expansion if we do NOT already have exact per-group freqs
         if (refabbrev and (linkedsnps not in (None, CHROMLINK))
             and not _freqs_already_grouped(freqs)):
-        # ... your existing split_freq_by_lengths expansion that produced 1 0.1, 1 0.2, ...
-            freqs_out = expanded
+            # Estimate per-group freqs from contig totals and group lengths.
+            freqs_out = []
+            chrompos_map = {ci: sorted(set(poslist)) for ci, poslist in chrompos}
+            chrom_index_by_name = {c: i for i, c in enumerate(use_chrom)}
+            for fi in freqs:
+                loc = str(fi.get("Loc", "")).strip()
+                chromname = loc.split()[0] if loc else loc
+                ci = chrom_index_by_name.get(chromname)
+                if ci is None:
+                    continue
+                posu = chrompos_map.get(ci)
+                if not posu:
+                    continue
+                groups = group_snp_positions(posu, delta=linkedsnps, bound=bound, chromlink=False)
+                lengths = [g1 - g0 + 1 for g0, g1, _ in groups]
+                if not lengths:
+                    continue
+                total = dict(fi)
+                total["Loc"] = f"{chromname} 0"
+                freqs_out.append(total)
+                freqs_out.extend(split_freq_by_lengths(fi, lengths, chromname))
 
         fistr = check_freqsout(freqs_out)
         for fi, fis in enumerate(fistr):
@@ -891,14 +919,14 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
     for indx, (di,ni) in enumerate(zip(data,names)):
         dii = list(zip(*di))
         #print(f" {len(ni)} Pop{indx+1}")
-        f.write(f" {len(ni)} Pop{indx+1}\n")
+        f.write(f" {len(ni)} {POPNAMES[indx] if POPNAMES else f'Pop{indx+1}'}\n")
         for idx, d in enumerate(dii):
             #print(idx, end=' ')
             #print(f"{ni[idx]:<{namelen}}","".join(d))
             f.write(f'{ni[idx]:<{namelen}} {"".join(d)}\n')
     f.close()
 
-def split_freq_by_lengths(freq, lengths, loc_prefix):
+def split_freq_by_lengths(freq, lengths, loc_prefix, sep=" "):
     """
     Create one freq dict per segment length, using the A/C/G/T proportions
     from `freq` and allocating expected counts by segment length.
@@ -930,7 +958,7 @@ def split_freq_by_lengths(freq, lengths, loc_prefix):
                     diff += 1
             j += 1
 
-        fi = {"Loc": f"{loc_prefix}.{si}"}
+        fi = {"Loc": f"{loc_prefix}{sep}{si}"}
         fi.update(counts)
         fi["?"] = 0
         out.append(fi)
@@ -1409,7 +1437,8 @@ def group_snp_positions(posu, *, delta, bound=None, chromlink=False):
     if chromlink:
         if bound is not None:
             b0, b1 = bound
-            if b0 > b1: b0, b1 = b1, b0
+            if b0 > b1:
+                b0, b1 = b1, b0
             snps = {p for p in posu if b0 <= p <= b1}
             return [(b0, b1, snps)]
         else:
@@ -1417,7 +1446,8 @@ def group_snp_positions(posu, *, delta, bound=None, chromlink=False):
 
     if bound is not None:
         b0, b1 = bound
-        if b0 > b1: b0, b1 = b1, b0
+        if b0 > b1:
+            b0, b1 = b1, b0
         span = b1 - b0 + 1
         k = (span + delta - 1) // delta
         groups = []
@@ -1444,6 +1474,150 @@ def group_snp_positions(posu, *, delta, bound=None, chromlink=False):
     return groups
 
 
+
+# ---------------------------------------------------------------- additions 2026-11-21
+def gt_alleles(raw):
+    """allele indices of one genotype field ('0/1:...'), None for missing, and phased flag"""
+    gt = raw.partition(':')[0]
+    phased = '|' in gt
+    parts = gt.replace('|', '/').split('/')
+    return [None if x in ('.', '') else int(x) for x in parts], phased
+
+
+def read_popmap(filename):
+    """sample -> population pairs in file order (two whitespace-separated columns)"""
+    pairs = []
+    with open(filename) as f:
+        for line in f:
+            w = line.split()
+            if len(w) >= 2 and not w[0].startswith('#'):
+                pairs.append((w[0], w[1]))
+    return pairs
+
+
+def apply_popmap(vcf, names, pairs):
+    """regroup the samples by population (order of first appearance), drop unlisted samples"""
+    popnames = []
+    for _, pop in pairs:
+        if pop not in popnames:
+            popnames.append(pop)
+    where = {n: i for i, n in enumerate(names)}
+    missing = [smp for smp, _ in pairs if smp not in where]
+    if missing:
+        print(f"Warning: {len(missing)} samples of the popmap are not in the VCF, e.g. {missing[:3]}")
+    order, numind = [], []
+    for pop in popnames:
+        idx = [where[smp] for smp, p in pairs if p == pop and smp in where]
+        order.extend(idx)
+        numind.append(len(idx))
+    dropped = len(names) - len(order)
+    if dropped:
+        print(f"{dropped} VCF samples are not in the popmap and are dropped")
+    names2 = [names[i] for i in order]
+    for v in vcf:
+        inds = v[9]
+        v[9] = [inds[i] for i in order]
+    return vcf, names2, numind, popnames
+
+
+def iupac_transform(vcf):
+    """one pseudo-haploid sequence per individual: a heterozygous genotype becomes its IUPAC
+    code, appended to ALT so that the genotype can point to it; indels are not allowed"""
+    nhet = 0
+    for v in vcf:
+        alleles = [v[3]] + v[4].split(',')
+        if max(len(a) for a in alleles) > 1:
+            raise ValueError("--iupac cannot be combined with indels (use it without --allowindel)")
+        alt = alleles[1:]
+        newinds = []
+        for raw in v[9]:
+            al, _ = gt_alleles(raw)
+            called = [alleles[a] for a in al if a is not None]
+            if not called or len(called) < len(al):
+                newinds.append('.')
+                continue
+            bases = frozenset(called)
+            if len(bases) == 1:
+                newinds.append(str(alleles.index(called[0])))
+                continue
+            code = IUPACCODE[bases]
+            nhet += 1
+            if code not in alt:
+                alt.append(code)
+            newinds.append(str(1 + alt.index(code)))
+        v[4] = ','.join(alt)
+        v[9] = newinds
+    return nhet
+
+
+def unphased_warning(vcf):
+    """number of (locus, individual) pairs with two or more unphased heterozygous sites"""
+    count = Counter()
+    for v in vcf:
+        for i, raw in enumerate(v[9]):
+            al, phased = gt_alleles(raw)
+            if not phased and len(al) > 1 and None not in al and len(set(al)) > 1:
+                count[(v[0], i)] += 1
+    return sum(1 for c in count.values() if c > 1)
+
+
+def locus_stats(vcf, use_chrom):
+    """per CHROM: rows (sites with SNPs), variable sites in the sample, missing fraction"""
+    st = {c: [0, 0, 0, 0] for c in use_chrom}   # rows, variable, missing calls, all calls
+    for v in vcf:
+        s = st.get(v[0])
+        if s is None:
+            continue
+        s[0] += 1
+        seen = set()
+        for raw in v[9]:
+            al, _ = gt_alleles(raw)
+            for a in al:
+                s[3] += 1
+                if a is None:
+                    s[2] += 1
+                else:
+                    seen.add(a)
+        if len(seen) > 1:
+            s[1] += 1
+    return {c: (r, var, (mis / tot) if tot else 1.0) for c, (r, var, mis, tot) in st.items()}
+
+
+def select_loci(use_chrom, stats):
+    import random
+    ok = [c for c in use_chrom if stats[c][1] >= MINVAR and stats[c][2] <= MAXMISSING]
+    if MAXLOCI is not None and len(ok) > MAXLOCI:
+        rng = random.Random(SEED)
+        keep = set(rng.sample(ok, MAXLOCI))
+        ok = [c for c in ok if c in keep]
+    if LOCSUMMARY:
+        kept = set(ok)
+        with open(LOCSUMMARY, 'w') as f:
+            f.write("locus\tsnp_sites\tvariable_sites\tmissing_fraction\tkept\n")
+            for c in use_chrom:
+                r, var, mis = stats[c]
+                f.write(f"{c}\t{r}\t{var}\t{mis:.3f}\t{'yes' if c in kept else 'no'}\n")
+    print(f"Loci: {len(use_chrom)} in the VCF, {len(ok)} kept (minvar={MINVAR}, maxmissing={MAXMISSING}, maxloci={MAXLOCI})")
+    return ok
+
+
+def references_by_name(refheaders, refseqs, sites, freqs, use_chrom):
+    """reference records matched to CHROM by the first word of the FASTA header, in
+    use_chrom order (contigs without SNPs in the VCF are skipped)"""
+    idx = {}
+    for i, h in enumerate(refheaders):
+        name = h.strip().lstrip('>').split()
+        if name:
+            idx[name[0]] = i
+            idx[name[0].replace(':', '').replace('=', '')] = i
+    missing = [c for c in use_chrom if c not in idx]
+    if missing:
+        print(f"Warning: {len(missing)} VCF contigs have no reference record and are dropped, e.g. {missing[:3]}")
+    keep = [c for c in use_chrom if c in idx]
+    pick = [idx[c] for c in keep]
+    return keep, [refheaders[i] for i in pick], [refseqs[i] for i in pick], \
+        [sites[i] for i in pick], [freqs[i] for i in pick]
+
 if __name__ == "__main__":
     numpop = -1
     vcffile, referencefile, linkedsnps, numind, numloc, migratefile, use_chrom, allowindel, strictvcf, refabbrev, bound = parse_args(sys.argv)
@@ -1451,13 +1625,16 @@ if __name__ == "__main__":
 
     vcf,names, chroms, ploidy  = read_vcf(vcffile)
     print(f"VCF file used: {vcffile}")
+    if POPMAPFILE is not None:
+        vcf, names, numind, POPNAMES = apply_popmap(vcf, names, read_popmap(POPMAPFILE))
+        print(f"Populations from {POPMAPFILE}: " + ", ".join(f"{p} ({n})" for p, n in zip(POPNAMES, numind)))
 
     start = 0
     populations=[]
     data = [] 
     freqs = None
     
-    if referencefile != None:
+    if referencefile is not None:
         references = read_reference(referencefile)
         for ref in referencefile.split(','):
             print(f"Reference file: {ref}")
@@ -1474,7 +1651,30 @@ if __name__ == "__main__":
 
     # after reading vcf/names/chroms/ploidy and (maybe) references/freqs:
 
-    use_chrom = harmonize_use_chroms(use_chrom, chroms)
+    if references is not None and use_chrom is None:
+        # match references to CHROM by name: the reference may hold contigs without SNPs
+        use_chrom, refheaders, references, sites, freqs = references_by_name(
+            refheaders, references, sites, freqs, sorted(chroms))
+    else:
+        use_chrom = harmonize_use_chroms(use_chrom, chroms)
+        if references is not None:
+            use_chrom, refheaders, references, sites, freqs = references_by_name(
+                refheaders, references, sites, freqs, use_chrom)
+    # locus selection (before --iupac changes the genotype fields)
+    if MINVAR > 0 or MAXMISSING < 1.0 or MAXLOCI is not None or LOCSUMMARY:
+        use_chrom = select_loci(use_chrom, locus_stats(vcf, use_chrom))
+        if references is not None:
+            use_chrom, refheaders, references, sites, freqs = references_by_name(
+                refheaders, references, sites, freqs, use_chrom)
+    if IUPACOUT:
+        nhet = iupac_transform(vcf)
+        ploidy = 1
+        print(f"--iupac: one sequence per individual, {nhet} heterozygous genotypes as IUPAC codes")
+    elif ploidy > 1:
+        nun = unphased_warning(vcf)
+        if nun:
+            print(f"Warning: {nun} locus/individual pairs have two or more unphased heterozygous sites;")
+            print("         their two sequences get an arbitrary phase. Consider --iupac.")
 
     # Prepare inputs (bound filtering + validation + reference cropping)
     vcf, references, freqs2, offsets = prepare_inputs(
@@ -1568,4 +1768,3 @@ if __name__ == "__main__":
     # Final write: always pass absolute positions_out
     write_migrate(migratefile, data_out, freqs, positions_out, sites, references, populations, comment, bound=bound)
     print(f"Migrate input file: {migratefile}")
-
