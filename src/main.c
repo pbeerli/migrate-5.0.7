@@ -2197,7 +2197,6 @@ run_replicate (long locus,
     if (options->heating)
       {
 	heating_prepare (universe, usize, options, data, replicate);
-	heating_mutationmodel_baseref_finish(universe, usize, locus);
       }
     /* divergence-order=TREE: start values that break the order of the
        population tree (random or user start values) are moved into it */

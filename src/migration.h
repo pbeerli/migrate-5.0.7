@@ -1090,7 +1090,9 @@ typedef struct _option
   size_t unassignedpoplistnum;
   long *unassignedpoplist;
   boolean oneliner;
-  long totalsites; //for snp data
+  long totalsites; //for snp data: first value of snpsites, >0 = given
+  long *snpsites;      // snp-invariants=: total sites (variable + invariant) per locus, the last value repeats
+  long snpsites_num;
   MYREAL *wattersons;
   long *segregs;
   boolean onlyvariable;  // analyze only variable sequence loci
@@ -1361,6 +1363,8 @@ typedef struct _worldoption
     int joint_block;
     int mlscale;
     long totalsites;   /* SNP data: sites of a locus with the invariant ones */
+    long *snpsites;    /* shared with option_fmt, not freed here */
+    long snpsites_num;
     boolean simulation;
     char datatype;
     long lsteps;

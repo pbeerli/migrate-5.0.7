@@ -1607,24 +1607,6 @@ void copy_micro_steps(mutationmodel_fmt *s, mutationmodel_fmt *old)
     memcpy(s->steps[i],old->steps[i],sizeof(MYREAL) * (size_t) old->micro_threshold);
 }
 
-void heating_mutationmodel_baseref_finish(world_fmt ** universe, int usize, long locus)
-{
-  size_t i;
-  mutationmodel_fmt * s;
-  for (i=0; i < usize; i++)
-    {
-      s = &universe[i]->mutationmodels[locus];
-      if (s->baseref_used == TRUE)
-	{
-	  s->numpatterns += s->addon;
-	  s->numsites += s->addon;
-	  s->addon=0;
-	  s->datatype ='s';
-	  universe[i]->options->datatype = 's';
-	}
-    }
-}
-
 void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data, long locus)
 {
   long z, mi;
@@ -1746,7 +1728,9 @@ void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data
       else
 	{
 	  munew->baseref = NULL;
-	  munew->baseref_used = FALSE;
+	  /* snp-invariants: no reference counts, the flag still selects the
+	     unconditional SNP likelihood */
+	  munew->baseref_used = muold->baseref_used;
 	}
 
       
