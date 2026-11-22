@@ -6278,14 +6278,16 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	}
     }
     pdf_advance(&page_height);
-    if(options->snpsites_num>0 && strchr(SNPTYPES,options->datatype))
-      {
-	double invar = 0.0;
-        for (locus=0;locus<data->loci;locus++)
-          invar += (double) (snp_total_sites(options->snpsites, options->snpsites_num, locus) - data->totalsites[locus]);
-	pdf_printf(left_margin, page_height,'L', "[snp-invariants: on average %.0f invariant sites per locus are added to the SNPs]\n",invar / data->loci);
-	pdf_advance(&page_height);
-      }
+    {
+      boolean fromcounts;
+      const double invar = snp_invariants_added(world, data, options, &fromcounts);
+      if (invar > 0.0)
+	{
+	  pdf_printf(left_margin, page_height,'L', "[%s: on average %.0f invariant sites per locus are added to the SNPs]\n",
+		     fromcounts ? "#*freq base counts of the infile" : "snp-invariants", invar / data->loci);
+	  pdf_advance(&page_height);
+	}
+    }
     
     if(options->randomsubset > 0)
     {

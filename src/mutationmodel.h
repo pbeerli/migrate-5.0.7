@@ -39,6 +39,7 @@ extern void print_mutationrate_weights(FILE *file, MYREAL *murates, long *segreg
 // klone for heating 
 extern void klone_mutationmodel(world_fmt *newcopy, world_fmt *original, data_fmt *data, long locus);
 void read_basefrequency_reference(char *input, data_fmt * data, world_fmt * world);
+double snp_invariants_added(world_fmt *world, data_fmt *data, option_fmt *options, boolean *fromcounts);
 void read_mutationmodel_comments(char *input, data_fmt * data, world_fmt * world);
 extern int get_states(mutationmodel_fmt *s, data_fmt *data, long locus);
 //extern void set_subloci_basefrequencies(mutationmodel_fmt *mumod, world_fmt *world, option_fmt *options, data_fmt *data, long sublocus);
