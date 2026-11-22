@@ -1918,7 +1918,6 @@ prob_tree (world_fmt * world, timelist_fmt * tyme)
     long j, pop;
     MYREAL mm, cc, ss = 0;
     long tlfrom;
-    boolean usem = world->options->usem;
     MYREAL pk;
     const MYREAL mu_rate = world->options->mu_rates[world->locus];
     //    const MYREAL lmu_rate = world->options->lmu_rates[world->locus];
@@ -1942,7 +1941,7 @@ prob_tree (world_fmt * world, timelist_fmt * tyme)
             ss += LOG2 - LOG (world->param0[tlfrom]*mu_rate);
         else
 	  { //@@
-	    pk = usem ? world->param0[tlfrom]/mu_rate : world->param0[tlfrom] /(mu_rate * world->param0[pop]); 
+	    pk = migration_is_M(world, tlfrom) ? world->param0[tlfrom]/mu_rate : world->param0[tlfrom] /(mu_rate * world->param0[pop]); 
             ss += LOG (pk);
 	  }
     }

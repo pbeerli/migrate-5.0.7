@@ -438,7 +438,6 @@ void adjust_llocalparam(MYREAL *locallparam, world_fmt * world,  long locus,  lo
      long j;
      long numpop = world->numpop;
      long numpop2 = world->numpop2;
-    boolean usem = world->options->usem;
     
     const MYREAL *geo = world->data->geo;
     const MYREAL *lgeo = world->data->lgeo;
@@ -466,7 +465,7 @@ void adjust_llocalparam(MYREAL *locallparam, world_fmt * world,  long locus,  lo
         {
             if (param0[j] > 0.0)
 	      {
-		pk = usem ? param0[j] : param0[j] / param0[r];
+		pk = migration_M(world, j, r);   /* M, or xNm/Theta (use-M=NO, S/M entries) */
 		sm[r] -= skyparam[s+j] * geo[j] * pk / mu_rate;
 		locallparam[j] = LOG(skyparam[s+j] * pk) + lgeo[j] - lmu_rate;
 	      }
@@ -585,7 +584,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
     long *k;
     char type;
     MYREAL pk;
-    boolean usem = world->options->usem;
+    boolean usem = world->options->usem;   /* DEBUGMIG branch only */
     long pop2;
     long kpop;
     long msta;
@@ -597,6 +596,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
        reference locus (param0); migration (M = m/mu) does not depend on Ne */
     const MYREAL theta_rate = mu_rate * world->options->inheritance_scalars[world->locus];
     double mlalpha = 1.0;// = world->mlalpha;
+    (void) usem;
     // DIAGNOSTIC (remove after finding bug)
 #ifdef DEBUGMIG
     // Per-migration-parameter sufficient statistics for the conditional
@@ -757,25 +757,13 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 
 	      sum=0.0;
 #ifndef DEBUGMIG
-	      if (usem)
+	      /* M of each route: param0, or xNm/Theta (use-M=NO, S/M entries) */
+	      for (long r = msta; r < msta + nroute[pop]; r++)
 		{
-		  for (long r = msta; r < msta + nroute[pop]; r++)
-		    {
-		      pop2 = route[r];
-		      pk = param0[pop2] * geo[pop2];
-		      sum += kpopmurate * pk
-			* (gated ? probg_gate_factor(world, pop2, t0, t1, deltatime, deltatime2, has_mlalpha, mlalpha) : 1.0);
-		    }
-		}
-	      else
-		{
-		  for (long r = msta; r < msta + nroute[pop]; r++)
-		    {
-		      pop2 = route[r];
-		      pk = param0[pop2] / param0[pop];
-		      sum += kpopmurate * geo[pop2] * pk
-			* (gated ? probg_gate_factor(world, pop2, t0, t1, deltatime, deltatime2, has_mlalpha, mlalpha) : 1.0);
-		    }
+		  pop2 = route[r];
+		  pk = migration_M(world, pop2, pop);
+		  sum += kpopmurate * geo[pop2] * pk
+		    * (gated ? probg_gate_factor(world, pop2, t0, t1, deltatime, deltatime2, has_mlalpha, mlalpha) : 1.0);
 		}
 #else
 	      if (usem)
@@ -858,16 +846,7 @@ MYREAL probg_treetimes_local(world_fmt* world, timelist_fmt * treetimes)
 	    case 'm':
 	      if (gated && t1 > species_mig_gate(world, from))
 		return (MYREAL) -HUGE;   /* into a daughter before it exists (forward) */
-	      if (usem)
-		{
-		  eventprob = log(param0[m2mmm(from,
-					     to, (long) numpop)]);
-		}
-	      else
-		{
-		  eventprob = log(param0[m2mmm(from,
-					     to, (long) numpop)]/param0[to]);
-		}
+	      eventprob = log(migration_M(world, m2mmm(from, to, (long) numpop), to));
 	      /* the event density is the route's full rate, as in the waiting
 	         term: geo * M / mu_rate (it used to be M alone, wrong for moves
 	         that change the number of migration events or rescale times) */
@@ -2547,8 +2526,8 @@ long scaler_update(world_fmt *world)
             a = mlh_alpha(world, i);
           else
             {
-              if (!world->options->usem)
-                continue;
+              if (!migration_is_M(world, i))
+                continue;   /* xNm = Theta*M (use-M=NO, S/M entries) stays */
               m2mm(i, numpop, &from, &to);
               a = -mlh_alpha(world, to);
             }
@@ -2648,15 +2627,13 @@ long scaler_update(world_fmt *world)
       world->param0[i] *= c;
       P++;
     }
-  // with use-M=NO param0 holds xNm = Theta*M, which the move leaves unchanged
-  if (world->options->usem)
-    {
-      for (i = numpop; i < numpop2; i++)
-        {
-          world->param0[i] /= c;
-          Q++;
-        }
-    }
+  // an xNm parameter (use-M=NO, S/M entries) = Theta*M is left unchanged
+  for (i = numpop; i < numpop2; i++)
+    if (migration_is_M(world, i))
+      {
+        world->param0[i] /= c;
+        Q++;
+      }
   precalc_world(world);   // rebuild the rate tables derived from param0
 
   // ---- scale every event time by c; this also recomputes the tree likelihood ----
@@ -3921,7 +3898,7 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 	      //1229if(world->options->custm2[j]!='d')
 	      //1229  {
 	      m2mm(j0,world->numpop,&frompop, &topop);
-	      if(world->options->usem)
+	      if(migration_is_M(world, j0))
 		mysnprintf(stemp,LINESIZE, "M_%li->%li", frompop+1, topop+1);
 	      else
 		mysnprintf(stemp,LINESIZE,"Theta_%li*M_%li->%li", topop+1, frompop+1, topop+1);
@@ -4128,7 +4105,7 @@ bayes_print_accept(FILE * file,  world_fmt *world)
 	  else if (j < numpop2) // migration rates
 	    {
 	      m2mm (j, world->numpop, &frompop, &topop);
-	      if(world->options->usem)
+	      if(migration_is_M(world, j))
                 {
 		  mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
                 }
@@ -4259,7 +4236,7 @@ bayes_print_hyperprior(FILE * file,  world_fmt *world)
 	      if(trials>1)
 		{
 		  m2mm (j, numpop, &frompop, &topop);
-		  if(world->options->usem)
+		  if(migration_is_M(world, j))
 		    {
 		      mysnprintf(stemp, LINESIZE, "M_%li->%li", frompop+1, topop+1);
 		    }
@@ -4721,7 +4698,6 @@ void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt 
     long frompop, topop;
     long frompop2, topop2;
     char *custm2 = world->options->custm2;
-    boolean usem = world->options->usem;
     bayes_fmt *bayes = world->bayes;
     *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"# Order of the parameters:\n");
     *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"# Parameter-number Parameter\n");
@@ -4753,7 +4729,7 @@ void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt 
 	    m2mm(pa0,numpop,&frompop,&topop);
 	    if((pa0==pa) && (custm2[pa0]=='*'))
 	      {
-		if(usem)
+		if(migration_is_M(world, pa0))
 		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li)\n", pa+1, "M", frompop+1, topop+1);
 		else
 		  *bufsize += mysnprintf( *buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li\n", pa+1, "xNm", frompop+1, topop+1, "M", frompop+1, topop+1, "Theta", topop+1);
@@ -4761,7 +4737,7 @@ void print_param_order(char **buf, long *bufsize, long *allocbufsize, world_fmt 
 	    else
 	      {
 		m2mm(pa,numpop,&frompop2,&topop2);
-		if(usem)
+		if(migration_is_M(world, pa0))
 		  *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) =  %s_(%li,%li) [%c]\n", pa+1, "M", frompop+1, topop+1, "M", frompop2+1, topop2+1, custm2[pa0]);
 		else
 		  *bufsize += mysnprintf(*buf + *bufsize,LINESIZE,"#@ %6li    %s_(%li,%li) = %s_(%li,%li)*%s_%li  = %s_(%li,%li) = %s_(%li,%li)*%s_%li [%c]\n",
@@ -5129,7 +5105,7 @@ void print_bayes_mdimfileheader(FILE *file, long interval, world_fmt* world, dat
         {
             m2mm(pa,numpop,&frompop,&topop);
             bufsize += mysnprintf(buf+bufsize,LINESIZE,"\t%s_%li_%li",
-                               (world->options->usem ? "M" : "xNm"), frompop+1, topop+1);
+                               (migration_is_M(world, pa) ? "M" : "xNm"), frompop+1, topop+1);
         }
     }
     if(bayes->mu)
@@ -6156,9 +6132,12 @@ bayes_set_param (MYREAL *param, MYREAL newparam, long which, char *custm2, long 
 	param[mm2m(topop,frompop,numpop)] = newparam; // two parameter equal
 	break;
       case 'S':
+	/* the parameter is the number of migrants xNm (see migration_is_M()):
+	   symmetric migrants = the same xNm in both directions; M_ij = xNm/Theta_j
+	   then holds at every Theta */
 	m2mm (which, numpop, &frompop, &topop);
-	param[mm2m(frompop,topop,numpop)] = newparam; // makes the
-	param[mm2m(topop,frompop,numpop)] = param[mm2m(frompop,topop,numpop)] * param[topop] / param[frompop]; // two parameter equal
+	param[mm2m(frompop,topop,numpop)] = newparam;
+	param[mm2m(topop,frompop,numpop)] = newparam;
 	break;
       case 'm':
 	handle_averages('m', newparam, which, numpop, custm2,  param);
@@ -6173,17 +6152,11 @@ bayes_set_param (MYREAL *param, MYREAL newparam, long which, char *custm2, long 
 	      }
 	  }
 	else
-	  {
-	    m2mm (which, numpop, &frompop, &topop);
-	    nmig = param[topop] * newparam;
+	  {   /* mean migrants: every M entry has the same xNm (see 'S') */
+	    (void) nmig;
 	    for(i=numpop;i<numpop*numpop; ++i)
-	      {
-		if(custm2[i]=='M')
-		  {
-		    m2mm (i, numpop, &frompop, &topop);
-		    param[i] = nmig / param[topop]; // makes the 
-		  }
-	      }
+	      if(custm2[i]=='M')
+		param[i] = newparam;
 	  }
 	break;
       case 'd':

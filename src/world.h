@@ -85,6 +85,7 @@ extern void test_loci_like (nr_fmt * nr, MYREAL *param0, MYREAL *param1,
                                 char *this_string);
 
 
+extern boolean migration_is_M(world_fmt *world, long i);
 extern MYREAL migration_M(world_fmt *world, long i, long topop);
 extern void precalc_world (world_fmt * world);
 extern void reprecalc_world (world_fmt * world, long that);

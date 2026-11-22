@@ -136,7 +136,7 @@ MYREAL waiting_M(long pop,long to,
   MYREAL expected = 0.0;
   MYREAL line;
   MYREAL interval = t1 - t0;
-  MYREAL pr = usem ? 1.0 : param[to];
+  MYREAL pr = (usem && migration_is_M(world, pop)) ? 1.0 : param[to];
   for(i=0;i<numpop; i++)
     {
       line = lineages[i];
@@ -308,7 +308,7 @@ void calculate_expected_values(tetra **eventbins,
           m = mm2m(q, p, numpop);   /* lineages in p move to q (backward) */
           if (world->bayes->map[m][1] == INVALID)
             continue;
-          pr = usem ? 1.0 : (double) world->param0[p];
+          pr = (usem && migration_is_M(world, m)) ? 1.0 : (double) world->param0[p];
           if (pr > 0.0)
             skyline_add_exposure(eventbins, eventbinnum, m, t0, t1, binsize, k * inv_mu_rate / pr);
         }

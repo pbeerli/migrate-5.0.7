@@ -3678,7 +3678,7 @@ void  set_paramstr(char *paramstr, long j, world_fmt *world)
       if (j < numpop2)
 	{
 	  m2mm (j, numpop, &frompop, &topop);
-	  if(usem)
+	  if(migration_is_M(world, j))
 	    {
 		mysnprintf(paramstr,LINESIZE, "M_%li->%li", frompop+1, topop+1);
 	    }
