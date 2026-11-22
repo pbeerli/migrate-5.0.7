@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 22  Migrate 6.1.102 custom-migration S (symmetric migrants) and M (mean migrants)
+             now sample the number of migrants xNm in Bayesian runs: the MIG prior, start
+             value and reported value are xNm (as in Migrate 7); before, the prior was
+             used as a prior on M.
 November 22  Migrate 6.1.101 Base counts of invariant sites in the infile (#*freq lines, from
              vcf2mig.py --abbrevref) went to the wrong loci and could crash; the outfile
              now reports them. vcf2mig.py --snpinvariants writes the snp-invariants line.
