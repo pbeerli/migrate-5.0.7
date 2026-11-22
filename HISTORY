@@ -12,6 +12,9 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 22  Migrate 6.1.101 Base counts of invariant sites in the infile (#*freq lines, from
+             vcf2mig.py --abbrevref) went to the wrong loci and could crash; the outfile
+             now reports them. vcf2mig.py --snpinvariants writes the snp-invariants line.
 November 21  Migrate 6.1.100 New option snp-invariants={total sites per locus} (last value
              repeats): SNP loci are analysed with their invariant sites added. The old
              freqs-from-data ... [S] form left the cold chain stuck when heating was on.
