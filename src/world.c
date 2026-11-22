@@ -405,6 +405,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->joint_block = options->joint_block;
     wopt->mlscale = options->mlscale;
     wopt->totalsites = options->totalsites;
+    wopt->snpsites = options->snpsites;
+    wopt->snpsites_num = options->snpsites_num;
     wopt->simulation = options->simulation;
     wopt->datatype = options->datatype;
     if(wopt->bayes_infer)

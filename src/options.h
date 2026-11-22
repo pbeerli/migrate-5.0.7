@@ -219,6 +219,7 @@ extern void show_startparam(FILE *file, option_fmt *options, short key, boolean 
 extern void print_parm_delimiter(long *bufsize, char **buffer, long *allocbufsize);
 extern void print_parm_smalldelimiter(long *bufsize, char **buffer, long *allocbufsize);
 extern void print_parm_br(long *bufsize, char **buffer, long *allocbufsize);
+extern long snp_total_sites(const long *snpsites, long snpsites_num, long locus);
 extern void print_parm_comment(long *bufsize, char **buffer, long *allocbufsize, char message[]);
 extern void print_parm_mutable_comment(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);
 extern void print_parm_mutable(long *bufsize, char **buffer, long *allocbufsize, char string[], ...);

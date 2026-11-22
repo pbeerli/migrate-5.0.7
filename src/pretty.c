@@ -6278,13 +6278,12 @@ void pdf_print_data_summary(world_fmt * world, option_fmt *options, data_fmt * d
 	}
     }
     pdf_advance(&page_height);
-    if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
+    if(options->snpsites_num>0 && strchr(SNPTYPES,options->datatype))
       {
-	long invar = 0;
+	double invar = 0.0;
         for (locus=0;locus<data->loci;locus++)
-          invar += data->totalsites[locus];
-        invar = (long) invar / data->loci;     
-	pdf_printf(left_margin, page_height,'L', "[On average there are %li invariant sites per locus]\n",options->totalsites - invar);
+          invar += (double) (snp_total_sites(options->snpsites, options->snpsites_num, locus) - data->totalsites[locus]);
+	pdf_printf(left_margin, page_height,'L', "[snp-invariants: on average %.0f invariant sites per locus are added to the SNPs]\n",invar / data->loci);
 	pdf_advance(&page_height);
       }
     

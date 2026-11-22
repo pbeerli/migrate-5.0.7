@@ -1515,7 +1515,6 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
   mutationmodel_fmt *s;
   boolean old = (!data->oneliner);// && !strchr(SEQUENCETYPES, world->mutationmodels[sublocistart].datatype));
   long zminus=0;
-  long oldsite;
   site_fmt **datapart = NULL;  // MPI data on demand will use this, the other compile version treat this as a
   // a reference to the data->yy section
 #if defined(MPI) && defined(MPIDATAONDEMAND)
@@ -1705,32 +1704,39 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
       zpop = z;
     }
   // snp and hapmap stuff:
+  /* snp-invariants: the total is per locus; the invariant sites (total
+     minus the SNPs of all SNP subloci of the locus) go to the first SNP
+     sublocus, the others get none (their likelihood is still the
+     unconditional sequence likelihood) */
+  const long snptotal = snp_total_sites(options->snpsites, options->snpsites_num, locus);
+  double snpinvariants = (double) snptotal;
+  if (snptotal > 0)
+    {
+      for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
+	{
+	  s = &world->mutationmodels[sublocus];
+	  if (strchr(SNPTYPES,s->datatype))
+	    {
+	      long k;
+	      for (k = 0; k < s->numpatterns; k++)
+		snpinvariants -= s->aliasweight[k];
+	    }
+	}
+      if (snpinvariants < 0.0)
+	usererror("snp-invariants: locus %li has %.0f SNPs but only %li sites in total\n",
+		  locus + 1, (double) snptotal - snpinvariants, snptotal);
+    }
   for(sublocus=sublocistart; sublocus < sublociend; sublocus++)
     {
       s = &world->mutationmodels[sublocus];
       if (strchr(SNPTYPES,s->datatype))
 	{
-	  oldsite = s->numpatterns;
 	  invi = s->numpatterns; //seq->endsite;
 	  //s->numpatterns += 4; //seq->endsite += 4;
-	  /* s->baseref is unconditionally allocated (zero-filled) for
-	     every mutationmodel_fmt regardless of datatype, so `!= NULL`
-	     alone is never a real guard for "real reference counts were
-	     actually read" -- it is always true. Without a real
-	     reference (baseref[0], the total count, still 0), the branch
-	     below divides by that zero total and poisons every base
-	     frequency with NaN, which then cascades into a
-	     NULL-histogram-pointer segfault in bayes_combine_loci() once
-	     every locus's posterior comes out unusable. Ported from
-	     migrate-codex-7, where this exact defect was found and fixed
-	     under the same name ("SNP/Hapmap invariant reconstruction
-	     (empty baseref)") very early in that project's baseline
-	     work; never previously ported back here. */
-	  if (options->totalsites>0 || (s->baseref != NULL && s->baseref[0] > 0))
+	  if (snptotal>0 || (s->baseref != NULL && s->baseref[0] > 0))
 	    {
 	      if (s->baseref != NULL && s->baseref[0] > 0)
 		{
-		  //long invsites = options->totalsites - oldsite;
 		  long total = s->baseref[0];
 		  s->basefreqs[NUC_A] = (double) s->baseref[2+NUC_A] / total;
 		  s->basefreqs[NUC_C] = (double) s->baseref[2+NUC_C] / total;
@@ -1743,23 +1749,23 @@ void makevalues(world_fmt *world, option_fmt *options, data_fmt *data, long locu
 		}
 	      else
 		{
-		  long invsites = options->totalsites - oldsite;
+		  /* invariant sites = total minus the variable sites (not the
+		     patterns, which can be fewer); all on the first SNP sublocus */
+		  const double invsites = snpinvariants;
+		  snpinvariants = 0.0;
 		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_A];
 		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_C];
 		  s->aliasweight[invi++] = invsites*s->basefreqs[NUC_G];
 		  s->aliasweight[invi]   = invsites*s->basefreqs[NUC_T];
 		}
-	      // this section produces an issue with the mutationmodel copying klone_mutationmodel....
-	      // perhaps adjust for heated chains and the last for EARTH
-	      //world->options->datatype = 's';
-	      //s->datatype = 's';  // make sure this works DEBUG totalsites invsites
-	      //s->numpatterns += s->addon;
-	      //s->numsites += s->addon;
+	      /* the SNP likelihoods (treelike_snp, pseudo_tl_snp) add the four
+		 constant patterns with these weights and drop the conditioning
+		 on variable sites: the locus is scored like a sequence. Before
+		 2026-11-21 heating_mutationmodel_baseref_finish() turned the
+		 locus into sequence data after the start genealogy had been
+		 scored with the SNP likelihood: the cold chain then rejected
+		 every genealogy, and without heating nothing was converted */
 	      s->baseref_used = TRUE;
-	      //if (s->numsites < s->numpatterns)
-	      //error("makevalues: numsites < numpatterns");
-	      //s->addon = 0;
-	      fprintf(stderr,"Reconstituted Sequence data: SNPs + invariants sites [mcmcmc=%f]\n",world->heat);
 	    }
 	}
     }
@@ -4262,6 +4268,9 @@ pseudo_tl_snp (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
   (void) world;
 
   const long endsite = s->numpatterns;
+  /* snp-invariants: the four constant patterns after the SNPs carry the
+     invariant sites, no conditioning on variable sites */
+  const long scoredsites = s->baseref_used ? endsite + FOUR : endsite;
   const long rcategs = s->numsiterates;
   const long categs  = s->numcategs;
   contribarr tterm, invariants;
@@ -4284,9 +4293,12 @@ pseudo_tl_snp (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
     summ = 0.0;
     memset (invariants, 0, sizeof (contribarr));
     snp_invariants (s, xs, invariants, world, world->locus, xx1, proposal->mf[xs]);
+    if (s->baseref_used)
+      for (j = 0; j < rcategs; j++)
+        invariants[j] = 1.0;
     if ((rcategs | categs) == 1)
     {
-        for (i = 0; i < endsite; i++)
+        for (i = 0; i < scoredsites; i++)
         {
             x1 = &(xx1[i][0]);
             tterm[0] =
@@ -4331,7 +4343,9 @@ pseudo_tl_snp (mutationmodel_fmt *s, long xs, phenotype xx1, phenotype xx2, MYRE
     }
     else
     {
-      for (i = 0; i < endsite - s->addon; i++)// was 4 instead of s->addon
+      /* was endsite - s->addon: endsite (numpatterns) holds only the SNP
+         patterns, so the last four SNP patterns were left out */
+      for (i = 0; i < scoredsites; i++)
         {
             //check against JF code: k = s->category[s->alias[i] - 1] - 1;
             for (j = 0; j < rcategs; j++)

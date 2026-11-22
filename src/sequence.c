@@ -1503,6 +1503,9 @@ MYREAL
 treelike_snp (mutationmodel_fmt *s, long xn, world_fmt * world, long locus)
 {
   const long endsite = s->numpatterns;
+  /* snp-invariants: the four constant patterns after the SNPs carry the
+     invariant sites, no conditioning on variable sites */
+  const long scoredsites = s->baseref_used ? endsite + FOUR : endsite;
   const long rcategs = s->numsiterates;
   worldoption_fmt *opt;
   MYREAL scale;
@@ -1527,6 +1530,9 @@ treelike_snp (mutationmodel_fmt *s, long xn, world_fmt * world, long locus)
   summ = 0.0;
   /* snp invariants */
   snp_invariants (s, xn, invariants,world, locus, p->x[xn].s, p->scale[xn]);
+  if (s->baseref_used)
+    for (j = 0; j < rcategs; j++)
+      invariants[j] = 1.0;
   for (j = 0; j < rcategs; j++)
     {
       if(invariants[j] <= 0.0)
@@ -1539,7 +1545,7 @@ treelike_snp (mutationmodel_fmt *s, long xn, world_fmt * world, long locus)
     }
   if(rcategs==1)
     {
-      for (i = 0; i < endsite; i++)
+      for (i = 0; i < scoredsites; i++)
 	{
 	  scale = p->scale[xn][i];
 	  x1 = &(p->x[xn].s[i][0]);
@@ -1555,7 +1561,7 @@ treelike_snp (mutationmodel_fmt *s, long xn, world_fmt * world, long locus)
     }
   else
     {
-      for (i = 0; i < endsite; i++)
+      for (i = 0; i < scoredsites; i++)
 	{
 	  sumterm = 0.0;
 	  scale = p->scale[xn][i];

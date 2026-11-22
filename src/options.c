@@ -106,7 +106,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/, "phased-infile" /*37*/}
-#define NUMNUMBER 79
+#define NUMNUMBER 80
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -121,7 +121,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale","joint-samples","divergence-order"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale","joint-samples","divergence-order","snp-invariants"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -626,6 +626,8 @@ void init_options (option_fmt * options)
     options->has_autotune = TRUE;
     options->autotune=AUTOTUNEDEFAULT;
     options->totalsites = 0;
+    options->snpsites = NULL;
+    options->snpsites_num = 0;
     // speciation
     options->species_model_dist = NORMAL_DIST; //NORMALSHORTCUT_DIST;
     options->has_speciation=FALSE;
@@ -2831,6 +2833,8 @@ destroy_options (option_fmt * options)
     myfree(options->mg);
     if (options->divergence_rank != NULL)
       myfree(options->divergence_rank);
+    if (options->snpsites != NULL)
+      myfree(options->snpsites);
     destroy_startparameters(options);
     myfree(options->mu_rates);
     myfree(options->inheritance_scalars);
@@ -3037,24 +3041,61 @@ void print_parm_ttratio(long *bufsize, char **buffer,  long *allocbufsize, optio
     }
 }
 
+/// snp-invariants=: total sites (variable + invariant) of the SNP loci; the
+/// last value repeats for the remaining loci; 0 = not given
+long snp_total_sites(const long *snpsites, long snpsites_num, long locus)
+{
+  if (snpsites == NULL || snpsites_num <= 0)
+    return 0;
+  return snpsites[locus < snpsites_num ? locus : snpsites_num - 1];
+}
+
+/// set the total-sites list from a string of numbers ("NO" clears it)
+static void set_snp_invariants(option_fmt *options, char *value)
+{
+  char *tmp;
+  myfree(options->snpsites);
+  options->snpsites = NULL;
+  options->snpsites_num = 0;
+  options->totalsites = 0;
+  if (value == NULL || toupper((unsigned char) value[0]) == 'N')
+    return;
+  get_next_word(&value,"{}:,; []",&tmp);
+  while (tmp != NULL)
+    {
+      if (tmp[0] != '\0' && isdigit((unsigned char) tmp[0]))
+	{
+	  options->snpsites = (long *) myrealloc(options->snpsites, (size_t) (options->snpsites_num + 1) * sizeof(long));
+	  options->snpsites[options->snpsites_num++] = atol(tmp);
+	}
+      get_next_word(&value,"{}:,; []",&tmp);
+    }
+  if (options->snpsites_num > 0)
+    options->totalsites = options->snpsites[0];
+}
+
 /// print base frequency into parmfile buffer
 void print_parm_freqfrom(long *bufsize, char **buffer,  long *allocbufsize, option_fmt * options)
 {
-  char totalsites[LINESIZE];
-  if (options->totalsites>0)
-    {
-      mysnprintf(totalsites,LINESIZE,"[%li]",options->totalsites);
-    }
-  else
-    {
-      mysnprintf(totalsites,LINESIZE,"");
-    }
   if (options->freqsfrom)
-    print_parm_mutable(bufsize, buffer, allocbufsize, "freqs-from-data=YES%s %s\n",
-		       options->freqsfrom_locus ? ":locus" : "", totalsites);
+    print_parm_mutable(bufsize, buffer, allocbufsize, "freqs-from-data=YES%s\n",
+		       options->freqsfrom_locus ? ":locus" : "");
   else
-    print_parm_mutable(bufsize,buffer, allocbufsize, "freqs-from-data=NO:%f,%f, %f, %f %s\n", options->freqa,
-		       options->freqc, options->freqg, options->freqt,totalsites);
+    print_parm_mutable(bufsize,buffer, allocbufsize, "freqs-from-data=NO:%f,%f, %f, %f\n", options->freqa,
+		       options->freqc, options->freqg, options->freqt);
+  if (options->snpsites_num > 0)
+    {
+      char *line = (char *) mycalloc((size_t) (options->snpsites_num + 1) * 24 + LINESIZE, sizeof(char));
+      long pos = sprintf(line, "snp-invariants={");
+      long i;
+      for (i = 0; i < options->snpsites_num; i++)
+	pos += sprintf(line + pos, "%s%li", i > 0 ? " " : "", options->snpsites[i]);
+      sprintf(line + pos, "}");
+      print_parm(bufsize, buffer, allocbufsize, line);
+      myfree(line);
+    }
+  else
+    print_parm(bufsize, buffer, allocbufsize, "snp-invariants=NO");
 }
 
 /// print whether one uses categories and in what file they are into parmfile buffer
@@ -4110,13 +4151,19 @@ long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * option
   print_parm_comment(&bufsize, buffer, allocbufsize,"        SEQENCEDATA: typical linked stretches of DNA, for example mtDNA");
   print_parm_comment(&bufsize, buffer, allocbufsize,"        NUCLEOTIDE: linked DNA stretches, all invariable sites removed");
   print_parm_br(&bufsize, buffer, allocbufsize);
-  print_parm_comment(&bufsize, buffer, allocbufsize,"         freqs-from-data=<YES | YES:locus | NO: freq(A), freq(C), freq(G), freq(T)> <[totalsites]>");
+  print_parm_comment(&bufsize, buffer, allocbufsize,"         freqs-from-data=<YES | YES:locus | NO: freq(A), freq(C), freq(G), freq(T)>");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               calculate the prior base frequencies from the data,");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               separately for every sublocus (YES) or once per locus,");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               pooled over its linked subloci (YES:locus, for loci cut");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               into haplotyping blocks), or specify the frequencies");
-  print_parm_comment(&bufsize, buffer, allocbufsize, "               the optional totalsites will be used to calculate");
-  print_parm_comment(&bufsize, buffer, allocbufsize, "               invariant sites if the datatype is snps, otherwise it will not be used.");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "         snp-invariants=<NO | {TOTAL1 TOTAL2 ...}> SNP data (datatype N or");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               (n...) loci) hold only the variable sites; TOTAL is the number");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               of sites of a locus with the invariant ones, one value per");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               locus, the last value repeats. The invariant sites (TOTAL minus");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               the SNPs) are added with the base frequencies and the locus is");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               analysed like a sequence: Theta is per site. With NO the SNP");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               likelihood is conditioned on variable sites (Theta per variable site).");
+  print_parm_comment(&bufsize, buffer, allocbufsize, "               Example: snp-invariants={1000 950 1200}");
   print_parm_comment(&bufsize, buffer, allocbufsize, "         ttratio=<RATIO1 RATIO2 ....> Default is 2.0,");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               kappa, the transition/transversion RATE ratio (K2P, F84, HKY,");
   print_parm_comment(&bufsize, buffer, allocbufsize, "               TN: kappa1 kappa2); not the expected Ts/Tv count ratio.");
@@ -5443,8 +5490,8 @@ booleancheck (option_fmt * options, char *var, char *value)
 	      options->freqsfrom_locus = TRUE;
 	    strtok (value, "[");
             tmp = strtok (NULL, "]");
-            if (tmp != NULL)
-                options->totalsites = atol ((char *) tmp);          
+            if (tmp != NULL && strpbrk(tmp, "0123456789") != NULL)
+	      set_snp_invariants(options, tmp); /* old form [S]: one value for all loci */
 	  }
 	else
 	  {
@@ -5467,10 +5514,8 @@ booleancheck (option_fmt * options, char *var, char *value)
 		// be used to calculate weight for the invariant sites per locus (averaged),
 		// freq * (S-N)
 		tmp = strtok (NULL, "\n");
-		if (tmp != NULL)
-		  {
-		    options->totalsites = atol ((char *) tmp);
-		  }
+		if (tmp != NULL && strpbrk(tmp, "0123456789") != NULL)
+		  set_snp_invariants(options, tmp); /* old form [S]: one value for all loci */
 	      }
         }
         break;
@@ -7036,6 +7081,9 @@ numbercheck (option_fmt * options, char *var, char *value)
 	    options->skylinemodel[i++] = (char) ((*c == 'G' || *c == 'C') ? tolower(*c) : *c);
 	options->skylinemodel[i] = '\0';
       }
+      break;
+    case 79: /*snp-invariants=<NO | {total sites per locus}>*/
+      set_snp_invariants(options, value);
       break;
     case 72: /*skyline-times={t1 t2 ...}: boundaries of the skyline=PARAM segments*/
       options->skylinetimes_num = 0;

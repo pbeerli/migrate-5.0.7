@@ -50,6 +50,7 @@
 #include "migration.h"
 #include "sighandler.h"
 #include "tools.h"
+#include "options.h"
 #include "mittag_leffler.h"
 #include "mlf_hastings.h"
 #include "world.h"
@@ -204,8 +205,9 @@ static double mlh_growth(world_fmt *world, long pop)
 double mlh_locus_sites(world_fmt *world, long locus)
 {
   long s, n = 0;
-  if (world->options->totalsites > 0 && strchr(SNPTYPES, world->options->datatype))
-    return (double) world->options->totalsites;
+  const long total = snp_total_sites(world->options->snpsites, world->options->snpsites_num, locus);
+  if (total > 0 && strchr(SNPTYPES, world->options->datatype))
+    return (double) total;
   for (s = world->sublocistarts[locus]; s < world->sublocistarts[locus + 1]; s++)
     n += world->mutationmodels[s].numsites;
   return n > 0 ? (double) n : 1.0;

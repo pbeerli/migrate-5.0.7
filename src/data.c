@@ -59,6 +59,7 @@ Data manipulation routines
 #include "migration.h"
 #include "sighandler.h"
 #include "tools.h"
+#include "options.h"
 #include "tree.h"
 #include "migrate_mpi.h"
 #include "hash.h"
@@ -371,7 +372,7 @@ static void skip_invariant_snp_loci(data_fmt *data, world_fmt *world)
 	{
 	  mutationmodel_fmt *s = &world->mutationmodels[sublocus];
 	  long site;
-	  long sites = s->numsites - (s->baseref_used ? 4 : 0);
+	  long sites = s->numsites;
 	  if (s->datatype != 'n')
 	    {
 	      allsnp = FALSE;
@@ -875,8 +876,6 @@ free_datapart (data_fmt * data, world_fmt * world , long locus)
 	    {
 	      mutationmodel_fmt *s = &world->mutationmodels[sublocus];
 	      long sites = s->numsites;
-	      if (s->baseref_used)
-		sites -= 4; //snps + ref sequence derived invariants -- to avoid memory smash
 	      free_sites (data->yy[pop][ind][sublocus][0], sites, s->dataclass == SITECHARACTER);
 	      if(xxxx)
 		free_sites (data->yy[pop][ind][sublocus][1], sites, s->dataclass == SITECHARACTER);
@@ -3388,13 +3387,13 @@ print_data_summary (FILE * file, world_fmt * world, option_fmt * options,
 	fprintf(file,"\n");
       }
   }
-  if(options->totalsites>0 && strchr(SNPTYPES,options->datatype))
+  if(options->snpsites_num>0 && strchr(SNPTYPES,options->datatype))
     {
-      long invar = 0;
+      /* data->totalsites[locus]: the SNPs of the locus */
+      double invar = 0.0;
       for (locus=0;locus<data->loci;locus++)
-	invar += data->totalsites[locus];
-      invar = (long) invar / data->loci;
-      fprintf(file,"[On average there are %li invariant sites per locus]\n",options->totalsites-invar);
+	invar += (double) (snp_total_sites(options->snpsites, options->snpsites_num, locus) - data->totalsites[locus]);
+      fprintf(file,"[snp-invariants: on average %.0f invariant sites per locus are added to the SNPs]\n",invar / data->loci);
     }
     
   // 
