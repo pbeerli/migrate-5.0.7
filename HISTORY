@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 21  Migrate 6.1.100 New option snp-invariants={total sites per locus} (last value
+             repeats): SNP loci are analysed with their invariant sites added. The old
+             freqs-from-data ... [S] form left the cold chain stuck when heating was on.
+             SNP proposals with gamma rates skipped the last four site patterns.
 November 21  Migrate 6.1.99 SNP loci without a variable site (for example after removing a
              population) are skipped with a warning instead of stopping the run. SNP loci
              with base frequencies from the data read freed loci (crash). The obsolete
