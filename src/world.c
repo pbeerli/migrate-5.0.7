@@ -1970,9 +1970,25 @@ copy_time (world_fmt * world, timelist_fmt * ltl, long from,
 /// added speciation processes in 2013 add 2x to the migproblist, first part mig second part spec
 /// M of migration route i into population topop: param0 holds M, or
 /// xNm = Theta_topop * M with use-M=NO
+/// is the migration parameter of route i an M (else xNm = Theta_to * M)?
+/// xNm with use-M=NO, and in Bayesian runs for the 4Nm-constrained entries
+/// S (symmetric migrants) and M (mean migrants), whose sampled parameter is
+/// the number of migrants
+boolean migration_is_M(world_fmt *world, long i)
+{
+  if (!world->options->usem)
+    return FALSE;
+  if (i >= world->numpop && i < world->numpop2 && world->options->bayes_infer
+      && (world->options->custm2[i] == 'S' || world->options->custm2[i] == 'M'))
+    return FALSE;
+  return TRUE;
+}
+
+/// M of migration route i into population topop: param0 holds M, or
+/// xNm = Theta_topop * M (see migration_is_M())
 MYREAL migration_M(world_fmt *world, long i, long topop)
 {
-  if (world->options->usem)
+  if (migration_is_M(world, i))
     return world->param0[i];
   return world->param0[i] / world->param0[topop];
 }
@@ -1985,7 +2001,6 @@ precalc_world (world_fmt * world)
     long msta;
     long msto;
     long i, j;
-    boolean usem = world->options->usem;//@@
     MYREAL px;
     MYREAL tmp = 0.;
     memset (world->mig0list, 0, sizeof (MYREAL) * (size_t) world->numpop);
@@ -2003,7 +2018,7 @@ precalc_world (world_fmt * world)
         for (i = msta, j = 0; i < msto; i++, j++)
         {
 	  //1229 deletion of 'd' section
-	      px = usem ? world->param0[i] : world->param0[i]/world->param0[pop];//@@
+	      px = migration_M(world, i, pop);
 	      tmp                        = world->data->geo[i] * px;
 	      world->mig0list[pop]      += tmp;
 	      world->migproblist[pop][j] = tmp;
@@ -2043,7 +2058,6 @@ reprecalc_world (world_fmt * world, long that)
     long msto;
     long i, j;
     long thatpop = that;
-    boolean usem = world->options->usem;//@@
     MYREAL px;
     MYREAL tmp = 0.;
     //    memset (world->mig0list, 0, sizeof (MYREAL) * world->numpop);
@@ -2065,7 +2079,7 @@ reprecalc_world (world_fmt * world, long that)
 	for (i = msta, j = 0; i < msto; i++, j++)
 	  {
 	    //1229 deleted 'd' section
-	      px = usem ? world->param0[i] : world->param0[i]/world->param0[thatpop];//@@
+	      px = migration_M(world, i, thatpop);
 	      tmp                        = world->data->geo[i] * px;
 	      world->mig0list[thatpop]      += tmp;
 	      world->migproblist[thatpop][j] = tmp;

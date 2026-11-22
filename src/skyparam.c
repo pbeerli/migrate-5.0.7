@@ -817,7 +817,7 @@ static void skyline_label(world_fmt *world, long k, char *label, size_t size)
   else
     {
       m2mm(k, world->numpop, &from, &to);
-      if (world->options->usem)
+      if (migration_is_M(world, k))
         snprintf(label, size, "M_%li->%li", from + 1, to + 1);
       else
         snprintf(label, size, "Theta_%li*M_%li->%li", to + 1, from + 1, to + 1);

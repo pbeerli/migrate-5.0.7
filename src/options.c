@@ -58,6 +58,7 @@ $Id: options.c 2158 2013-04-29 01:56:20Z beerli $
 #include "options.h"
 #include "growth.h"
 #include "mlalpha.h"
+#include "world.h"
 
 #ifdef DMALLOC_FUNC_CHECK
 #include <dmalloc.h>
@@ -2438,10 +2439,19 @@ synchronize_param (world_fmt * world, option_fmt * options)
                     world->options->sym2param[ss2][2] = ii;
                     world->options->sym2param[ss2++][3] = jj;
                     world->options->sym2n = ss2;
-                    summ = (world->param0[z] * world->param0[jj] +
-                            world->param0[zz] * world->param0[ii]) / 2.;
-                    world->param0[z] = summ / world->param0[jj];
-                    world->param0[zz] = summ / world->param0[ii];
+                    if (!migration_is_M (world, z))
+                    {   /* Bayesian: the S parameter is the number of migrants
+                           xNm (see migration_is_M()): both directions share one xNm */
+                        summ = (world->param0[z] + world->param0[zz]) / 2.;
+                        world->param0[z] = world->param0[zz] = summ;
+                    }
+                    else
+                    {
+                        summ = (world->param0[z] * world->param0[jj] +
+                                world->param0[zz] * world->param0[ii]) / 2.;
+                        world->param0[z] = summ / world->param0[jj];
+                        world->param0[zz] = summ / world->param0[ii];
+                    }
                 }
                 break;
             case 'C':
@@ -2540,7 +2550,9 @@ synchronize_param (world_fmt * world, option_fmt * options)
                             {
                                 nsum++;
 				m2mm (z, world->numpop, &ii, &jj);
-                                summ += world->param0[z] * world->param0[jj];
+                                /* Bayesian: the M parameter is xNm (migration_is_M()) */
+                                summ += migration_is_M (world, z) ? world->param0[z] * world->param0[jj]
+                                                                  : world->param0[z];
                             }
                         }
                         summ /= nsum;
@@ -2549,7 +2561,7 @@ synchronize_param (world_fmt * world, option_fmt * options)
                             if (world->options->custm2[z] == 'M')
 			      {
 				m2mm (z, world->numpop, &ii, &jj);
-                                world->param0[z] = summ/world->param0[jj];
+                                world->param0[z] = migration_is_M (world, z) ? summ/world->param0[jj] : summ;
 			      }
 			  }
                     }
@@ -4652,9 +4664,12 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "       m       mean of M_ij, this can be a subgroup of migration rates");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               for example the M_1-3i are averaged and M_4,5i are estimated");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       M       means of 4Nm (diploid), 2Nm (haploid), Nm (mtDNA, Y-chromosome)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       M       means of 4Nm (diploid), 2Nm (haploid), Nm (mtDNA, Y-chromosome):");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               one shared number of migrants xNm, M_ij = xNm/Theta_j");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       s       symmetric migration rates M");
-    print_parm_comment(&bufsize, buffer, allocbufsize, "       S       symmetric migrants 4Nm");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "       S       symmetric migrants 4Nm: one xNm for both directions");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               (S and M: the parameter, its MIG prior, start value and");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "               reported value are xNm, as with use-M=NO)");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       a,b,c,d,...  any parameter group label for migration and theta");
     print_parm_comment(&bufsize, buffer, allocbufsize, "               this allows using averages of multiple groups [se example]");
     print_parm_comment(&bufsize, buffer, allocbufsize, "       ");

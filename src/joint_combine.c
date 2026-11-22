@@ -140,13 +140,7 @@ jc_set_run_options (const char *outfilename, boolean recover)
   jc_recover = recover;
 }
 
-/* M or xNm: 5.0.7 has use-M only (S/M models are not handled here) */
-static boolean
-migration_is_M (world_fmt *world, long i)
-{
-  (void) i;
-  return world->options->usem;
-}
+/* M or xNm: migration_is_M() in world.c (S/M models are excluded in jc_supported()) */
 
 /* ------------------------------------------------------------- layout */
 

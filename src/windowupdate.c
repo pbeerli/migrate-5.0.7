@@ -272,7 +272,6 @@ static void
 build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
 {
   const long d = world->numpop;
-  const boolean usem = world->options->usem;
   const MYREAL *param0 = world->param0;
   long from, to;
 
@@ -296,7 +295,7 @@ build_Q (world_fmt * world, long which, MYREAL which_value, MYREAL * Q)
           long idx = m2mmm (to, from, d);      /* forward route to -> from */
           MYREAL mval = (which >= 0 && world->bayes->map[idx][1] == which)
                         ? which_value : param0[idx];
-          rate = usem ? mval : mval / param0[from];
+          rate = migration_is_M(world, idx) ? mval : mval / param0[from];
           rate *= geo[idx] / mu_rate;
           Q[from * d + to] = rate;
           rowsum += rate;

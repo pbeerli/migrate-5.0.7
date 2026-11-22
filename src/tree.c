@@ -5808,11 +5808,10 @@ sum_migprob (world_fmt * world, long pop, long interval)
     long *lineages = world->treetimes[0].tl[interval].lineages;
     long msta = world->mstart[pop];
     long msto = world->mend[pop];
-    boolean usem = world->options->usem;
     MYREAL pk;
     for (i = msta; i < msto; i++)
     {
-      pk = usem ? world->param0[i] : world->param0[i]/world->param0[pop];
+      pk = migration_M(world, i, pop);
       result += pk;
     }
     return result * lineages[pop];
