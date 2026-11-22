@@ -10,7 +10,8 @@
 #
 # Created: 2020
 # Considerably modified and improved December 2025
-# last update: November 21, 2026 (--popmap, --iupac, locus selection, references by name)
+# last update: November 22, 2026 (--snpinvariants; November 21: --popmap, --iupac, locus selection,
+#              references by name)
 #
 # MIT licence
 # (c) Peter Beerli, Tallahassee 2020-2026
@@ -38,6 +39,8 @@ MAXMISSING = 1.0    # --maxmissing
 MAXLOCI = None      # --maxloci
 SEED = 1            # --seed
 LOCSUMMARY = None   # --locsummary
+SNPINVFILE = None   # --snpinvariants: file for the parmfile line snp-invariants={...}
+SNPTOTALS = None    # total sites per written SNP locus (None: not defined)
 POPNAMES = None     # population names from --popmap
 IUPACCODE = {frozenset('AG'): 'R', frozenset('CT'): 'Y', frozenset('AC'): 'M', frozenset('GT'): 'K',
              frozenset('CG'): 'S', frozenset('AT'): 'W', frozenset('ACT'): 'H', frozenset('CGT'): 'B',
@@ -56,6 +59,8 @@ def help(args):
     print("                  can be used")
     print("  --abbrevref ref1.fasta,ref2.fasta,... : reference in fasta format")
     print("                  for more info see next option, returns snps + invariant counts")
+    print("                  (#*freq lines in the infile: Migrate adds these invariant sites to the")
+    print("                  SNPs of each locus and estimates Theta per site)")
     print("  --ref ref1.fasta,ref2.fasta,... : reference in fasta format")
     print("                  several references can be given, for example for")
     print("                  each chromosome, if this option is NOT present then")
@@ -91,6 +96,19 @@ def help(args):
     print("                  that pass --minvar and --maxmissing")
     print("  --locsummary file: write a table of all loci (sites with SNPs, variable sites,")
     print("                  missing fraction, kept or not)")
+    print("  --snpinvariants file: for linked SNPs (--linksnp), write the parmfile")
+    print("                  line snp-invariants={total1 total2 ...} into file: the number of sites")
+    print("                  of every locus with its invariant sites, so that Migrate (6.1.100,")
+    print("                  7.0.124 or later) estimates Theta per site. With a reference the total")
+    print("                  is the contig length (--linksnp chrom) or the window length (--linksnp")
+    print("                  number, cut at the contig end); without a reference it is the position")
+    print("                  of the last SNP of the locus (--linksnp chrom; a lower bound, the locus")
+    print("                  is assumed to start at position 1) or the window length (the last")
+    print("                  window of a contig ends at its last SNP). With --bound")
+    print("                  the bound sets the length. Copy the line into the parmfile before 'end'.")
+    print("                  With --abbrevref the infile already holds the invariant sites of every")
+    print("                  locus (#*freq lines, base counts from the reference); Migrate uses them")
+    print("                  (6.1.101, 7.0.125 or later) and the line is not needed.")
     print("  Do not filter the VCF for minor allele frequency, Hardy-Weinberg equilibrium or")
     print("  linkage disequilibrium before converting: Migrate uses all variable sites of a")
     print("  locus, and these filters remove informative sites selectively.")
@@ -119,7 +137,7 @@ def parse_args(args):
     migratefile = None
     strictvcf = False
     refabbrev= False
-    global POPMAPFILE, IUPACOUT, MINVAR, MAXMISSING, MAXLOCI, SEED, LOCSUMMARY
+    global POPMAPFILE, IUPACOUT, MINVAR, MAXMISSING, MAXLOCI, SEED, LOCSUMMARY, SNPINVFILE
     argstring = " ".join(args)
     if "--help" in argstring or "-h" in argstring or "-help" in argstring:
         help(args)
@@ -183,7 +201,8 @@ def parse_args(args):
         IUPACOUT = key in args
         for key, conv, name in (('--minvar', int, 'MINVAR'), ('--maxmissing', float, 'MAXMISSING'),
                                 ('--maxloci', int, 'MAXLOCI'), ('--seed', int, 'SEED'),
-                                ('--locsummary', str, 'LOCSUMMARY')):
+                                ('--locsummary', str, 'LOCSUMMARY'),
+                                ('--snpinvariants', str, 'SNPINVFILE')):
             if key in args:
                 globals()[name] = conv(args[args.index(key)+1])
         # search for populationfile
@@ -790,6 +809,17 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
         elif linkedsnps == CHROMLINK:
             chrompos = convert_chrompos(positions)
             sitestr = " ".join([f'(n{len(si[1])})' for si in chrompos])
+            reflens = _reference_lengths(references)
+            totals = []
+            for ci, poslist in chrompos:
+                if bound is not None:
+                    total = abs(bound[1] - bound[0]) + 1
+                elif reflens is not None:
+                    total = reflens[ci]
+                else:
+                    total = max(poslist)
+                totals.append(max(total, len(poslist)))
+            _set_snp_totals(totals)
             linkedloci = len(chrompos)
             f.write(f'{numpop} {linkedloci} {vcffile}\n')
             f.write(f"# VCF file used:      {vcffile}\n")
@@ -800,6 +830,7 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
             f.write(f"{sitestr}\n")
         else:
             nucs = []
+            totals = []
             chrompos = convert_chrompos(positions)  # (chrom_index, [POS...])
 
             # bound-fixed origin (inclusive)
@@ -819,6 +850,13 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
 
                 groups = group_snp_positions(posu, delta=linkedsnps, bound=bound, chromlink=False)
                 nucs.extend([len(g[2]) for g in groups])
+                reflens = _reference_lengths(references)
+                for gi, (g0, g1, snps) in enumerate(groups):
+                    if bound is None and reflens is not None:
+                        g1 = min(g1, reflens[chrom_index])
+                    elif bound is None and gi == len(groups) - 1:
+                        g1 = max(snps)   # contig end unknown: the last SNP is a lower bound
+                    totals.append(max(g1 - g0 + 1, len(snps)))
 
                 # restrict to bound if present
                 #if b0 is not None:
@@ -845,6 +883,7 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
 
             loci = len(nucs)
             sitestr = " ".join([f'(n{si})' for si in nucs])
+            _set_snp_totals(totals)
 
             #@@@            
             f.write(f'{numpop} {loci} {vcffile}\n')
@@ -925,6 +964,38 @@ def write_migrate(migratefile, data, freqs, positions, sites, references, names,
             #print(f"{ni[idx]:<{namelen}}","".join(d))
             f.write(f'{ni[idx]:<{namelen}} {"".join(d)}\n')
     f.close()
+
+def _reference_lengths(references):
+    """contig lengths in use_chrom order, None without a reference"""
+    seqs = _refseq_list_from_references(references) if references is not None else None
+    return [len(x) for x in seqs] if seqs else None
+
+
+def _set_snp_totals(totals):
+    global SNPTOTALS
+    SNPTOTALS = totals
+
+
+def snp_invariants_line(totals):
+    """parmfile line; runs of equal values at the end collapse to one (the last value repeats)"""
+    t = list(totals)
+    while len(t) > 1 and t[-1] == t[-2]:
+        t.pop()
+    return "snp-invariants={" + " ".join(str(x) for x in t) + "}"
+
+
+def write_snp_invariants(filename):
+    if SNPTOTALS is None:
+        print("--snpinvariants: no line written; it needs linked SNPs (--linksnp chrom|number,")
+        print("                 without --ref): unlinked single SNPs and full sequences have no use for it")
+        return
+    line = snp_invariants_line(SNPTOTALS)
+    with open(filename, 'w') as f:
+        f.write(line + "\n")
+    n = len(SNPTOTALS)
+    print(f"--snpinvariants: {n} loci, {min(SNPTOTALS)}-{max(SNPTOTALS)} sites "
+          f"(mean {sum(SNPTOTALS) / n:.0f}) per locus, written to {filename}")
+
 
 def split_freq_by_lengths(freq, lengths, loc_prefix, sep=" "):
     """
@@ -1768,3 +1839,5 @@ if __name__ == "__main__":
     # Final write: always pass absolute positions_out
     write_migrate(migratefile, data_out, freqs, positions_out, sites, references, populations, comment, bound=bound)
     print(f"Migrate input file: {migratefile}")
+    if SNPINVFILE:
+        write_snp_invariants(SNPINVFILE)

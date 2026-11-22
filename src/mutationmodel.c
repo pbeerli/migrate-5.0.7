@@ -33,6 +33,7 @@
 #include "sighandler.h"
 #include "watterson.h"
 #include "mutationmodel.h"
+#include "options.h"
 extern int myID;
 
 
@@ -977,25 +978,31 @@ void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
 {
   // #*freq: 8 chr7 ACGT=10 All=10 A=3 C:2 G:4 T:1 ?:0
   // #*freq: 1 chr22 0 ACGT=1000000 All=1000000 A=259124 C=241270 G=239209 T=260397 ?=0
+  /* lines whose third field (group) is 0 are totals over a contig or over all
+     loci and are skipped; the remaining lines belong to the loci in order.
+     (vcf2mig.py --abbrevref writes one total line per contig, so the running
+     number of the line is not the locus: it used to be, which misassigned
+     the counts and wrote past the mutation models.) */
+  static long nextlocus = 0;
   long readpos = 6;
-  long readpos2;
-  fprintf(stderr,"baseref %s\n",input);
   char * locusname = (char *) mycalloc(LINESIZE,sizeof(char));
   char * word = (char *) mycalloc(LINESIZE,sizeof(char));
   readpos += read_word_delim(input+6, word, " ", TRUE); // sublocus
-  long sublocus = atoi(word)-2; //starts at 1 but first line is over all loci and will be discarded
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // locus name
   size_t count = sizeof(word) - 1;
   if (count < LINESIZE)
     strncpy(locusname, word, count);
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // line [ignore for the moment]
   long line = atoi(word)-1;
-  if (line < 0)
+  if (line < 0 || nextlocus >= data->loci)
     {
+      if (line >= 0 && nextlocus++ == data->loci)
+	warning("Base counts (#*freq lines) for more loci than the %li in the data are ignored\n", data->loci);
       myfree(word);
       myfree(locusname);
       return;
     }
+  const long sublocus = world->sublocistarts[nextlocus++];
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // ACGT
   long acgt = atol(&word[5]);
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // All
@@ -1010,7 +1017,6 @@ void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
   long T = atol(&word[2]);
   readpos += read_word_delim(input+readpos, word, " ", TRUE); // N?
   long N = atol(&word[2]);
-  printf("%li %li %li %li %li -- %li %li\n",A,C,G,T,N,acgt,all);
   if (world->mutationmodels[sublocus].baseref == NULL)
     world->mutationmodels[sublocus].baseref = calloc(7,sizeof(long));
   world->mutationmodels[sublocus].baseref[0]=acgt;
@@ -1025,6 +1031,38 @@ void read_basefrequency_reference(char *input, data_fmt *data, world_fmt *world)
   myfree(locusname);
 }
 
+
+///
+/// invariant sites added to the SNP loci in total: the #*freq base counts of
+/// the infile (they win in makevalues) or snp-invariants minus the SNPs;
+/// *fromcounts tells whether any locus used the infile counts
+double snp_invariants_added(world_fmt *world, data_fmt *data, option_fmt *options, boolean *fromcounts)
+{
+  double invar = 0.0;
+  long locus, sublocus;
+  *fromcounts = FALSE;
+  for (locus = 0; locus < data->loci; locus++)
+    {
+      boolean snp = FALSE, counts = FALSE;
+      for (sublocus = world->sublocistarts[locus]; sublocus < world->sublocistarts[locus+1]; sublocus++)
+	{
+	  const mutationmodel_fmt *s = &world->mutationmodels[sublocus];
+	  if (!strchr(SNPTYPES, s->datatype))
+	    continue;
+	  snp = TRUE;
+	  if (s->baseref != NULL && s->baseref[0] > 0)
+	    {
+	      invar += (double) (s->baseref[2] + s->baseref[3] + s->baseref[4] + s->baseref[5]);
+	      counts = TRUE;
+	    }
+	}
+      if (counts)
+	*fromcounts = TRUE;
+      else if (snp && options->snpsites_num > 0)
+	invar += (double) (snp_total_sites(options->snpsites, options->snpsites_num, locus) - data->totalsites[locus]);
+    }
+  return invar;
+}
 
 ///long read_word_delim(char *input, char *word, char * delim)
 ///
