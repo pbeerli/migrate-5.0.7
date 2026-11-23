@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 23  Migrate 6.1.103 Unphased data with haplotyping could crash while the infile was
+             read (an unset entry in the individual list; seen in MPI runs on the cluster).
+             MPI workers received the per-locus mutation rates and inheritance scalars
+             rounded to six decimals; they are now sent at full precision.
 November 22  Migrate 6.1.102 custom-migration S (symmetric migrants) and M (mean migrants)
              now sample the number of migrants xNm in Bayesian runs: the MIG prior, start
              value and reported value are xNm (as in Migrate 7); before, the prior was
