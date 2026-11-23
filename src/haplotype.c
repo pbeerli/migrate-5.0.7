@@ -552,6 +552,9 @@ void store_indname(char *name, long pop, long ind, long region, data_fmt *data)
       id = data->numindividuals[region];
       data->numindividuals[region] += 1;
       data->individuals[region] = (individualDB_fmt *) myrealloc(data->individuals[region],sizeof(individualDB_fmt)* (size_t) data->numindividuals[region]);
+      /* myrealloc() does not zero the new slot: the .ind NULL check read
+         uninitialized memory and could write through a garbage pointer */
+      memset(&data->individuals[region][id], 0, sizeof(individualDB_fmt));
       if (data->individuals[region][id].ind == NULL)
 	data->individuals[region][id].ind = (long *) mycalloc(TWO,sizeof(long));
       data->individuals[region][id].id = id;
