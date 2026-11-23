@@ -4022,7 +4022,7 @@ long save_mu_rates_buffer (char **buffer, long *allocbufsize, option_fmt * optio
     print_parm_mutable(&bufsize, buffer, allocbufsize, "%li ",options->muloci);
     for(i=0; i < options->muloci; i++)
       {
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "%f ",options->mu_rates[i]);
+	print_parm_mutable(&bufsize, buffer, allocbufsize, "%.17g ",options->mu_rates[i]);
       }
     //    fprintf(stdout,"muloci=%li, muratebuffer:>%s<\n",options->muloci, *buffer, allocbufsize);
     return bufsize;
@@ -4036,7 +4036,7 @@ long save_inheritance_scalars_buffer (char **buffer, long *allocbufsize, option_
     print_parm_mutable(&bufsize, buffer, allocbufsize, "%li ",options->inheritance_scalars_numalloc);
     for(i=0; i < options->inheritance_scalars_numalloc; i++)
       {
-	print_parm_mutable(&bufsize, buffer, allocbufsize, "%f ",options->inheritance_scalars[i]);
+	print_parm_mutable(&bufsize, buffer, allocbufsize, "%.17g ",options->inheritance_scalars[i]);
       }
     return bufsize;
 }
