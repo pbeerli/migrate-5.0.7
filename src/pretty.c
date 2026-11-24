@@ -5273,7 +5273,7 @@ void pdf_print_options(world_fmt * world, option_fmt *options, data_fmt * data)
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
 	break;
       default:
-	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
+	mysnprintf(mytext6,LINESIZE,"Exponential waiting times");
       }
     if (options->tri_mlalpha != NO)
       {   /* the clock's time scale, mittag-leffler-scale */

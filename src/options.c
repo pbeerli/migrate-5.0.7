@@ -189,6 +189,7 @@ void print_distance_table (FILE * file, world_fmt * world,
                            option_fmt * options, data_fmt * data);
 
 void fillup_custm (long len, world_fmt * world, option_fmt * options);
+static void check_population_connectivity (world_fmt * world);
 //
 
 //long save_options_buffer (char **buffer, long *allocbufsize, option_fmt * options, data_fmt *data);
@@ -1065,7 +1066,7 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=%s",s);
 	break;
       case NO:
-	mysnprintf(mytext6,LINESIZE,"Exponential Distribution");
+	mysnprintf(mytext6,LINESIZE,"Exponential waiting times");
 	break;
       case ESTIMATE:
 	mysnprintf(mytext6,LINESIZE,"Mittag-Leffler with alpha=Estimate");
@@ -1126,10 +1127,13 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
 	fprintf (file, "Migration rate  %7.7s %20s\n",
 		 options->usem ? "(M)" : "(xNm)",
 		 is_proposaltype2(options->slice_sampling[MIGPRIOR], options->multiplier_proposal[MIGPRIOR]));
-	fprintf (file, "Divergence Time (D) %20s\n", 
-		 is_proposaltype2(options->slice_sampling[SPECIESTIMEPRIOR], options->multiplier_proposal[SPECIESTIMEPRIOR]));
-    fprintf (file, "Divergence time spread (STD) %14s\n", 
-	     is_proposaltype2(options->slice_sampling[SPECIESSTDPRIOR], options->multiplier_proposal[SPECIESSTDPRIOR]));
+	if (world->has_speciation)
+	  {
+	    fprintf (file, "Divergence Time (D) %20s\n",
+		     is_proposaltype2(options->slice_sampling[SPECIESTIMEPRIOR], options->multiplier_proposal[SPECIESTIMEPRIOR]));
+	    fprintf (file, "Divergence time spread (STD) %14s\n",
+		     is_proposaltype2(options->slice_sampling[SPECIESSTDPRIOR], options->multiplier_proposal[SPECIESSTDPRIOR]));
+	  }
       }
     if(world->bayes->mu)
       {
@@ -2605,6 +2609,80 @@ synchronize_param (world_fmt * world, option_fmt * options)
             world->options->custm2[world->numpop2 + 1] = '\0';
         }
     }
+    check_population_connectivity (world);
+}
+
+/* every population must reach every other one through migration or
+   divergence (custom-migration entries other than 0, a constant c with
+   a value > 0, or a divergence d/D/t/T); otherwise lineages of separated groups can never
+   coalesce, the start genealogy never finishes and memory grows
+   without bound */
+static void
+check_population_connectivity (world_fmt * world)
+{
+  static boolean checked = FALSE;
+  const long numpop = world->numpop;
+  long *group;
+  long z, i, from, to, a, b;
+  boolean changed = TRUE;
+  const long nspecies = (world->has_speciation && world->species_model != NULL)
+    ? world->species_model_size : 0;
+  if (checked || numpop < 2)
+    return;
+  checked = TRUE;
+  group = (long *) mycalloc (numpop, sizeof (long));
+  for (i = 0; i < numpop; i++)
+    group[i] = i;
+  while (changed)
+    {
+      changed = FALSE;
+      for (z = numpop; z < world->numpop2 + nspecies; z++)
+        {
+          if (z < world->numpop2)
+            {
+              const char c = world->options->custm2[z];
+              if (c == '0' || (c == 'c' && world->param0[z] <= 0.0))
+                continue;
+              m2mm (z, numpop, &from, &to);
+            }
+          else
+            {
+              /* divergence: custm2 no longer shows d/D (rewritten to 0 or *) */
+              from = world->species_model[z - world->numpop2].from;
+              to = world->species_model[z - world->numpop2].to;
+              if (from < 0 || from >= numpop || to < 0 || to >= numpop)
+                continue;
+            }
+          a = group[from];
+          b = group[to];
+          if (a != b)
+            {
+              const long lo = a < b ? a : b;
+              const long hi = a < b ? b : a;
+              for (i = 0; i < numpop; i++)
+                if (group[i] == hi)
+                  group[i] = lo;
+              changed = TRUE;
+            }
+        }
+    }
+  for (i = 1; i < numpop; i++)
+    if (group[i] != 0)
+      {
+        char msg[LINESIZE];
+        long pos = 0;
+        long k;
+        msg[0] = '\0';
+        for (k = 0; k < numpop && pos < LINESIZE - 24; k++)
+          if (group[k] != 0)
+            pos += snprintf (msg + pos, (size_t) (LINESIZE - pos), " %li", k + 1);
+        usererror ("custom-migration={%s} leaves population(s)%s cut off from population 1:\n"
+                   "no migration or divergence connects them, so their lineages can never\n"
+                   "coalesce with the others and no genealogy can be built.\n"
+                   "Allow migration or a divergence (d/D) between the groups.\n",
+                   world->options->custm, msg);
+      }
+  myfree (group);
 }
 
 
