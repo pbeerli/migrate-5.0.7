@@ -1051,26 +1051,20 @@ void read_header (FILE * infile, data_fmt * data, option_fmt * options)
 void
 find_delimiter (char *title, char *dlm)
 {
+    /* skip blanks and tabs: a tab-separated header ("2<TAB>10<TAB>.") made
+       the tab the allele delimiter, so each locus consumed two columns and
+       the reader swallowed the next population header */
     char *p = title;
-    size_t z = 0;
-    while (*p == ' ')
-    {
+    while (*p == ' ' || *p == '\t')
         p++;
-        z++;
-    }
-    if (isalnum (*p))
-      memmove (title, p, sizeof (char) * (strlen (title) - z));
-    else
+    if (*p != '\0' && !isalnum ((int) *p))
     {
         *dlm = *p;
         p++;
-        while (*p == ' ')
-        {
+        while (*p == ' ' || *p == '\t')
             p++;
-            z++;
-        }
-        memmove (title, p, sizeof (char) * (strlen (title) - z));
     }
+    memmove (title, p, strlen (p) + 1);
 }
 
 void set_datatype(char input, long locus, char ** locitypes, long *alloc)
@@ -2060,7 +2054,12 @@ read_popheader (FILE * infile, data_fmt * data, world_fmt *world, long pop, long
 	  {
 	    FGETS2(&input,&linesize,data->infile);
 	  }
-        sscanf (input, "%ld%[^\n]", &(data->numind[pop][0]), data->popnames[pop]);
+        if (sscanf (input, "%ld%[^\n]", &(data->numind[pop][0]), data->popnames[pop]) < 1
+            || data->numind[pop][0] < 0)
+          {
+            usererror ("Population %li: expected a line with the number of individuals and the population name,\nbut read: \"%.60s\"\nCheck the data lines of the previous population (number of loci per line, allele delimiter).",
+                        pop + 1, input);
+          }
 	start = 1;
 	end   = data->allsubloci;
 	

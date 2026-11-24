@@ -2856,13 +2856,24 @@ boolean menuStrategy_bayes(option_fmt * options)
     break;
   case BAYESFREQ:
     do {
+      /* tree share of tree + parameter updates (updatefreq= weights; the
+         other moves keep their weights) */
+      const double tp = options->tree_updatefreq + options->parameter_updatefreq;
+      double f;
       printf("What is the frequency of the tree updates vs the parameter updates?\n");
-      printf("[A frequncy of 1.0 updates only trees, frequency of 0.0 updates only parameters]\n");
-      printf("[Suggestion for small problems: 0.5, actual value: %f]\n===> ", options->updateratio);
+      printf("[A frequency of 1.0 updates only trees, frequency of 0.0 updates only parameters]\n");
+      printf("[Suggestion for small problems: 0.5, actual value: %f]\n===> ",
+             tp > 0.0 ? options->tree_updatefreq / tp : 0.5);
       fflush(stdout); FGETS(input, LINESIZE, stdin);
-      if (input[0] != '\0')  
-	  options->updateratio = atof(input);
-    } while (options->updateratio > 1);
+      if (input[0] == '\0' || input[0] == '\n')
+        break;
+      f = atof(input);
+      if (f < 0.0 || f > 1.0)
+        continue;
+      options->tree_updatefreq = f * (tp > 0.0 ? tp : 0.4);
+      options->parameter_updatefreq = (1.0 - f) * (tp > 0.0 ? tp : 0.4);
+      break;
+    } while (1);
     break;
   case BAYESPROPOSAL:
     menuProposal(options);
@@ -3355,8 +3366,11 @@ display_bayes_mcmc(option_fmt * options)
 	 (options->bayespretty == PRETTY_P99 ? "up to 99% percentile" :
 	 (options->bayespretty == PRETTY_MAX ? "prior distr. range" :
 	 (options->bayespretty == PRETTY_P100 ? "up to ~100% percentile" : "up to maximal 99%"))));
-  printf("  %2i   Frequency of tree updates vs. parameter updates?         %6.2f\n",
-	 BAYESFREQ, options->updateratio);
+  {
+    const double tp = options->tree_updatefreq + options->parameter_updatefreq;
+    printf("  %2i   Frequency of tree updates vs. parameter updates?         %6.2f\n",
+	   BAYESFREQ, tp > 0.0 ? options->tree_updatefreq / tp : 0.5);
+  }
   set_proposal(outputstring, options->slice_sampling, !options->bayesmurates);
   printf("  %2i   Proposal distribution?%41.41s\n",
 	 BAYESPROPOSAL, outputstring);
@@ -3433,11 +3447,13 @@ read_custom_menu_migration(option_fmt * options)
   printf("  are allowed, but not necessary.\n");
   printf("\n  Syntax:\n");
   printf("      * = independent parameter\n");
-  printf("      0 = (zero) not estimated]\n");
-  printf("      c = (constant) not estimated, taken from start-parameter]\n");
+  printf("      0 = (zero) not estimated\n");
+  printf("      c = (constant) not estimated, taken from start-parameter\n");
   printf("      s = symmetric migration rates (M=m/mu)\n");
-  printf("      S = symmetric migration rates (xNm) \n");
-  printf("      m = average of each label group [not c, or s]\n"); 
+  printf("      S = symmetric number of migrants (xNm)\n");
+  printf("      m = mean of the entries marked m (Thetas and Ms separately)\n");
+  printf("      M = mean number of migrants (xNm) of all entries marked M\n");
+  printf("      a,b,... = other letters: mean of each label group\n");
   printf("      d = population split with no immigration\n"); 
   printf("      D = population split with immigration\n"); 
   //  printf("      a,b,c,... = average of each label group [not k, or s]\n"); 

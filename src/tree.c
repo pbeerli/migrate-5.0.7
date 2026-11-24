@@ -2316,6 +2316,66 @@ my_random_tree_stuck (world_fmt * world, long *lineages)
              "Check the custom-migration matrix and the start values of fixed parameters");
 }
 
+/* a legal but hard model can keep the random start genealogy migrating
+   for a very long time without the last lineages meeting (for example the
+   single lineage of one group moving back and forth between two
+   populations while another lineage sits elsewhere). After
+   MIGRATION_LIMIT * numpop migrations since the last coalescence, stage 1
+   forces a migration that puts a lineage into the population of another
+   one so the coalescent can take over; if the limit is reached again
+   (the coalescent rate is so low that the lineages migrate apart again),
+   stage 2 forces the coalescence. The start genealogy only has to be
+   valid; the MCMC then samples from the model. */
+static void
+my_random_tree_force (world_fmt * world, node ** nodelist, long *lineages,
+                      long *simtips, long *z, double age, int stage)
+{
+  long i, j, k, n;
+  long *cand = (long *) mycalloc (*simtips, sizeof (long));
+  node *origin;
+  /* stage 2: two lineages already share a population -> coalesce them */
+  i = -1;
+  if (stage == 2)
+    {
+      n = 0;
+      for (k = 0; k < *simtips; k++)
+        if (lineages[nodelist[k]->pop] > 1)
+          cand[n++] = k;
+      if (n > 0)
+        i = cand[RANDINT (0, n - 1)];
+    }
+  if (i < 0)
+    {
+      /* force a migration of a random lineage into the population of a
+         lineage in another population */
+      i = RANDINT (0, *simtips - 1);
+      n = 0;
+      for (k = 0; k < *simtips; k++)
+        if (nodelist[k]->pop != nodelist[i]->pop)
+          cand[n++] = k;
+      if (n > 0)
+        {
+          j = cand[RANDINT (0, n - 1)];
+          origin = add_migration (world, nodelist[i], 'm', nodelist[j]->pop, nodelist[i]->pop, 0.0);
+          origin->tyme = age;
+          lineages[origin->actualpop] -= 1;
+          lineages[origin->pop] += 1;
+          nodelist[i] = origin;
+          warning ("start genealogy: forced a migration %li -> %li (forward in time) after %li migrations without coalescence\n",
+                   origin->pop + 1, origin->actualpop + 1, MIGRATION_LIMIT * world->numpop);
+        }
+    }
+  if (stage == 2)
+    {
+      origin = get_random_sibling (nodelist[i], nodelist, simtips, world->nodep[*z], lineages, age);
+      lineages[origin->pop] -= 1;
+      (*z)++;
+      warning ("start genealogy: forced a coalescence in population %li after %li more migrations\n",
+               origin->pop + 1, MIGRATION_LIMIT * world->numpop);
+    }
+  myfree (cand);
+}
+
 void
 my_random_tree (world_fmt * world, long tips)
 {
@@ -2337,6 +2397,9 @@ my_random_tree (world_fmt * world, long tips)
   double age=0.0;
   //double otime = 0.0;
   double starttime = (double) HUGE;
+  long nmig = 0;
+  int forcestage = 0;
+  const long miglimit = MIGRATION_LIMIT * world->numpop;
   precalc_world(world);
   for (i=0;i<tips;i++)
     {
@@ -2418,10 +2481,21 @@ my_random_tree (world_fmt * world, long tips)
 	      continue;
 	    }
 	}
+      if (shorte == 'm' && maxsimtips >= tips && simtips > 1 && ++nmig > miglimit)
+        {
+          forcestage = forcestage == 1 ? 2 : 1;
+          my_random_tree_force (world, nodelist, lineages, &simtips, &z, age, forcestage);
+          if (forcestage == 2)
+            forcestage = 0;
+          nmig = 0;
+          continue;
+        }
       origin = nodelist[shorti];
       switch(shorte)
 	{
 	case 'c':
+          nmig = 0;
+          forcestage = 0;
 	  interior = world->nodep[z]; //gets first nodep element after all the tips
 	  origin = get_random_sibling(origin, nodelist, &simtips, interior, lineages, age);
 	  nodelist[shorti] = origin;

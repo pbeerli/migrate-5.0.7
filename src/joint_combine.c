@@ -140,7 +140,7 @@ jc_set_run_options (const char *outfilename, boolean recover)
   jc_recover = recover;
 }
 
-/* M or xNm: migration_is_M() in world.c (S/M models are excluded in jc_supported()) */
+/* M or xNm: migration_is_M() in world.c */
 
 /* ------------------------------------------------------------- layout */
 
@@ -808,8 +808,7 @@ jc_supported (world_fmt *world)
       const char c = world->options->custm2[i];
       /* '*', '0', constant, symmetric, mean (of M or of xNm), letter groups,
          divergence d/D; t/T are recorded as d with a tied species model */
-      /* no numbers-of-migrants S/M: their parameter differs in 5.0.7 */
-      if (!(strchr ("*0csmdDtT", c) || (c >= 'a' && c <= 'z')))
+      if (!(strchr ("*0csmSMdDtT", c) || (c >= 'a' && c <= 'z')))
         return FALSE;
     }
   if (world->has_growth)
