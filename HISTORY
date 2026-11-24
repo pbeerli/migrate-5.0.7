@@ -12,6 +12,16 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 23  Migrate 6.1.104 A custom-migration matrix that leaves a population without migration or
+             divergence to the others now stops at the start with an error; before, the
+             start genealogy grew until memory ran out. A legal but hard start genealogy
+             is finished with a forced migration, then a forced coalescence, after the
+             migration limit.
+             AllelicData with a tab-separated header line read the tab as the allele
+             delimiter. Menu: tree vs. parameter update frequency and the custom-migration
+             help fixed. Outfile: Theta "Exponential waiting times", divergence rows only
+             with divergence.
+             The joint multi-locus combination now handles S/M (number of migrants) entries.
 November 23  Migrate 6.1.103 Unphased data with haplotyping could crash while the infile was
              read (an unset entry in the individual list; seen in MPI runs on the cluster).
              MPI workers received the per-locus mutation rates and inheritance scalars
