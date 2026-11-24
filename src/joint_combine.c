@@ -150,6 +150,10 @@ typedef struct
   long nrow;                /* doubles per genealogy */
   long off_c, off_K, off_S, off_m;
   long off_mu;              /* the locus rate of the genealogy (estimated rate: per sample) */
+  boolean rate;             /* mutation=ESTIMATE: the shared rate is a joint coordinate */
+  long rate_p;              /* ... its parameter index */
+  long off_lr, nrk;         /* ... log p(D|G,r) on nrk log-spaced rates, then log Lambda(G) */
+  double rlo, rhi;          /* ... log of the first and last grid rate */
   long off_rep;             /* the replicate that sampled it (last entry of the row) */
   long nslot;               /* growth groups */
   long *pop_slot;           /* per population: growth group or -1 */
@@ -256,6 +260,23 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->off_G);
   myfree (ly->gate_b);
   myfree (ly->gate_c);
+}
+
+/* mutation=ESTIMATE estimates one rate for all loci. The joint treats it as
+   a coordinate when the per-locus prior p(G|params) does not depend on it
+   in reference time: Theta and M only (no divergence, growth or skyline
+   segments, whose times the sampler compares with the rate-scaled node
+   ages). Otherwise the rate stays a per-locus nuisance parameter. */
+#define JC_RATEK 24          /* rate grid points (MIGRATE_JC_RATEK) */
+#define JC_RATESUB 8         /* Lambda: integration points per grid interval */
+static boolean
+jc_rate_shared (world_fmt *world)
+{
+  const long p = world->numpop2;
+  if (world->bayes == NULL || !world->bayes->mu || world->has_mlalpha || world->has_speciation
+      || world->has_growth || world->timeelements > 2 || getenv ("MIGRATE_JC_NORATE") != NULL)
+    return FALSE;
+  return world->bayes->maxparam[p] > world->bayes->minparam[p] && world->bayes->maxparam[p] > 0.0;
 }
 
 static void
@@ -540,6 +561,22 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
     }
   ly->off_mu = ly->nrow;
   ly->nrow += 1;
+  if (jc_rate_shared (world))
+    {   /* the shared rate (docs/joint_shared_rate_design.md): the data
+           likelihood of the genealogy on a log grid over the rate prior */
+      const long p = world->numpop2;
+      const double hi = world->bayes->maxparam[p];
+      const double lo = world->bayes->minparam[p] > 0.0 ? world->bayes->minparam[p] : 1e-3 * hi;
+      ly->rate = TRUE;
+      ly->rate_p = p;
+      ly->nrk = getenv ("MIGRATE_JC_RATEK") ? atol (getenv ("MIGRATE_JC_RATEK")) : JC_RATEK;
+      if (ly->nrk < 4)
+        ly->nrk = 4;
+      ly->rlo = log (lo);
+      ly->rhi = log (hi);
+      ly->off_lr = ly->nrow;
+      ly->nrow += ly->nrk + 1;
+    }
   ly->off_rep = ly->nrow;   /* the replicate, last: the Monte Carlo error blocks */
   ly->nrow += 1;
 }
@@ -1166,6 +1203,111 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
 
 /// Per-genealogy statistics of the current cold-chain genealogy (called
 /// right after bayes_save()).
+/* grid rate k of the shared-rate grid */
+static double
+jc_rate_x (const jc_layout *ly, long k)
+{
+  return exp (ly->rlo + (ly->rhi - ly->rlo) * (double) k / (double) (ly->nrk - 1));
+}
+
+/* log p(D|G,r) at grid position u (0..K-1, in log r): cubic through the
+   four nearest grid points (Lagrange; at the ends the first/last four) */
+static double
+jc_rate_interp (const double *x, long K, double u)
+{
+  long j;
+  double a, b, c, d;
+  if (u <= 0.0)
+    return x[0];
+  if (u >= (double) (K - 1))
+    return x[K - 1];
+  j = (long) floor (u) - 1;
+  if (j < 0)
+    j = 0;
+  if (j > K - 4)
+    j = K - 4;
+  u -= (double) j;   /* the points are at 0, 1, 2, 3 */
+  a = -(u - 1.0) * (u - 2.0) * (u - 3.0) / 6.0;
+  b = u * (u - 2.0) * (u - 3.0) / 2.0;
+  c = -u * (u - 1.0) * (u - 3.0) / 2.0;
+  d = u * (u - 1.0) * (u - 2.0) / 6.0;
+  return a * x[j] + b * x[j + 1] + c * x[j + 2] + d * x[j + 3];
+}
+
+/* the shared rate: log p(D|G,r_k) of this genealogy on the rate grid (the
+   genealogy in reference time, its node ages rescaled to each r_k as the
+   sampler's rate move does), then log Lambda(G) = log of the integral of
+   p(D|G,r) p_s(r) dr over the grid (p_s: the sampling prior of the rate;
+   trapezoid in log r). The tree is restored afterwards. */
+static void
+jc_record_rate (world_fmt *world, const jc_layout *ly, double *st)
+{
+  const long K = ly->nrk, locus = world->locus;
+  const double r0 = world->options->mu_rates[locus];
+  const double like0 = world->likelihood[world->G];
+  double *x = st + ly->off_lr;
+  double *v = (double *) mycalloc ((size_t) K, sizeof (double));
+  double cur = r0, h = (ly->rhi - ly->rlo) / (double) (K - 1);
+  long k;
+  if (!ly->rate)
+    {
+      myfree (v);
+      return;
+    }
+  for (k = 0; k < K; k++)
+    {
+      const double r = jc_rate_x (ly, k);
+      world->options->mu_rates[locus] = r;
+      world->options->lmu_rates[locus] = log (r);
+      recalc_timelist (world, r, cur);
+      cur = r;
+      /* NODATA: the sampler ignores the data likelihood (prioralone) */
+      x[k] = world->options->prioralone ? 0.0 : world->likelihood[world->G];
+    }
+  world->options->mu_rates[locus] = r0;
+  world->options->lmu_rates[locus] = log (r0);
+  recalc_timelist (world, r0, cur);
+  {   /* Lambda: trapezoid in log r on JC_RATESUB points per grid interval,
+         p(D|G,r) from the interpolation */
+    const long n = (K - 1) * JC_RATESUB + 1;
+    double m = -HUGE_VAL, sum = 0.0;
+    v = (double *) myrealloc (v, sizeof (double) * (size_t) n);
+    for (k = 0; k < n; k++)
+      {
+        const double u = (double) k / JC_RATESUB, lr = ly->rlo + u * h, r = exp (lr);
+        v[k] = jc_rate_interp (x, K, u) + scaling_prior (world, ly->rate_p, r) + lr;
+        if (v[k] > m)
+          m = v[k];
+      }
+    for (k = 0; k < n; k++)
+      sum += (k == 0 || k == n - 1 ? 0.5 : 1.0) * exp (v[k] - m);
+    x[K] = m + log (sum * h / JC_RATESUB);
+  }
+  if (getenv ("MIGRATE_JC_RATECHECK") != NULL)
+    {   /* restored likelihood; interpolated log L at the sampled rate */
+      static double worst = 0.0, worsti = 0.0;
+      const double li = jc_rate_interp (x, K, (log (r0) - ly->rlo) / h);
+      if (fabs (world->likelihood[world->G] - like0) > worst)
+        worst = fabs (world->likelihood[world->G] - like0);
+      if (fabs (li - like0) > worsti)
+        worsti = fabs (li - like0);
+      fprintf (stderr, "JC_RATECHECK locus %ld r %g: restore |dL| worst %g, interpolated - true %g (worst %g)\n",
+               locus + 1, r0, worst, li - like0, worsti);
+    }
+  myfree (v);
+}
+
+/* the shared-rate term of a genealogy: log p(D|G,r) - log Lambda(G),
+   p(D|G,r) cubic in log r between the grid points (clamped at the ends;
+   the joint keeps r inside the grid) */
+static double
+jc_rate_term (const jc_layout *ly, const double *st, double r)
+{
+  const double *x = st + ly->off_lr;
+  const long K = ly->nrk;
+  return jc_rate_interp (x, K, (log (r) - ly->rlo) / (ly->rhi - ly->rlo) * (double) (K - 1)) - x[K];
+}
+
 void
 jc_record_sample (world_fmt *world)
 {
@@ -1379,6 +1521,7 @@ jc_record_sample (world_fmt *world)
           return;
         }
       jc_record_divergence (world, &ly, st);
+      jc_record_rate (world, &ly, st);   /* last: it rescales the tree (tl) */
       if (jc_file == NULL || jc_file_locus != world->locus || jc_file_rep != world->rep)
         {
           char name[LINESIZE];
@@ -1417,6 +1560,8 @@ jc_record_sample (world_fmt *world)
               long q;
               for (q = 0; q < ly.nphi; q++)
                 act[q] = TRUE;
+              if (ly.rate)
+                act[ly.rate_p] = FALSE;   /* not part of p(G|params) */
               /* phi: the parameters, then the skyline multipliers (tau) */
               double *phi = (double *) mycalloc ((size_t) ly.nphi, sizeof (double));
               long jj, sg2;
@@ -1457,6 +1602,7 @@ jc_record_sample (world_fmt *world)
                   }
               myfree (act);
             }
+          jc_record_rate (world, &ly, st);   /* last: it rescales the tree (tl) */
           jc_append (js, world->locus, st, spells, nsp);
           if (b->n >= 2 * jc_maxsamples (world, js->nrow))
             {
@@ -3056,6 +3202,8 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
   for (e = 0; e < ly->nsplit; e++)
     v += jc_div_term (ly, st, e, phi[ly->split_pmu[e]],
                       ly->split_psig[e] >= 0 ? phi[ly->split_psig[e]] : ly->split_sfix[e]);
+  if (ly->rate && active[ly->rate_p])
+    v += jc_rate_term (ly, st, phi[ly->rate_p]);
   return v;
 }
 
@@ -3065,7 +3213,7 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
    and sums all units again in the same order, so the sum is the same
    number jc_full_term() gives (no old + new - old updates: a divergence
    term at JC_DOUT would swallow the others) */
-enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT, JC_U_ML };
+enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT, JC_U_ML, JC_U_RATE };
 typedef struct
 {
   long n;
@@ -3139,6 +3287,8 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
       }
   for (e = 0; e < ly->nsplit; e++)
     jc_units_add (U, JC_U_SPLIT, e, 0);
+  if (ly->rate && active[ly->rate_p])
+    jc_units_add (U, JC_U_RATE, 0, 0);
   U->ndep = (long *) mycalloc ((size_t) ly->nphi, sizeof (long));
   U->dep = (long **) mycalloc ((size_t) ly->nphi, sizeof (long *));
   for (u = 0; u < U->n; u++)
@@ -3173,6 +3323,9 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
         case JC_U_SPLIT:
           jc_units_dep (U, ly->nphi, ly->split_pmu[i], u);
           jc_units_dep (U, ly->nphi, ly->split_psig[i], u);
+          break;
+        case JC_U_RATE:
+          jc_units_dep (U, ly->nphi, ly->rate_p, u);
           break;
         }
     }
@@ -3216,6 +3369,8 @@ jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, 
       return jc_mig_term (ly, st, i, jc_rate (ly, phi, i), mu);
     case JC_U_MIGSEG:
       return jc_mig_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);
+    case JC_U_RATE:
+      return jc_rate_term (ly, st, phi[ly->rate_p]);
     default:
       return jc_div_term (ly, st, i, phi[ly->split_pmu[i]],
                           ly->split_psig[i] >= 0 ? phi[ly->split_psig[i]] : ly->split_sfix[i]);
@@ -3299,6 +3454,8 @@ jc_active (world_fmt *world, const jc_layout *ly)
       if (ly->split_psig[s] >= 0)
         active[ly->split_psig[s]] = TRUE;
     }
+  if (ly->rate)
+    active[ly->rate_p] = TRUE;
   return active;
 }
 
@@ -4350,6 +4507,24 @@ jc_essstop (world_fmt *world)
   return world->options->joint_ess;
 }
 
+
+/* the shared rate: the joint keeps r inside the union of the per-locus 99%
+   ranges (set by jc_combine(); 0: not set) */
+static double jc_rate_lo = 0.0, jc_rate_hi = 0.0;
+
+/* the range of coordinate p in the joint chain (a parameter) */
+static void
+jc_bounds (world_fmt *world, const jc_layout *ly, long p, double *lo, double *hi)
+{
+  *lo = world->bayes->minparam[p];
+  *hi = world->bayes->maxparam[p];
+  if (ly->rate && p == ly->rate_p && jc_rate_hi > jc_rate_lo)
+    {
+      *lo = jc_rate_lo;
+      *hi = jc_rate_hi;
+    }
+}
+
 /* returns the sweeps of the main run (fewer than sweeps when the ESS stop
    ended it; the trace is then compacted to that length) */
 static long
@@ -4415,8 +4590,10 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                     s += jc_bL[q * d + k] * eps[k];
                   zn[q] = z[q] + jc_bscale * s;
                   phin[pp] = pp < npos ? exp (zn[q]) : zn[q];
-                  if (!(phin[pp] >= world->bayes->minparam[pp] && phin[pp] <= world->bayes->maxparam[pp])
-                      || (pp < npos && !(phin[pp] > 0.0)))
+                  double blo = world->bayes->minparam[pp], bhi = world->bayes->maxparam[pp];
+                  if (pp < np)
+                    jc_bounds (world, ly, pp, &blo, &bhi);
+                  if (!(phin[pp] >= blo && phin[pp] <= bhi) || (pp < npos && !(phin[pp] > 0.0)))
                     ok = FALSE;
                   else
                     delta += scaling_prior (world, pp, phin[pp]) - scaling_prior (world, pp, phi[pp])
@@ -4452,8 +4629,9 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
             continue;
           /* a multiplier: symmetric in log tau, its prior is on log tau */
           const boolean tau = p >= np;
-          const double lo = tau ? exp (-SKYLINE_HISTMAX) : world->bayes->minparam[p];
-          const double hi = tau ? exp (SKYLINE_HISTMAX) : world->bayes->maxparam[p];
+          double lo = exp (-SKYLINE_HISTMAX), hi = exp (SKYLINE_HISTMAX);
+          if (!tau)
+            jc_bounds (world, ly, p, &lo, &hi);
           const boolean mult = tau || p < npos;
           const double x = mult ? phi[p] * exp (step[p] * (UNIF_RANDUM () - 0.5) * 2.0)
                                 : phi[p] + step[p] * (UNIF_RANDUM () - 0.5) * 2.0;
@@ -4946,6 +5124,43 @@ jc_combine (world_fmt *world)
         phi[p] = 0.5 * (lo + hi);
       if (p < npos && phi[p] <= 0.0)
         phi[p] = 0.01 * hi;
+    }
+  /* the shared rate: the union over loci of their 99% ranges, from each
+     locus' 95% interval widened on the log scale by 2.576 / 1.96, inside the
+     rate grid */
+  jc_rate_lo = jc_rate_hi = 0.0;
+  if (ly.rate)
+    {
+      const long p = ly.rate_p;
+      const double glo = exp (ly.rlo), ghi = exp (ly.rhi);
+      double ulo = HUGE_VAL, uhi = 0.0;
+      for (l = 0; l < world->loci; l++)
+        if (!world->data->skiploci[l])
+          {
+            const bayeshistogram_fmt *h = &world->bayes->histogram[l];
+            double a = h->cred95l[p], b = h->cred95u[p];
+            if (!(a > 0.0) || a < glo)
+              a = glo;
+            if (!(b > a))
+              b = ghi;
+            const double c = 0.5 * (log (a) + log (b)), w = 0.5 * (log (b) - log (a)) * 2.576 / 1.96;
+            if (exp (c - w) < ulo)
+              ulo = exp (c - w);
+            if (exp (c + w) > uhi)
+              uhi = exp (c + w);
+          }
+      jc_rate_lo = ulo > glo ? ulo : glo;
+      jc_rate_hi = uhi < ghi ? uhi : ghi;
+      if (!(jc_rate_hi > jc_rate_lo))
+        {
+          jc_rate_lo = glo;
+          jc_rate_hi = ghi;
+        }
+      if (phi[p] <= jc_rate_lo || phi[p] >= jc_rate_hi)
+        phi[p] = sqrt (jc_rate_lo * jc_rate_hi);
+      if (getenv ("MIGRATE_JC_DEBUG") != NULL)
+        fprintf (stderr, "JCRATE grid [%g, %g] (%ld points), joint range [%g, %g], start %g\n",
+                 glo, ghi, ly.nrk, jc_rate_lo, jc_rate_hi, phi[p]);
     }
   /* divergence-order TREE/RANK: a start inside the order (the per-locus means
      already are when the per-locus chains were ordered) */

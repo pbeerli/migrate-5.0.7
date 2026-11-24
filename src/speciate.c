@@ -497,11 +497,21 @@ MYREAL lower_bound_erf_approx(double x)
 }
 
 // same as log_prob_wait_speciate_normal() but with b1 < Infinity
+/* upper truncation of a lineage's split time: the prior maximum of the
+   mean split time D. A fixed D (prior minimum == maximum) has no upper
+   truncation: the bound was D itself, which made every split event above
+   D impossible (half of the normal), and a chain that started with such an
+   event stayed in a genealogy of probability zero */
+static double species_tmax(const species_fmt *s)
+{
+  return (s->max > s->min) ? (double) s->max : (double) HUGE;
+}
+
 MYREAL log_prob_wait_speciate_normalorig(MYREAL t0, MYREAL t1, MYREAL mu, MYREAL sigma, species_fmt *s)
 {
   //(Erf[(b - mu)/(Sqrt[2] sigma)] + Erf[(mu - tx)/(Sqrt[2] sigma)])/
   //(Erf[(b - mu)/(Sqrt[2] sigma)] + Erf[(mu - t0)/(Sqrt[2] sigma)])
-  const double b1 = (double) s->max;
+  const double b1 = species_tmax(s);
   const double qsd = (double) 1./((double) SQRT2 * (double) sigma);
   if(t1 > (double) b1)
     return (double) -HUGE;
@@ -604,7 +614,7 @@ MYREAL log_point_prob_speciate_normal(MYREAL t1, MYREAL mu, MYREAL sigma, specie
 
 MYREAL log_point_prob_speciate_normalorig(MYREAL t1, MYREAL mu, MYREAL sigma, species_fmt * s)
 {
-  const MYREAL b1 = (double) s->max;
+  const MYREAL b1 = species_tmax(s);
   if (b1<t1)
     return (double) -HUGE;
   const MYREAL qsd = 1./(sqrt(2.0) * sigma);
@@ -645,7 +655,7 @@ MYREAL log_point_prob_speciate_normalorig(MYREAL t1, MYREAL mu, MYREAL sigma, sp
 MYREAL log_prob_wait_speciate_normalshortcut(MYREAL t0, MYREAL t1, MYREAL mu, MYREAL sigma, species_fmt *s)
 {
   warning("shortuct looks wrong! and also does not deliver correct results");
-  const MYREAL b1 = (double) s->max;
+  const MYREAL b1 = species_tmax(s);
   double tx;
   double deltatime;
   if (t1 >= 0)
@@ -694,7 +704,7 @@ MYREAL log_prob_wait_speciate_normalshortcut(MYREAL t0, MYREAL t1, MYREAL mu, MY
 
 MYREAL log_point_prob_speciate_normalshortcut(MYREAL t1, MYREAL mu, MYREAL sigma, species_fmt * s)
 {
-  const MYREAL b1 = (double) s->max;
+  const MYREAL b1 = species_tmax(s);
   if (b1<t1)
     return (double) -HUGE;
   const MYREAL qsd = 1./(sqrt(2.0) * sigma);
@@ -947,7 +957,7 @@ MYREAL time_to_speciate_normal_erf(world_fmt *world, long pop, MYREAL t0, char *
 	continue;
       mu = world->param0[s->paramindex_mu];
       sigma = world->param0[s->paramindex_sigma];
-      tmax = (double) s->max;
+      tmax = species_tmax(s);
       qsd = 1./(SQRT2 * sigma);
       r = UNIF_RANDUM();
       //double eb1 = ERF((tmax-mu) * qsd); // is always +
@@ -1025,7 +1035,7 @@ MYREAL time_to_speciate_normal(world_fmt *world, long pop, MYREAL t0, char *even
 	continue;
       mu = world->param0[s->paramindex_mu];
       sigma = world->param0[s->paramindex_sigma];
-      tmax = (double) s->max;
+      tmax = species_tmax(s);
       if (t0<tmax)
 	tnew = trunc_random_normal2(t0, tmax, mu, sigma);
       else
@@ -1092,7 +1102,7 @@ MYREAL time_to_speciate_normalorig(world_fmt *world, long pop, MYREAL t0, char *
 	continue;
       mu = world->param0[s->paramindex_mu];
       sigma = world->param0[s->paramindex_sigma];
-      tmax = (double) s->max;
+      tmax = species_tmax(s);
       qsd = 1./(SQRT2 * sigma);
       //double myhalftheta = world->param0[s->to]/2.;
       r = UNIF_RANDUM(); //
@@ -1170,7 +1180,7 @@ MYREAL time_to_speciate_normalshortcut(world_fmt *world, long pop, MYREAL t0, ch
 	continue;
       mu = world->param0[s->paramindex_mu];
       sigma = world->param0[s->paramindex_sigma];
-      tmax = (double) s->max;
+      tmax = species_tmax(s);
       qsd = 1./(SQRT2 * sigma);
       r = UNIF_RANDUM();
       //double priormin = s->min;
@@ -2382,9 +2392,62 @@ boolean species_order_ok(world_fmt * world, const MYREAL *param)
   return TRUE;
 }
 
+/* divergence-order TREE/RANK: the interval a mean split time D may move in
+   while every other split time stays put: above the D of each split whose
+   ancestor this split creates (its children) and below the D of the split
+   that created this split's ancestor (its partner), within the prior
+   bounds. Tied splits (t) move together, so the bounds of every member
+   count. FALSE when no order applies or the parameter is not a D. During
+   one D move the interval is the same for the forward and the reverse
+   step, so any kernel that is valid on the prior interval is valid on this
+   one when its proposal and Hastings ratio use these bounds. */
+boolean species_order_bounds(world_fmt * world, long which, MYREAL *lo, MYREAL *hi)
+{
+  long c, q, m;
+  species_fmt *s;
+  if (!world->has_speciation || world->options->divergence_order == DIVORDER_NONE)
+    return FALSE;
+  s = get_which_species_model(which, world->species_model, world->species_model_size);
+  if (s == NULL || which != s->paramindex_mu)
+    return FALSE;
+  *lo = world->bayes->minparam[which];
+  *hi = world->bayes->maxparam[which];
+  for (m = 0; m < world->species_model_size; m++)
+    {
+      species_fmt *sm = &world->species_model[m];
+      if (sm != s && !(s->type == 't' && sm->type == 't' && sm->from == s->from))
+        continue;
+      if ((q = species_order_partner(world, m)) >= 0)
+        {
+          const MYREAL d = world->param0[world->species_model[q].paramindex_mu];
+          if (d < *hi)
+            *hi = d;
+        }
+      for (c = 0; c < world->species_model_size; c++)
+        if (species_order_partner(world, c) == m)
+          {
+            const MYREAL d = world->param0[world->species_model[c].paramindex_mu];
+            if (d > *lo)
+              *lo = d;
+          }
+    }
+  return *lo <= *hi;
+}
+
+/* TRUE when the mean split time of parameter index p is fixed (prior
+   minimum == maximum) */
+static boolean species_mu_fixed(world_fmt * world, long p)
+{
+  return world->bayes != NULL && world->bayes->minparam != NULL
+    && !(world->bayes->maxparam[p] > world->bayes->minparam[p]);
+}
+
 /* start values that break the order (random or user start values): a split
    older than its partner moves to the partner's split time; the partners
-   form trees, so every pass settles at least one more level */
+   form trees, so every pass settles at least one more level. A fixed split
+   time never moves: the partner moves up to it instead (it moved the fixed
+   child split before, which then stayed at the wrong value); two fixed
+   split times out of order stop the run */
 boolean species_order_repair(world_fmt * world)
 {
   long c, q, pass;
@@ -2398,8 +2461,22 @@ boolean species_order_repair(world_fmt * world)
         if ((q = species_order_partner(world, c)) >= 0
             && world->param0[sc->paramindex_mu] > world->param0[world->species_model[q].paramindex_mu])
           {
-            world->param0[sc->paramindex_mu] = world->param0[world->species_model[q].paramindex_mu];
-            sc->mu = world->param0[sc->paramindex_mu];
+            species_fmt *sq = &world->species_model[q];
+            if (!species_mu_fixed(world, sc->paramindex_mu))
+              {
+                world->param0[sc->paramindex_mu] = world->param0[sq->paramindex_mu];
+                sc->mu = world->param0[sc->paramindex_mu];
+              }
+            else if (!species_mu_fixed(world, sq->paramindex_mu))
+              {
+                world->param0[sq->paramindex_mu] = world->param0[sc->paramindex_mu];
+                sq->mu = world->param0[sq->paramindex_mu];
+              }
+            else
+              usererror ("the fixed split times D_%li->%li = %g and D_%li->%li = %g are out of order:\n"
+                         "with divergence-order the first must not be older than the second\n",
+                         sc->from + 1, sc->to + 1, world->param0[sc->paramindex_mu],
+                         sq->from + 1, sq->to + 1, world->param0[sq->paramindex_mu]);
             changed = TRUE;
           }
       }
@@ -2941,7 +3018,7 @@ MYREAL time_to_speciate_weibull(world_fmt *world, long pop, MYREAL t0, char *eve
 	continue;
       lambda = world->param0[s->paramindex_mu];
       k = world->param0[s->paramindex_sigma];
-      tmax = (double) s->max;
+      tmax = species_tmax(s);
       r = log(UNIF_RANDUM());
       xx = log(t0/lambda) * k;
       yy = exp(xx) - r;

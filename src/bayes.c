@@ -2078,8 +2078,28 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
   else if (which < npx)// speciation
     {
       //warning("GROWTH has issues with speciation");
+      /* divergence-order: propose D only inside the interval its child and
+         parent splits leave (proposal and Hastings ratio on the narrowed
+         bounds; the prior ratio on the real ones). Proposals outside the
+         order were rejected before, about 44% of the D moves in 11b */
+      MYREAL olo = 0.0, ohi = 0.0, savemin = 0.0, savemax = 0.0, ssmin = 0.0, ssmax = 0.0;
+      species_fmt *ospec = NULL;
+      const boolean narrowed = species_order_bounds(world, which, &olo, &ohi);
+      if (narrowed)
+        {
+          ospec = get_which_species_model(which, world->species_model, world->species_model_size);
+          savemin = bayes->minparam[which]; savemax = bayes->maxparam[which];
+          ssmin = ospec->min; ssmax = ospec->max;
+          bayes->minparam[which] = olo; bayes->maxparam[which] = ohi;
+          ospec->min = olo; ospec->max = ohi;
+        }
       specid = propose_new_spec_mu(world, which, &is_mu, &newparam);
       hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
+      if (narrowed)
+        {
+          bayes->minparam[which] = savemin; bayes->maxparam[which] = savemax;
+          ospec->min = ssmin; ospec->max = ssmax;
+        }
       hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
       bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
       /* divergence-order TREE/RANK: the prior is zero where a split is older than

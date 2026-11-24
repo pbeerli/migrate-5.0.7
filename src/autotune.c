@@ -34,6 +34,7 @@
 #include "seqerror.h"
 #include "haplotype.h"
 #include "skyparam.h"
+#include "speciate.h"
 
 extern void print_menu_equilib (world_fmt * world);
 extern int myID;
@@ -62,6 +63,15 @@ void autotune_proposal(world_fmt *world, long which, long w)
     MYREAL ma = bayes->maxparam[w];
     MYREAL mi = bayes->minparam[w];
     MYREAL mindelta = (ma-mi)/200.;
+    /* mean split times: the gap between a split and its child split can be
+       far below 1/200 of the prior range (11b: 0.00007 against a floor of
+       0.00005), so their window may shrink further */
+    if (world->has_speciation)
+      {
+        species_fmt *sp = get_which_species_model(w, world->species_model, world->species_model_size);
+        if (sp != NULL && sp->paramindex_mu == w)
+          mindelta = (ma - mi) / 1000.;
+      }
     /* log-scale proposals (LOGUNIFORM window, its multiplier): delta is a
        width on log x, so its bounds are too */
     if ((propose_new[w] == (profuncptr) propose_logunif_newparam

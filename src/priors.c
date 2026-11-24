@@ -1003,16 +1003,19 @@ MYREAL propose_reflect_window(MYREAL param, MYREAL minparam, MYREAL maxparam, MY
   rr = (*r) - 0.5;
   thisdelta = rr * delta;
   np = param + thisdelta;
-  if (np > maxparam)
+  /* reflect until inside: a window wider than the interval (divergence
+     moves inside the order bounds) can cross both bounds, and the caller
+     clamps what is left outside, a point mass on the bound */
+  if (maxparam > minparam)
     {
-      np =  2. * maxparam - np;
-    }
-  else
-    {
-      if (np < minparam)
-	{
-	  np = 2. * minparam - np;
-	}
+      long bounce = 0;
+      while ((np > maxparam || np < minparam) && bounce++ < 1000)
+        {
+          if (np > maxparam)
+            np = 2. * maxparam - np;
+          else
+            np = 2. * minparam - np;
+        }
     }
   return np;
 }
