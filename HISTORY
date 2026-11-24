@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 24  Migrate 6.1.105 mutation=ESTIMATE: the shared rate is now a coordinate of the joint
+             combination (Theta and M models; with divergence, growth or skyline segments
+             it stays per locus). divergence-order: split-time moves stay between the child
+             and parent splits. A fixed split time was moved by the start-order repair and
+             cut off every lineage crossing above it; both fixed.
 November 23  Migrate 6.1.104 A custom-migration matrix that leaves a population without migration or
              divergence to the others now stops at the start with an error; before, the
              start genealogy grew until memory ran out. A legal but hard start genealogy
