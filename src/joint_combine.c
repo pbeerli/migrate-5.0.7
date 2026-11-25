@@ -5773,6 +5773,59 @@ jc_print_mcerr (world_fmt *world, const jc_store *js, FILE *out)
   myfree (rows);
 }
 
+/* splitstd-cv: posterior of c = S/D per split from the joint samples (the
+   per-locus and All rows hold S and D only as marginals, so c needs the
+   joint trace) */
+static void
+jc_print_splitcv (world_fmt *world, FILE *out)
+{
+  jc_store *js = (jc_store *) world->jointstats;
+  const double pq[5] = { 0.025, 0.25, 0.5, 0.75, 0.975 };
+  long k, i, a, nflag = 0;
+  if (!world->options->splitstd_cv || !world->has_speciation || world->species_model_size < 1)
+    return;
+  if (js == NULL || !js->done || js->trace == NULL || js->nsweeps < 2)
+    {
+      FPRINTF (out, "\nSplit-time spread relative to the split time, c = S/D: needs the joint\n"
+                    "multi-locus combination, which did not run (the S and D rows are marginals)\n");
+      return;
+    }
+  FPRINTF (out, "\nSplit-time spread relative to the split time, c = S/D (splitstd-cv; joint\n"
+                "samples; S = std. dev. of the lineage split times around their mean D,\n"
+                "backward in time)\n");
+  FPRINTF (out, "Split        2.5%%       25%%     median      75%%     97.5%%       mean\n");
+  FPRINTF (out, "----------------------------------------------------------------------\n");
+  double *c = (double *) mycalloc ((size_t) js->nsweeps, sizeof (double));
+  for (k = 0; k < world->species_model_size; k++)
+    {
+      const species_fmt *s = &world->species_model[k];
+      const long pm = s->paramindex_mu, ps = s->paramindex_sigma;
+      double mean = 0.0, q[5];
+      char name[32];
+      boolean flag;
+      if (pm < 0 || ps < 0 || pm >= js->np || ps >= js->np)
+        continue;
+      for (i = 0; i < js->nsweeps; i++)
+        {
+          const double D = js->trace[pm * js->nsweeps + i];
+          c[i] = D > 0.0 ? js->trace[ps * js->nsweeps + i] / D : 0.0;
+          mean += c[i] / (double) js->nsweeps;
+        }
+      qsort (c, (size_t) js->nsweeps, sizeof (double), jc_cmp_double);
+      for (a = 0; a < 5; a++)
+        q[a] = c[(long) (pq[a] * (js->nsweeps - 1) + 0.5)];
+      flag = jc_param_flagged (world, pm) || jc_param_flagged (world, ps);
+      if (flag)
+        nflag++;
+      snprintf (name, sizeof (name), "c_%li->%li%s", s->from + 1, s->to + 1, flag ? "*" : "");
+      FPRINTF (out, "%-10.10s %10.5f %10.5f %10.5f %10.5f %10.5f %10.5f\n", name,
+               q[0], q[1], q[2], q[3], q[4], mean);
+    }
+  myfree (c);
+  if (nflag)
+    FPRINTF (out, "(*) S or D is a Joint* estimate (large genealogy-sampling error)\n");
+}
+
 /// One line under the Bayesian estimates table saying how "All" was combined
 void
 jc_print_note (world_fmt *world, FILE *out)
@@ -5804,6 +5857,7 @@ jc_print_note (world_fmt *world, FILE *out)
   else
     FPRINTF (out, "(All) combined as the product of the per-locus marginal posteriors\n"
                   "      (the joint multi-locus combination does not handle this model yet)\n");
+  jc_print_splitcv (world, out);
 }
 
 

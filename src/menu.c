@@ -2692,6 +2692,8 @@ void menuPrior(option_fmt * options) {
 	     text[is_priortype(p, pnum, SPECIESTIMEPRIOR)]);
       printf("  5   Set splitting std dev. prior distribution?    %11s\n",
 	     text[is_priortype(p, pnum, SPECIESSTDPRIOR)]);
+      printf("  6   Splitting std dev. prior on c = S/D?          %11s\n",
+	     options->splitstd_cv ? "YES" : "NO");
       printf("\n  (Type Y to go back to the main menu or the letter for a menu to change)\n===> ");
       fflush(stdout); FGETS(input, LINESIZE, stdin);
       switch (uppercase(input[0])) 
@@ -2711,11 +2713,19 @@ void menuPrior(option_fmt * options) {
 	  break;
 	case '3':
 	      set_prior_menu(RATEPRIOR, options);
+	  break;
 	case '4':
 	      set_prior_menu(SPECIESTIMEPRIOR, options);
 	  break;
 	case '5':
 	      set_prior_menu(SPECIESSTDPRIOR, options);
+	  break;
+	case '6':
+	  options->splitstd_cv = !options->splitstd_cv;
+	  if (options->splitstd_cv)
+	    printf("\n  splitstd-cv=YES: the splitting std dev. prior (5) is now a prior on\n"
+		   "  c = S/D, the spread relative to the split time (e.g. EXPPRIOR with mean 0.1);\n"
+		   "  S stays the sampled parameter, its prior is p_c(S/D)/D\n\n");
 	  break;
 	default:
 	  break;

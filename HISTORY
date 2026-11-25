@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 25  Migrate 6.1.108 divergence-order: the All row divided each locus by the unordered
+             split-time prior, which pushed later splits toward 0; it now uses the exact
+             ordered marginal. splitstd-cv: the outfile reports c = S/D, and the prior menu
+             has an entry for it. Menu: the rate prior choice fell through into the split prior.
 November 25  Migrate 6.1.107 splitstd-cv=YES: the SPLITSTD prior is a prior on c = S/D
              (p(S|D) = p_c(S/D)/D). All row: each locus now enters with its likelihood;
              with a prior that vanishes at a bound (Gamma alpha > 1) All piled up there

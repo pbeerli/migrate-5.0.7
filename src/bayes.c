@@ -496,8 +496,8 @@ extern long m2mmm(long frompop, long topop, long numpop);
 MYREAL probg_treetimes(world_fmt* world)
 {
     /* Mittag-Leffler: every population runs its own clock with its own
-       alpha (mlf_hastings.c); divergence, tip dates and skyline=PARAM
-       still use the interval density below */
+       alpha (mlf_hastings.c); only a divergence distribution other than
+       normal or exponential still uses the interval density below */
     if (mlh_density_applies(world))
       {
 #ifdef MIGRATE_MLH_VERIFY
@@ -1822,8 +1822,241 @@ void splitcv_cbounds (long ps, MYREAL *cmin, MYREAL *cmax, MYREAL *cmean)
   *cmean = splitcv_cf[ps * SPLITCV_NF + 2];
 }
 
+/* ---- divergence-order: marginal prior of an ordered mean split time ------
+   With divergence-order TREE or RANK the prior of the mean split times is
+   the product of their priors restricted to the order, so the marginal of
+   one D is not its own prior; the All row (and the prior plots) must use
+   the marginal, else NODATA gives All = prior_o^L / prior^(L-1). The order
+   pairs (child D <= partner D) form a forest; sum-product on a common grid
+   gives every marginal exactly up to the grid: up-messages are cumulative
+   masses of the child subtrees, down-messages upper-tail masses of the
+   partner side. A tied group (one parameter) is one node; a fixed D is a
+   point mass. */
+#define ORDM_G 4096
+static boolean ordm_done = FALSE;
+static long    ordm_n = 0;          /* nodes */
+static long   *ordm_node = NULL;    /* numparam -> node with a table, -1: own prior */
+static double *ordm_e = NULL;       /* G+1 grid edges */
+static double *ordm_lm = NULL;      /* nodes x G log marginal density */
+static double *ordm_min = NULL, *ordm_max = NULL;
+
+static long ordm_rep (world_fmt *world, long p)
+{
+  long j;
+  if (shortcut (p, world, &j) && j >= 0)
+    return j;
+  return p;
+}
+
+static void ordm_setup (world_fmt *world)
+{
+  const long ns = world->species_model_size, np = world->numparam, G = ORDM_G;
+  bayes_fmt *b = world->bayes;
+  long k, q, g, h, *rep, *par, *ord, *used;
+  double lo = MYREAL_MAX, hi = -MYREAL_MAX, *x, *w, *f, *U, *A, *T;
+  boolean logg;
+  ordm_done = TRUE;
+  ordm_node = (long *) mycalloc ((size_t) (np + 1), sizeof (long));
+  for (k = 0; k <= np; k++)
+    ordm_node[k] = -1;
+  if (!world->has_speciation || world->options->divergence_order == DIVORDER_NONE || ns < 2)
+    return;
+  /* nodes: distinct D parameters */
+  rep = (long *) mycalloc ((size_t) ns, sizeof (long));
+  par = (long *) mycalloc ((size_t) ns, sizeof (long));
+  used = (long *) mycalloc ((size_t) ns, sizeof (long));
+  ordm_n = 0;
+  for (k = 0; k < ns; k++)
+    {
+      const long p = ordm_rep (world, world->species_model[k].paramindex_mu);
+      for (q = 0; q < ordm_n; q++)
+        if (rep[q] == p)
+          break;
+      if (q == ordm_n)
+        rep[ordm_n++] = p;
+    }
+  for (k = 0; k < ordm_n; k++)
+    par[k] = -1;
+  for (k = 0; k < ns; k++)
+    {
+      const long c = species_order_partner (world, k);
+      long nc, nq;
+      if (c < 0)
+        continue;
+      const long pc = ordm_rep (world, world->species_model[k].paramindex_mu);
+      const long pq = ordm_rep (world, world->species_model[c].paramindex_mu);
+      for (nc = 0; rep[nc] != pc; nc++);
+      for (nq = 0; rep[nq] != pq; nq++);
+      if (nc != nq && par[nc] < 0)
+        {
+          par[nc] = nq;
+          used[nc] = used[nq] = 1;
+        }
+    }
+  for (k = 0; k < ordm_n; k++)
+    if (used[k])
+      break;
+  if (k == ordm_n)
+    {
+      myfree (rep); myfree (par); myfree (used);
+      return;
+    }
+  /* grid over all prior ranges, logarithmic when they span > 3 decades */
+  ordm_min = (double *) mycalloc ((size_t) ordm_n, sizeof (double));
+  ordm_max = (double *) mycalloc ((size_t) ordm_n, sizeof (double));
+  for (k = 0; k < ordm_n; k++)
+    {
+      ordm_min[k] = b->minparam[rep[k]];
+      ordm_max[k] = b->maxparam[rep[k]];
+      if (ordm_min[k] < lo) lo = ordm_min[k];
+      if (ordm_max[k] > hi) hi = ordm_max[k];
+    }
+  if (!(hi > lo))
+    hi = lo + 1.0;
+  logg = lo > 0.0 && hi / lo > 1000.0;
+  ordm_e = (double *) mycalloc ((size_t) (G + 1), sizeof (double));
+  x = (double *) mycalloc ((size_t) G, sizeof (double));
+  w = (double *) mycalloc ((size_t) G, sizeof (double));
+  for (g = 0; g <= G; g++)
+    ordm_e[g] = logg ? exp (log (lo) + (log (hi) - log (lo)) * (double) g / (double) G)
+                     : lo + (hi - lo) * (double) g / (double) G;
+  for (g = 0; g < G; g++)
+    {
+      x[g] = 0.5 * (ordm_e[g] + ordm_e[g + 1]);
+      w[g] = ordm_e[g + 1] - ordm_e[g];
+    }
+  /* own prior densities */
+  f = (double *) mycalloc ((size_t) (ordm_n * G), sizeof (double));
+  for (k = 0; k < ordm_n; k++)
+    {
+      double *fk = f + k * G;
+      if (!(ordm_max[k] > ordm_min[k]))
+        {   /* fixed: point mass in its cell */
+          for (g = 0; g < G - 1 && ordm_e[g + 1] <= ordm_min[k]; g++);
+          fk[g] = 1.0 / w[g];
+          continue;
+        }
+      for (g = 0; g < G; g++)
+        if (x[g] >= ordm_min[k] && x[g] <= ordm_max[k])
+          {
+            const double lp = (*log_prior_1[rep[k]]) (world, rep[k], x[g]);
+            fk[g] = (lp > (double) -HUGE && isfinite (lp)) ? exp (lp) : 0.0;
+          }
+    }
+  /* post-order: children before their partner */
+  ord = (long *) mycalloc ((size_t) ordm_n, sizeof (long));
+  {
+    long *depth = (long *) mycalloc ((size_t) ordm_n, sizeof (long)), d, m = 0, maxd = 0;
+    for (k = 0; k < ordm_n; k++)
+      {
+        for (d = 0, q = par[k]; q >= 0 && d <= ordm_n; q = par[q], d++);
+        depth[k] = d;
+        if (d > maxd) maxd = d;
+      }
+    for (d = maxd; d >= 0; d--)
+      for (k = 0; k < ordm_n; k++)
+        if (depth[k] == d)
+          ord[m++] = k;
+    myfree (depth);
+  }
+  U = (double *) mycalloc ((size_t) (ordm_n * G), sizeof (double));
+  A = (double *) mycalloc ((size_t) (ordm_n * G), sizeof (double));
+  T = (double *) mycalloc ((size_t) G, sizeof (double));
+  for (h = 0; h < ordm_n; h++)
+    {   /* up: U_k(x) = mass of k's subtree with D_k <= x */
+      double cum = 0.0;
+      k = ord[h];
+      for (g = 0; g < G; g++)
+        {
+          double m = f[k * G + g];
+          for (q = 0; q < ordm_n; q++)
+            if (par[q] == k)
+              m *= U[q * G + g];
+          U[k * G + g] = cum + 0.5 * m * w[g];
+          cum += m * w[g];
+        }
+    }
+  for (h = ordm_n - 1; h >= 0; h--)
+    {   /* down: A_k(x) = mass of the rest with D_partner >= x */
+      double cum = 0.0;
+      k = ord[h];
+      if (par[k] < 0)
+        {
+          for (g = 0; g < G; g++)
+            A[k * G + g] = 1.0;
+          continue;
+        }
+      q = par[k];
+      for (g = 0; g < G; g++)
+        {
+          long s;
+          T[g] = f[q * G + g] * A[q * G + g];
+          for (s = 0; s < ordm_n; s++)
+            if (s != k && par[s] == q)
+              T[g] *= U[s * G + g];
+        }
+      for (g = G - 1; g >= 0; g--)
+        {
+          A[k * G + g] = cum + 0.5 * T[g] * w[g];
+          cum += T[g] * w[g];
+        }
+    }
+  ordm_lm = (double *) mycalloc ((size_t) (ordm_n * G), sizeof (double));
+  for (k = 0; k < ordm_n; k++)
+    {
+      double sum = 0.0, *lm = ordm_lm + k * G;
+      for (g = 0; g < G; g++)
+        {
+          double m = f[k * G + g] * A[k * G + g];
+          for (q = 0; q < ordm_n; q++)
+            if (par[q] == k)
+              m *= U[q * G + g];
+          lm[g] = m;
+          sum += m * w[g];
+        }
+      for (g = 0; g < G; g++)
+        lm[g] = (lm[g] > 0.0 && sum > 0.0) ? log (lm[g] / sum) : (double) -HUGE;
+      if (used[k] && ordm_max[k] > ordm_min[k] && sum > 0.0)
+        ordm_node[rep[k]] = k;
+    }
+  myfree (rep); myfree (par); myfree (used); myfree (ord);
+  myfree (x); myfree (w); myfree (f); myfree (U); myfree (A); myfree (T);
+}
+
+/* log prior density of parameter p at v as a marginal: the ordered
+   marginal for a mean split time under divergence-order, else its prior */
+static MYREAL order_marginal_logprior (world_fmt *world, long p, MYREAL v)
+{
+  long k, g, a, z;
+  const long G = ORDM_G;
+  if (!ordm_done)
+    ordm_setup (world);
+  k = ordm_node[p];
+  if (k < 0)
+    return (*log_prior_1[p]) (world, p, v);
+  if (v < ordm_min[k] || v > ordm_max[k])
+    return (double) -HUGE;
+  a = 0; z = G;   /* cell of v: ordm_e[a] <= v < ordm_e[a+1] */
+  while (z - a > 1)
+    {
+      const long m = (a + z) / 2;
+      if (ordm_e[m] <= v) a = m; else z = m;
+    }
+  g = a;
+  {   /* linear interpolation of the log density between cell mids */
+    const double *lm = ordm_lm + k * G;
+    const double xm = 0.5 * (ordm_e[g] + ordm_e[g + 1]);
+    const long g2 = (v >= xm) ? (g + 1 < G ? g + 1 : g) : (g > 0 ? g - 1 : g);
+    const double xm2 = 0.5 * (ordm_e[g2] + ordm_e[g2 + 1]);
+    if (g2 == g || !(lm[g2] > (double) -HUGE) || !(lm[g] > (double) -HUGE))
+      return lm[g];
+    return lm[g] + (lm[g2] - lm[g]) * (v - xm) / (xm2 - xm);
+  }
+}
+
 /* marginal prior of S, int p_c(S/D)/D p(D) dD over the D prior (plots and
-   the All row divide by it) */
+   the All row divide by it); p(D) is the ordered marginal under
+   divergence-order */
 static MYREAL splitcv_marginal (world_fmt *world, long ps, long pm, MYREAL S)
 {
   const bayes_fmt *b = world->bayes;
@@ -1837,7 +2070,7 @@ static MYREAL splitcv_marginal (world_fmt *world, long ps, long pm, MYREAL S)
   for (g = 0; g < n; g++)
     {
       const MYREAL D = lo + (hi - lo) * (g + 0.5) / n;
-      const MYREAL pd = (*log_prior_1[pm]) (world, pm, D);
+      const MYREAL pd = order_marginal_logprior (world, pm, D);
       const MYREAL ps_ = splitcv_logprior (world, ps, S, D);
       v[g] = (pd > (double) -HUGE && ps_ > (double) -HUGE) ? pd + ps_ + LOG ((hi - lo) / n) : (double) -HUGE;
       if (v[g] > m)
@@ -1912,7 +2145,7 @@ MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val)
     long pm;
     if (splitcv_is_s (world, numparam, &pm))
       return splitcv_marginal (world, numparam, pm, val);
-    return (*log_prior_1[numparam])(world,numparam,val);
+    return order_marginal_logprior (world, numparam, val);
 }
 
 
