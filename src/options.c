@@ -107,7 +107,7 @@ extern char * generator;
   "bayes-hyperpriors",\
   "inheritance-scalars", "mittag-leffler-alpha",\
   "print-all-variable-sites" /*36*/, "phased-infile" /*37*/}
-#define NUMNUMBER 80
+#define NUMNUMBER 81
 #define NUMBERTOKENS {"ttratio","rate",\
  "split","splitstd","long-chains",\
  "long-steps", "long-inc", "theta", \
@@ -122,7 +122,7 @@ extern char * generator;
  "bayes-updatefreq", "bayesfile","bayes-prior", "usertree", "bayes-posteriorbins",\
  "mig-histogram", "bayes-posteriormaxtype", "pdf-outfile",\
  "bayes-allfileinterval", "bayes-priors","skyline","rates-gamma", "bayes-proposals", \
-      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale","joint-samples","divergence-order","snp-invariants"};
+      "generation-per-year", "mutationrate-per-year","inheritance-scalars", "micro-submodel","random-subset", "population-relabel", "sequence-submodel", "updatefreq", "analyze-loci","divergence-distrib","scaler-delta","window-delta","window-size","skyline-model","skyline-times","mutationrate-per-generation","joint-ess","joint-block","mittag-leffler-scale","joint-samples","divergence-order","snp-invariants","splitstd-cv"};
 
 // myID is a definition for the executing node (master or worker)
 extern int myID;
@@ -569,6 +569,8 @@ void init_options (option_fmt * options)
     options->joint_ess = JOINT_ESS_DEFAULT;
     options->joint_samples = 0.0;   /* AUTO */
     options->divergence_order = DIVORDER_TREE;
+    options->splitstd_cv = FALSE;
+    options->splitcv_prior = NULL;
     options->divergence_rank = NULL;
     options->divergence_ranksize = 0;
     options->joint_block = JOINT_BLOCK_AUTO;
@@ -826,7 +828,7 @@ read_options_worker (char **buffer, option_fmt * options)
 	      read_startparameter (3, options, parmvar, varvalue, buffer);
 	      continue;
 	    }
-            if (!strncmp (parmvar, "splitstd", 6))
+            if (!strcmp (parmvar, "splitstd"))   /* exact: splitstd-cv is its own option */
             {
 	      read_startparameter (4, options, parmvar, varvalue, buffer);
 	      continue;
@@ -1506,6 +1508,8 @@ print_options (FILE * file, world_fmt * world, option_fmt * options,
             fprintf (file, "   Joint combination genealogies/locus: %20.0f\n", options->joint_samples);
         else if (options->joint_samples > 0.0)
             fprintf (file, "   Joint combination genealogies/locus: %10.3g of recorded\n", options->joint_samples);
+        if (options->splitstd_cv)
+            fprintf (file, "   Split-time spread prior:             on S/D (splitstd-cv)\n");
         if (options->divergence_order == DIVORDER_NONE)
             fprintf (file, "   Divergence order:                                    NONE\n");
         else if (options->divergence_order == DIVORDER_RANK)
@@ -4721,6 +4725,15 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     else
       print_parm_mutable(&bufsize, buffer, allocbufsize, "divergence-order=%s", options->divergence_order ? "TREE" : "NONE");
     print_parm_br(&bufsize, buffer, allocbufsize);
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Prior of the split-time spread S relative to the split time D");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Syntax: splitstd-cv=<NO | YES>");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        NO  = the SPLITSTD prior is on S (Default!)");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "        YES = the SPLITSTD prior is on the coefficient of variation c = S/D");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "              (min, mean, max in units of D), for example");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "              bayes-priors= SPLITSTD * * EXPPRIOR: 0.0 0.1 0.5");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: splitstd-cv=NO");
+    print_parm_mutable(&bufsize, buffer, allocbufsize, "splitstd-cv=%s", options->splitstd_cv ? "YES" : "NO");
+    print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_comment(&bufsize, buffer, allocbufsize, "Custom migration model");
@@ -7177,6 +7190,10 @@ numbercheck (option_fmt * options, char *var, char *value)
       break;
     case 79: /*snp-invariants=<NO | {total sites per locus}>*/
       set_snp_invariants(options, value);
+      break;
+    case 80: /*splitstd-cv=<NO | YES>: the SPLITSTD prior is a prior on the
+               coefficient of variation c = S/D (p(S|D) = p_c(S/D)/D)*/
+      options->splitstd_cv = (uppercase (value[0]) == 'Y');
       break;
     case 72: /*skyline-times={t1 t2 ...}: boundaries of the skyline=PARAM segments*/
       options->skylinetimes_num = 0;

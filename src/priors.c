@@ -1708,6 +1708,53 @@ split_default_prior (long idx, prior_fmt *p, const prior_fmt *theta, option_fmt 
   return idx;
 }
 
+/* splitstd-cv: the SPLITSTD prior lines are priors on c = S/D. Keep them in
+   options->splitcv_prior (the first call; later calls reuse them, since
+   options->bayes_priors then already holds S units) and give S the S-unit
+   range [cmin Dmin, cmax Dmax] (bounds, histogram bins, plots). A split
+   without its own SPLITSTD line gets c ~ Exp(mean 0.1) on [0, 0.5]. */
+static void
+splitcv_convert (option_fmt *options, prior_fmt *plist, long np, long z0, long nspecies)
+{
+  long k;
+  const boolean first = (options->splitcv_prior == NULL);
+  if (first)
+    options->splitcv_prior = (prior_fmt *) mycalloc ((size_t) (np + 1), sizeof (prior_fmt));
+  for (k = 0; k < nspecies; k++)
+    {
+      const long zd = z0 + 2 * k, zs = zd + 1;
+      prior_fmt *c = &options->splitcv_prior[zs];
+      const prior_fmt *d = &plist[zd];
+      prior_fmt *s = &plist[zs];
+      if (first)
+        {
+          copy_prior (c, s);
+          if (s->number < 0)
+            {   /* no SPLITSTD line: the default c prior */
+              c->kind = EXPPRIOR;
+              c->min = 0.0;
+              c->mean = 0.1;
+              c->max = 0.5;
+              c->std = c->mean;
+              c->delta = 0.05;
+              c->alpha = 1.0;
+            }
+          if (!(c->max > c->min) || c->min < 0.0)
+            usererror ("splitstd-cv=YES: the SPLITSTD prior is a prior on c = S/D and needs 0 <= min < max (min %g, max %g)\n",
+                       c->min, c->max);
+        }
+      s->kind = c->kind;
+      s->min = c->min * d->min;
+      s->max = c->max * d->max;
+      s->mean = c->mean * d->mean;
+      s->std = c->std * d->mean;
+      s->delta = c->delta * d->mean;
+      s->alpha = c->alpha;
+      if (s->mean <= s->min || s->mean >= s->max)
+        s->mean = 0.5 * (s->min + s->max);
+    }
+}
+
 /* forces whose parameters got the default prior: note it once for the
    "Potential problems" section (Theta and M are not forces) */
 static void
@@ -1849,6 +1896,11 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 #undef PRIOR_USE
   prior_check_used (options, used, looked);
   note_default_priors (defcount, kindcount, defprior);
+  if (options->splitstd_cv && options->has_speciation)
+    {
+      splitcv_convert (options, plist, np, numpop2 + has_mu, world->species_model_size);
+      world->options->splitcv_prior = options->splitcv_prior;   /* world->options was copied before */
+    }
   myfree (used);
   myfree(options->bayes_priors);
   options->bayes_priors = plist;

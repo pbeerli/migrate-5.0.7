@@ -400,6 +400,8 @@ fill_worldoptions (worldoption_fmt * wopt, option_fmt * options, long numpop)
     wopt->joint_ess = options->joint_ess;
     wopt->joint_samples = options->joint_samples;
     wopt->divergence_order = options->divergence_order;
+    wopt->splitstd_cv = options->splitstd_cv;
+    wopt->splitcv_prior = options->splitcv_prior;
     wopt->divergence_rank = options->divergence_rank;
     wopt->divergence_ranksize = options->divergence_ranksize;
     wopt->joint_block = options->joint_block;

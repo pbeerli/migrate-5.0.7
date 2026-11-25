@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 25  Migrate 6.1.107 splitstd-cv=YES: the SPLITSTD prior is a prior on c = S/D
+             (p(S|D) = p_c(S/D)/D). All row: each locus now enters with its likelihood;
+             with a prior that vanishes at a bound (Gamma alpha > 1) All piled up there
+             (7.0.130/6.1.106). MPI workers misread splitstd-cv as the S start value.
 November 24  Migrate 6.1.106 All row (product of the per-locus posteriors): each locus now enters as a
              reflected kernel density; empty bins were skipped, which inflated the tails and
              pinned modes at the prior bounds.
