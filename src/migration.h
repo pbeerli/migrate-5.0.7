@@ -1046,6 +1046,8 @@ typedef struct _option
   long joint_ess;  // joint combination: main run stops at this ESS (0: fixed length)
   MYREAL joint_samples; // joint combination: genealogies used per locus (0: AUTO, <=1: fraction of the recorded ones, >1: number)
   int divergence_order; // divergence-order: DIVORDER_NONE/TREE/RANK (TREE: a split is younger than the split that created its ancestor)
+  boolean splitstd_cv; // splitstd-cv=YES: the SPLITSTD prior is on c = S/D, p(S|D) = p_c(S/D)/D
+  prior_fmt *splitcv_prior; // splitstd-cv: the user's c prior per parameter index (NULL until check_bayes_priors)
   long *divergence_rank; // divergence-order=RANK: (from,to) pairs, 0-based, oldest split first (forward in time)
   long divergence_ranksize; // number of splits in divergence_rank
   int joint_block; // joint combination: block proposals, JOINT_BLOCK_AUTO/YES/NO
@@ -1358,6 +1360,8 @@ typedef struct _worldoption
     long joint_ess;
     MYREAL joint_samples;
     int divergence_order;
+    boolean splitstd_cv;
+    prior_fmt *splitcv_prior;   /* shared with option_fmt, not freed here */
     long *divergence_rank;      /* shared with option_fmt, not freed here */
     long divergence_ranksize;
     int joint_block;

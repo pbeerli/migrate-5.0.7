@@ -2099,7 +2099,91 @@ typedef struct
   world_fmt *world;
   long ns;                      /* std points per split */
   double *sv, *sw, *ps_s;       /* stds, widths, log prior: nsplit x ns */
+  double *cv;                   /* splitstd-cv: per split JC_CVN fields of p(S|D), NULL: off */
 } jc_divquad;
+
+/* splitstd-cv: log p(S|D) = log p_c(S/D) - log D. A closed-form kernel per
+   c prior plus the constant of the exact prior (splitcv_logprior()); the
+   kernel is checked against the exact prior at setup and replaced by it
+   (kind -1) when it does not match. Fields: kind, min, max, a, scale b,
+   mean, sd, constant K, S parameter */
+#define JC_CVN 9
+static double
+jc_cv_kernel (const double *c, double x)
+{
+  switch ((int) c[0])
+    {
+    case UNIFORMPRIOR:
+      return 0.0;
+    case LOGUNIFORMPRIOR:
+      return x > 0.0 ? -log (x) : -HUGE_VAL;
+    case EXPPRIOR:
+    case WEXPPRIOR:
+    case GAMMAPRIOR:
+    case WGAMMAPRIOR:
+      if (x <= 0.0)
+        return c[3] == 1.0 ? 0.0 : -HUGE_VAL;
+      return (c[3] - 1.0) * log (x) - x / c[4];
+    case NORMALPRIOR:
+    case WNORMALPRIOR:
+      {
+        const double z = (x - c[5]) / c[6];
+        return -0.5 * z * z;
+      }
+    default:
+      return -HUGE_VAL;
+    }
+}
+
+static double
+jc_cv_lp (world_fmt *world, const double *c, double S, double D)
+{
+  double x, v;
+  if (!(D > 0.0))
+    return -HUGE_VAL;
+  if (c[0] < 0.0)
+    {
+      v = splitcv_logprior (world, (long) c[8], S, D);
+      return v > (double) -HUGE ? v : -HUGE_VAL;
+    }
+  x = S / D;
+  if (x <= c[1] || x > c[2])
+    return -HUGE_VAL;
+  v = jc_cv_kernel (c, x);
+  return v > -HUGE_VAL ? v + c[7] - log (D) : -HUGE_VAL;
+}
+
+static void
+jc_cv_make (world_fmt *world, long ps, double *c)
+{
+  MYREAL f[7];
+  long t;
+  const int kind = splitcv_cprior (world, ps, f);
+  c[0] = (double) kind;
+  c[1] = f[0];
+  c[2] = f[1];
+  c[3] = f[4];
+  c[4] = f[6];
+  c[5] = f[3];
+  c[6] = f[4];
+  c[8] = (double) ps;
+  {
+    const double xr = c[1] + 0.37 * (c[2] - c[1]);
+    const double k = jc_cv_kernel (c, xr);
+    const MYREAL e = splitcv_logprior (world, ps, xr, 1.0);
+    c[7] = (k > -HUGE_VAL && e > (double) -HUGE) ? e - k : 0.0;
+    if (!(k > -HUGE_VAL && e > (double) -HUGE))
+      c[0] = -1.0;
+  }
+  for (t = 1; t < 8 && c[0] >= 0.0; t++)
+    {   /* the kernel must reproduce the exact prior at other points and D */
+      const double x = c[1] + (c[2] - c[1]) * t / 8.0, D = 0.003 * t;
+      const MYREAL e = splitcv_logprior (world, ps, x * D, D);
+      const double k = jc_cv_lp (world, c, x * D, D);
+      if (!(e > (double) -HUGE) || fabs (e - k) > 1e-6 * (1.0 + fabs (e)))
+        c[0] = -1.0;
+    }
+}
 
 static void
 jc_divquad_make (world_fmt *world, const jc_layout *ly, jc_divquad *q)
@@ -2111,11 +2195,24 @@ jc_divquad_make (world_fmt *world, const jc_layout *ly, jc_divquad *q)
   q->sv = (double *) mycalloc ((size_t) ((ly->nsplit + 1) * q->ns), sizeof (double));
   q->sw = (double *) mycalloc ((size_t) ((ly->nsplit + 1) * q->ns), sizeof (double));
   q->ps_s = (double *) mycalloc ((size_t) ((ly->nsplit + 1) * q->ns), sizeof (double));
+  q->cv = NULL;
   for (k = 0; k < ly->nsplit; k++)
     {
       const long ps = ly->split_psig[k];
       if (ps < 0)
         continue;
+      if (splitcv_is_s (world, ps, NULL))
+        {   /* splitstd-cv: p(S|D) enters at every D (jc_div_mu_integral(),
+               jc_div_order_grid()); the S weights carry no prior */
+          if (q->cv == NULL)
+            {
+              long j;
+              q->cv = (double *) mycalloc ((size_t) ((ly->nsplit + 1) * JC_CVN), sizeof (double));
+              for (j = 0; j <= ly->nsplit; j++)
+                q->cv[j * JC_CVN] = -2.0;   /* no c prior */
+            }
+          jc_cv_make (world, ps, q->cv + k * JC_CVN);
+        }
       const double shi = world->bayes->maxparam[ps], smin = world->bayes->minparam[ps];
       const double slo = smin > 1e-3 * shi ? smin : 1e-3 * shi;
       q->sv[k * q->ns] = 0.5 * (smin + slo);
@@ -2129,14 +2226,26 @@ jc_divquad_make (world_fmt *world, const jc_layout *ly, jc_divquad *q)
         }
       for (g = 0; g < q->ns; g++)
         q->ps_s[k * q->ns + g] = q->sw[k * q->ns + g] > 0.0
-          ? scaling_prior (world, ps, q->sv[k * q->ns + g]) : -HUGE_VAL;
+          ? (q->cv != NULL && q->cv[k * JC_CVN] > -2.0 ? 0.0 : scaling_prior (world, ps, q->sv[k * q->ns + g]))
+          : -HUGE_VAL;
     }
+}
+
+/* splitstd-cv: log p(S|D) of split group k, 0 without it */
+static double
+jc_div_cv (const jc_divquad *q, long k, double sigma, double D)
+{
+  if (q->cv == NULL || q->cv[k * JC_CVN] <= -2.0)
+    return 0.0;
+  return jc_cv_lp (q->world, q->cv + k * JC_CVN, sigma, D);
 }
 
 static void
 jc_divquad_free (jc_divquad *q)
 {
   myfree (q->sv); myfree (q->sw); myfree (q->ps_s);
+  if (q->cv != NULL)
+    myfree (q->cv);
 }
 
 /* log int prior(mu) e^{D(mu, sigma)} dmu at one std, for split k */
@@ -2151,7 +2260,7 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
   long m;
   if (!(hi > lo))
     {   /* a fixed D: the per-locus chains sampled at D, no integral and no prior */
-      double v = ly->ngate > 0 ? jc_gate_group (ly, st, k, lo) : 0.0;
+      double v = (ly->ngate > 0 ? jc_gate_group (ly, st, k, lo) : 0.0) + jc_div_cv (q, k, sigma, lo);
       for (m = 0; m < ly->nsplit; m++)
         if (ly->split_rep[m] == k)
           v += jc_div_term (ly, st, m, lo, sigma);
@@ -2215,7 +2324,7 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
         x[g] = lo;
       if (x[g] > hi)
         x[g] = hi;
-      v[g] = scaling_prior (q->world, pm, x[g]);
+      v[g] = scaling_prior (q->world, pm, x[g]) + jc_div_cv (q, k, sigma, x[g]);
       if (ly->ngate > 0)
         v[g] += jc_gate_group (ly, st, k, x[g]);
       for (m = 0; m < ly->nsplit; m++)
@@ -2330,7 +2439,8 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
               row[b] = -HUGE_VAL;
               continue;
             }
-          double v = q->ps_s[k * q->ns + b] + log (q->sw[k * q->ns + b]);
+          double v = q->ps_s[k * q->ns + b] + log (q->sw[k * q->ns + b])
+            + jc_div_cv (q, k, q->sv[k * q->ns + b], x[g]);
           for (m = 0; m < ly->nsplit; m++)
             if (ly->split_rep[m] == k)
               v += jc_div_term (ly, st, m, x[g], q->sv[k * q->ns + b]);
@@ -4527,6 +4637,59 @@ jc_bounds (world_fmt *world, const jc_layout *ly, long p, double *lo, double *hi
 
 /* returns the sweeps of the main run (fewer than sweeps when the ESS stop
    ended it; the trace is then compacted to that length) */
+/* splitstd-cv: sum over the split groups of log p(S|D) at phi (-HUGE_VAL
+   outside the c range); the S coordinates then have no prior of their own
+   in jc_target_prior() */
+static double
+jc_cv_logprior (world_fmt *world, const jc_layout *ly, const double *phi)
+{
+  double v = 0.0;
+  long k;
+  if (!world->options->splitstd_cv)
+    return 0.0;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      const long ps = ly->split_psig[k];
+      if (ly->split_rep[k] != k || ps < 0 || !splitcv_is_s (world, ps, NULL))
+        continue;
+      const double D = ly->mhi[k] > ly->mlo[k] ? phi[ly->split_pmu[k]] : ly->mlo[k];
+      const MYREAL lp = splitcv_logprior (world, ps, phi[ps], D);
+      if (!(lp > (double) -HUGE))
+        return -HUGE_VAL;
+      v += lp;
+    }
+  return v;
+}
+
+/* splitstd-cv: a start with S outside [cmin D, cmax D] moves S to cmean D */
+static void
+jc_cv_repair (world_fmt *world, const jc_layout *ly, double *phi)
+{
+  long k;
+  if (!world->options->splitstd_cv)
+    return;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      const long ps = ly->split_psig[k];
+      MYREAL cmin, cmax, cmean;
+      if (ps < 0 || !splitcv_is_s (world, ps, NULL))
+        continue;
+      const double D = ly->mhi[k] > ly->mlo[k] ? phi[ly->split_pmu[k]] : ly->mlo[k];
+      splitcv_cbounds (ps, &cmin, &cmax, &cmean);
+      if (D > 0.0 && !(phi[ps] > cmin * D && phi[ps] <= cmax * D))
+        phi[ps] = cmean * D;
+    }
+}
+
+/* the prior of coordinate p in the joint sampler (splitstd-cv: S in jc_cv_logprior()) */
+static double
+jc_target_prior (world_fmt *world, long p, double x)
+{
+  if (splitcv_is_s (world, p, NULL))
+    return 0.0;
+  return scaling_prior (world, p, x);
+}
+
 static long
 jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval *E, double *phi,
           double *step, double beta, long burn, long sweeps, double *trace, double *logftr)
@@ -4539,6 +4702,8 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
   long *tri = (long *) mycalloc ((size_t) nphi, sizeof (long));
   long p, sweep;
   double skyprior = jc_sky_logprior (ly, phi);
+  const boolean cvon = world->options->splitstd_cv;
+  double cvprior = jc_cv_logprior (world, ly, phi);
   /* block proposals: the active coordinates */
   const boolean block = jc_block_mode (world, ly);
   long d = 0, q, k, nrec = 0, bacc = 0, btri = 0, nb = 1;
@@ -4596,12 +4761,21 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                   if (!(phin[pp] >= blo && phin[pp] <= bhi) || (pp < npos && !(phin[pp] > 0.0)))
                     ok = FALSE;
                   else
-                    delta += scaling_prior (world, pp, phin[pp]) - scaling_prior (world, pp, phi[pp])
+                    delta += jc_target_prior (world, pp, phin[pp]) - jc_target_prior (world, pp, phi[pp])
                       + (pp < npos ? zn[q] - z[q] : 0.0);
                 }
               btri++;
               if (ok && !jc_order_ok (ly, phin, -1, 0.0))   /* divergence-order TREE/RANK */
                 ok = FALSE;
+              double newcvb = cvprior;
+              if (ok && cvon)
+                {
+                  newcvb = jc_cv_logprior (world, ly, phin);
+                  if (newcvb > -HUGE_VAL)
+                    delta += newcvb - cvprior;
+                  else
+                    ok = FALSE;
+                }
               if (ok)
                 {
                   const double dd = jc_eval_block (E, E->accept_prev, phi, phin, nphi);
@@ -4610,6 +4784,7 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                   if (E->accept_prev)
                     {
                       bacc++;
+                      cvprior = newcvb;
                       memcpy (phi, phin, sizeof (double) * (size_t) nphi);
                       E->logF += dd;
                     }
@@ -4635,7 +4810,7 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
           const boolean mult = tau || p < npos;
           const double x = mult ? phi[p] * exp (step[p] * (UNIF_RANDUM () - 0.5) * 2.0)
                                 : phi[p] + step[p] * (UNIF_RANDUM () - 0.5) * 2.0;
-          double newsky = skyprior;
+          double newsky = skyprior, newcv = cvprior;
           tri[p]++;
           if (x >= lo && x <= hi && (!mult || x > 0.0) && ly->nfree > 0)
             {
@@ -4644,12 +4819,19 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
               newsky = jc_sky_logprior (ly, phi);
               phi[p] = keep;
             }
-          if (x >= lo && x <= hi && (!mult || x > 0.0) && newsky > -HUGE_VAL
+          if (cvon && x >= lo && x <= hi && (!mult || x > 0.0) && !tau)
+            {   /* splitstd-cv: a D or S step changes p(S|D) */
+              const double keep = phi[p];
+              phi[p] = x;
+              newcv = jc_cv_logprior (world, ly, phi);
+              phi[p] = keep;
+            }
+          if (x >= lo && x <= hi && (!mult || x > 0.0) && newsky > -HUGE_VAL && newcv > -HUGE_VAL
               && jc_order_ok (ly, phi, p, x))   /* divergence-order TREE/RANK */
             {
-              double delta = (tau ? 0.0 : scaling_prior (world, p, x) - scaling_prior (world, p, phi[p])
+              double delta = (tau ? 0.0 : jc_target_prior (world, p, x) - jc_target_prior (world, p, phi[p])
                               + (mult ? log (x / phi[p]) : 0.0))
-                + newsky - skyprior;
+                + newsky - skyprior + (newcv - cvprior);
               const double d = jc_eval_step (E, phi, E->accept_prev, p, x);
               delta += beta * d;
               E->accept_prev = log (UNIF_RANDUM ()) < delta;
@@ -4658,6 +4840,7 @@ jc_chain (world_fmt *world, const jc_layout *ly, const boolean *active, jc_eval 
                   acc[p]++;
                   phi[p] = x;
                   skyprior = newsky;
+                  cvprior = newcv;
                   E->logF += d;
                 }
             }
@@ -4857,6 +5040,7 @@ jc_run (world_fmt *world, const jc_layout *ly, const boolean *active, const doub
   long p, l;
   jc_eval E;
   memcpy (phi, phi0, sizeof (double) * (size_t) nphi);
+  jc_cv_repair (world, ly, phi);   /* splitstd-cv: S inside [cmin D, cmax D] */
   const double rt0 = jc_now ();
   jc_eval_start (world, &E, phi, part);
   const double rt1 = jc_now ();

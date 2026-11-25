@@ -70,6 +70,12 @@ extern MYREAL log_prior_ratio_uni(MYREAL newparam,
 extern MYREAL log_prior_ratio_all(world_fmt *world, MYREAL *newvals);
 extern MYREAL calculate_prior(world_fmt *world);
 extern MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val);
+extern boolean splitcv_is_s (world_fmt *world, long i, long *pm);
+extern MYREAL splitcv_logprior (world_fmt *world, long ps, MYREAL S, MYREAL D);
+extern MYREAL splitcv_sum (world_fmt *world);
+extern boolean splitcv_start_repair (world_fmt *world);
+extern void splitcv_cbounds (long ps, MYREAL *cmin, MYREAL *cmax, MYREAL *cmean);
+extern int splitcv_cprior (world_fmt *world, long ps, MYREAL *f);
 extern void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numparam);
 extern void check_min_max_param(MYREAL *param0, MYREAL minparam, MYREAL maxparam);
 extern void destroy_global_function_arrays(void);

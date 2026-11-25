@@ -1703,10 +1703,215 @@ MYREAL log_prior_mult1(world_fmt *world, long numparam, MYREAL val)
 }
 
 
+/* ---- splitstd-cv (docs/split_std_cv_plan.md) ---------------------------
+   The SPLITSTD prior is a prior on c = S/D: p(S|D) = p_c(S/D) / D. S stays
+   the sampled parameter. Its bayes fields hold S-unit ranges [cmin Dmin,
+   cmax Dmax] (bounds, histogram bins, plots; check_bayes_priors() converts
+   options->bayes_priors); the c prior's fields (options->splitcv_prior) are
+   swapped in to evaluate the prior or to propose in c-space. */
+#define SPLITCV_NF 11   /* 10 bayes fields, then the prior kind */
+static MYREAL *splitcv_cf = NULL;   /* numparam x SPLITCV_NF fields of the c priors */
+
+static void splitcv_get (const bayes_fmt *b, long i, MYREAL *f)
+{
+  f[0] = b->minparam[i]; f[1] = b->maxparam[i]; f[2] = b->meanparam[i]; f[3] = b->priormean[i];
+  f[4] = b->alphaparam[i]; f[5] = b->alphaorigparam[i]; f[6] = b->betaparam[i];
+  f[7] = b->deltahist[i]; f[8] = b->logbin[i]; f[9] = b->delta[i];
+}
+
+/* delta (f[9]) is not put back: S moves always run in c-space, so
+   bayes->delta of an S holds the c window (set in splitcv_setup()) */
+static void splitcv_put (bayes_fmt *b, long i, const MYREAL *f)
+{
+  b->minparam[i] = f[0]; b->maxparam[i] = f[1]; b->meanparam[i] = f[2]; b->priormean[i] = f[3];
+  b->alphaparam[i] = f[4]; b->alphaorigparam[i] = f[5]; b->betaparam[i] = f[6];
+  b->deltahist[i] = f[7]; b->logbin[i] = f[8];
+}
+
+/* TRUE when splitstd-cv is on and parameter i is the S of a split (*pm: its D) */
+boolean splitcv_is_s (world_fmt *world, long i, long *pm)
+{
+  long k;
+  if (!world->options->splitstd_cv || splitcv_cf == NULL)
+    return FALSE;
+  for (k = 0; k < world->species_model_size; k++)
+    if (world->species_model[k].paramindex_sigma == i)
+      {
+        if (pm != NULL)
+          *pm = world->species_model[k].paramindex_mu;
+        return TRUE;
+      }
+  return FALSE;
+}
+
+/* end of bayes_fill(): the c priors' bayes fields, and the c window as the
+   proposal width of every S */
+void splitcv_setup (world_fmt *world)
+{
+  bayes_fmt *bayes = world->bayes;
+  const long np = world->numparam;
+  long k;
+  if (!world->options->splitstd_cv || !world->has_speciation)
+    return;
+  if (splitcv_cf == NULL && world->options->splitcv_prior == NULL)
+    error ("splitstd-cv: the c priors are not set (check_bayes_priors() did not run first)");
+  if (splitcv_cf == NULL)
+    {
+      splitcv_cf = (MYREAL *) mycalloc ((size_t) (np * SPLITCV_NF + 1), sizeof (MYREAL));
+      for (k = 0; k < world->species_model_size; k++)
+        {
+          const long ps = world->species_model[k].paramindex_sigma;
+          MYREAL keep[SPLITCV_NF];
+          prior_fmt *c = &world->options->splitcv_prior[ps];
+          splitcv_get (bayes, ps, keep);
+          select_prior_param (c->kind, ps, bayes, c);
+          splitcv_get (bayes, ps, splitcv_cf + ps * SPLITCV_NF);
+          splitcv_cf[ps * SPLITCV_NF + 10] = (MYREAL) c->kind;
+          splitcv_put (bayes, ps, keep);
+        }
+    }
+  for (k = 0; k < world->species_model_size; k++)
+    {
+      const long ps = world->species_model[k].paramindex_sigma;
+      bayes->delta[ps] = splitcv_cf[ps * SPLITCV_NF + 9];
+    }
+}
+
+/* swap the c prior of S parameter ps in (on) or out (off); keep holds the S fields */
+static void splitcv_swap (bayes_fmt *b, long ps, MYREAL *keep, boolean on)
+{
+  if (on)
+    {
+      splitcv_get (b, ps, keep);
+      splitcv_put (b, ps, splitcv_cf + ps * SPLITCV_NF);
+    }
+  else
+    splitcv_put (b, ps, keep);
+}
+
+/* log p(S|D) = log p_c(S/D) - log D */
+MYREAL splitcv_logprior (world_fmt *world, long ps, MYREAL S, MYREAL D)
+{
+  MYREAL keep[SPLITCV_NF], lp;
+  if (!(D > 0.0))
+    return (double) -HUGE;
+  splitcv_swap (world->bayes, ps, keep, TRUE);
+  lp = (*log_prior_1[ps]) (world, ps, S / D);
+  splitcv_swap (world->bayes, ps, keep, FALSE);
+  if (!(lp > (double) -HUGE) || !isfinite (lp))
+    return (double) -HUGE;
+  return lp - LOG (D);
+}
+
+/* the c prior of S parameter ps: its kind, f = min, max, mean, priormean,
+   alpha, alphaorig, beta (the bayes fields select_prior_param() fills) */
+int splitcv_cprior (world_fmt *world, long ps, MYREAL *f)
+{
+  long i;
+  (void) world;
+  for (i = 0; i < 7; i++)
+    f[i] = splitcv_cf[ps * SPLITCV_NF + i];
+  return (int) splitcv_cf[ps * SPLITCV_NF + 10];
+}
+
+/* the c prior's bounds of S parameter ps */
+void splitcv_cbounds (long ps, MYREAL *cmin, MYREAL *cmax, MYREAL *cmean)
+{
+  *cmin = splitcv_cf[ps * SPLITCV_NF];
+  *cmax = splitcv_cf[ps * SPLITCV_NF + 1];
+  *cmean = splitcv_cf[ps * SPLITCV_NF + 2];
+}
+
+/* marginal prior of S, int p_c(S/D)/D p(D) dD over the D prior (plots and
+   the All row divide by it) */
+static MYREAL splitcv_marginal (world_fmt *world, long ps, long pm, MYREAL S)
+{
+  const bayes_fmt *b = world->bayes;
+  const long n = 400;
+  const MYREAL lo = b->minparam[pm], hi = b->maxparam[pm];
+  MYREAL m = (double) -HUGE, sum = 0.0, *v;
+  long g;
+  if (!(hi > lo))
+    return splitcv_logprior (world, ps, S, lo);
+  v = (MYREAL *) mycalloc ((size_t) n, sizeof (MYREAL));
+  for (g = 0; g < n; g++)
+    {
+      const MYREAL D = lo + (hi - lo) * (g + 0.5) / n;
+      const MYREAL pd = (*log_prior_1[pm]) (world, pm, D);
+      const MYREAL ps_ = splitcv_logprior (world, ps, S, D);
+      v[g] = (pd > (double) -HUGE && ps_ > (double) -HUGE) ? pd + ps_ + LOG ((hi - lo) / n) : (double) -HUGE;
+      if (v[g] > m)
+        m = v[g];
+    }
+  if (!(m > (double) -HUGE))
+    {
+      myfree (v);
+      return (double) -HUGE;
+    }
+  for (g = 0; g < n; g++)
+    if (v[g] > (double) -HUGE)
+      sum += EXP (v[g] - m);
+  myfree (v);
+  return m + LOG (sum);
+}
+
+/* sum over the S parameters of log p(S|D), as calculate_prior() counts them */
+MYREAL splitcv_sum (world_fmt *world)
+{
+  const long np = world->numparam;
+  long i, j, pm;
+  MYREAL v = 0.0;
+  for (i = 0; i < np; i++)
+    if (!shortcut (i, world, &j) && splitcv_is_s (world, j, &pm))
+      {
+        const MYREAL lp = splitcv_logprior (world, j, world->param0[j], world->param0[pm]);
+        if (!(lp > (double) -HUGE))
+          return (double) -HUGE;
+        v += lp;
+      }
+  return v;
+}
+
+/* start values: an S outside [cmin D, cmax D] starts at cmean D */
+boolean splitcv_start_repair (world_fmt *world)
+{
+  long k, t;
+  boolean changed = FALSE;
+  if (!world->options->splitstd_cv || splitcv_cf == NULL)
+    return FALSE;
+  for (k = 0; k < world->species_model_size; k++)
+    {
+      species_fmt *s = &world->species_model[k];
+      const long ps = s->paramindex_sigma, pm = s->paramindex_mu;
+      MYREAL cmin, cmax, cmean;
+      const MYREAL D = world->param0[pm], S = world->param0[ps];
+      splitcv_cbounds (ps, &cmin, &cmax, &cmean);
+      if (D > 0.0 && S >= cmin * D && S <= cmax * D)
+        continue;
+      world->param0[ps] = cmean * (D > 0.0 ? D : world->bayes->maxparam[pm] * 0.5);
+      s->sigma = world->param0[ps];
+      if (s->type == 't')
+        for (t = 0; t < world->species_model_size; t++)
+          {
+            species_fmt *o = &world->species_model[t];
+            if (o != s && o->type == 't' && o->from == s->from)
+              {
+                o->sigma = s->sigma;
+                world->param0[o->paramindex_sigma] = s->sigma;
+              }
+          }
+      changed = TRUE;
+    }
+  return changed;
+}
+
 //
 // scaling prior used for multiple loci posterior
 MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val)
 {
+    long pm;
+    if (splitcv_is_s (world, numparam, &pm))
+      return splitcv_marginal (world, numparam, pm, val);
     return (*log_prior_1[numparam])(world,numparam,val);
 }
 
@@ -1716,13 +1921,19 @@ MYREAL calculate_prior(world_fmt *world)
   const long np = world->numparam;//world->numpop2 + world->bayes->mu + world->species_model_size * 2 + world->grownum;
     long i;
     long j;
+    long pm;
     MYREAL retval=0.0;
     
     for (i=0;i<np;i++)
     {
       //if (world->bayes->map[i][1] != INVALID)
       if(!shortcut(i,world,&j))
-	 retval += (*log_prior_1[j])(world,j,world->param0[j]);
+        {
+          if (splitcv_is_s (world, j, &pm))   /* splitstd-cv: p(S|D) */
+            retval += splitcv_logprior (world, j, world->param0[j], world->param0[pm]);
+          else
+            retval += (*log_prior_1[j])(world,j,world->param0[j]);
+        }
     }
     return retval;
 }
@@ -2084,6 +2295,14 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
          order were rejected before, about 44% of the D moves in 11b */
       MYREAL olo = 0.0, ohi = 0.0, savemin = 0.0, savemax = 0.0, ssmin = 0.0, ssmax = 0.0;
       species_fmt *ospec = NULL;
+      /* splitstd-cv: an S move runs in c = S/D (D fixed during it, so the
+         Jacobian cancels): propose c with the c prior swapped in, then S = c D;
+         a D move adds the ratio p(S|D')/p(S|D) of every S it carries */
+      long cvpm = -1;
+      const boolean cvS = splitcv_is_s (world, which, &cvpm);
+      const MYREAL cvold = (world->options->splitstd_cv && !cvS) ? splitcv_sum (world) : 0.0;
+      MYREAL cvkeep[16], cvD = 1.0, cvsmin = 0.0, cvsmax = 0.0, oldp = oldparam[which];
+      species_fmt *cvspec = NULL;
       const boolean narrowed = species_order_bounds(world, which, &olo, &ohi);
       if (narrowed)
         {
@@ -2093,15 +2312,49 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
           bayes->minparam[which] = olo; bayes->maxparam[which] = ohi;
           ospec->min = olo; ospec->max = ohi;
         }
+      if (cvS)
+        {
+          cvspec = get_which_species_model(which, world->species_model, world->species_model_size);
+          cvD = world->param0[cvpm];
+          splitcv_swap (bayes, which, cvkeep, TRUE);
+          cvsmin = cvspec->sigmamin; cvsmax = cvspec->sigmamax;
+          cvspec->sigmamin = bayes->minparam[which]; cvspec->sigmamax = bayes->maxparam[which];
+          oldp = oldparam[which] / cvD;
+          world->param0[which] = oldp;
+        }
       specid = propose_new_spec_mu(world, which, &is_mu, &newparam);
-      hastingsratio = (*hastings_ratio[which])(newparam, oldparam[which], delta, r, bayes, which);
+      hastingsratio = (*hastings_ratio[which])(newparam, oldp, delta, r, bayes, which);
       if (narrowed)
         {
           bayes->minparam[which] = savemin; bayes->maxparam[which] = savemax;
           ospec->min = ssmin; ospec->max = ssmax;
         }
-      hastingsratio += (*log_prior_ratio[which])(newparam, oldparam[which], bayes, which);
+      hastingsratio += (*log_prior_ratio[which])(newparam, oldp, bayes, which);
+      if (cvS)
+        {   /* back to S units */
+          long t;
+          splitcv_swap (bayes, which, cvkeep, FALSE);
+          cvspec->sigmamin = cvsmin; cvspec->sigmamax = cvsmax;
+          newparam *= cvD;
+          cvspec->sigma = newparam;
+          if (cvspec->type == 't')
+            for (t = 0; t < world->species_model_size; t++)
+              {
+                species_fmt *o = &world->species_model[t];
+                if (o != cvspec && o->type == 't' && o->from == cvspec->from)
+                  {
+                    o->sigma = newparam;
+                    world->param0[o->paramindex_sigma] = newparam;
+                  }
+              }
+        }
       bayes_set_param(world->param0,newparam,which,world->options->custm2, world->numpop);
+      if (world->options->splitstd_cv && !cvS && hastingsratio > (double) -HUGE)
+        {
+          const MYREAL cvnew = splitcv_sum (world);
+          hastingsratio = (cvnew > (double) -HUGE && cvold > (double) -HUGE)
+            ? hastingsratio + cvnew - cvold : (double) -HUGE;
+        }
       /* divergence-order TREE/RANK: the prior is zero where a split is older than
          the split that created its ancestor */
       if (is_mu && !species_order_ok(world, world->param0))
@@ -3700,6 +3953,7 @@ void bayes_fill(world_fmt *world, option_fmt *options)
             sp->sigma = bayes->minparam[ps];
           }
       }
+    splitcv_setup (world);   /* splitstd-cv: c priors of the S parameters */
     // attach to the custm migration matrix
     bayes->custm2 = world->options->custm2;
 
@@ -5897,6 +6151,10 @@ void bayes_combine_loci(world_fmt * world)
   touched = (char *) mycalloc((size_t) (1 + bayes->histogram[loci].binsum), sizeof(char));
   // record prior
   priors = (MYREAL *) mycalloc((size_t) (1+bayes->histogram[loci].binsum), sizeof(MYREAL));
+  /* log prior mass per bin for the per-locus likelihoods (per parameter, recomputed if a locus has other minima) */
+  double *lpc = (double *) mycalloc((size_t) (1+bayes->histogram[loci].binsum), sizeof(double));
+  boolean *lpc_set = (boolean *) mycalloc((size_t) (np2 + 1), sizeof(boolean));
+  double *lpc_min = (double *) mycalloc((size_t) (np2 + 1), sizeof(double));
   memset(touched,' ', (size_t) bayes->histogram[world->loci].binsum * sizeof(char));
   // combine previous results into target->results
   // over all loci
@@ -5943,18 +6201,53 @@ void bayes_combine_loci(world_fmt * world)
 	      printf("@#$ %li $$ %li %li $$ ",locus, source->bins[pa], tts);
 #endif
 	      {
-		double *lk = (double *) mycalloc((size_t) (source->bins[pa] + 1), sizeof(double));
-		all_log_kde(source->results2 + sourcesumbin, source->bins[pa], world->options->lsteps, lk);
+		/* each locus enters with its likelihood, smoothed: the kernel
+		   density of the counts divided by the prior mass of their bin,
+		   times the prior again, normalized to a posterior mass. A kernel
+		   density of the counts themselves stays finite at a bound where
+		   the prior vanishes (Gamma with alpha > 1), and the division by
+		   prior^(loci-1) below then piled All up at that bound */
+		const long nb = source->bins[pa];
+		const long t0 = tts;
+		double *lk = (double *) mycalloc((size_t) (nb + 1), sizeof(double));
+		double *mw = (double *) mycalloc((size_t) (nb + 1), sizeof(double));
+		double lpmax = (double) -HUGE, norm = (double) -HUGE;
+		long j;
+		if (!lpc_set[pa] || lpc_min[pa] != source->minima[pa])
+		  {
+		    for (j = 0; j < nb; j++)
+		      {
+			const double v = bayes_hist_mid(world->bayes, pa, source->minima[pa], j);
+			const double lp = log(bayes_hist_width(world->bayes, pa, source->minima[pa], j)) + scaling_prior(world, pa, v);
+			lpc[t0 + j] = (lp > (double) -HUGE && isfinite(lp)) ? lp : (double) -HUGE;
+		      }
+		    lpc_set[pa] = TRUE;
+		    lpc_min[pa] = source->minima[pa];
+		  }
+		for (j = 0; j < nb; j++)
+		  if (lpc[t0 + j] > lpmax)
+		    lpmax = lpc[t0 + j];
+		for (j = 0; j < nb; j++)
+		  mw[j] = (lpc[t0 + j] > (double) -HUGE && source->results2[sourcesumbin + j] > 0.0)
+		    ? source->results2[sourcesumbin + j] * exp(lpmax - lpc[t0 + j]) : 0.0;
+		all_log_kde(mw, nb, world->options->lsteps, lk);
+		for (j = 0; j < nb; j++)
+		  {
+		    lk[j] = (lk[j] > (double) -HUGE && lpc[t0 + j] > (double) -HUGE) ? lk[j] + lpc[t0 + j] : (double) -HUGE;
+		    if (lk[j] > (double) -HUGE)
+		      norm = (norm > lk[j]) ? norm + log1p(exp(lk[j] - norm)) : lk[j] + log1p(exp(norm - lk[j]));
+		  }
 		for(sourcebin=sourcesumbin; sourcebin < sourcebins; tts++, sourcebin++)
 		  {
 		    const double logcount = lk[sourcebin - sourcesumbin];
-		    if (logcount <= (double) -HUGE)
+		    if (logcount <= (double) -HUGE || norm <= (double) -HUGE)
 		      continue;   /* a locus without samples for this parameter */
 		    touched[tts] = '1';
-		    results[tts] += logcount;
+		    results[tts] += logcount - norm;
 		    counts[tts] += 1;
 		  }
 		myfree(lk);
+		myfree(mw);
 	      }
                 sourcesumbin += source->bins[pa];
                 targetsumbin += target->bins[pa];
@@ -6096,6 +6389,9 @@ void bayes_combine_loci(world_fmt * world)
   if (bayes->jointrow)
     joint_keep_flagged_all(world, loci);
     bayes->priors = priors; //save the priors
+    myfree(lpc);
+    myfree(lpc_set);
+    myfree(lpc_min);
     myfree(touched);
   //myfree(kahan_c);
     myfree(maxvala);

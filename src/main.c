@@ -1427,7 +1427,10 @@ setup_locus (long locus, world_fmt * world, option_fmt * options,
      left in populations"); repair before the start genealogy is built (the
      repair after setup_locus() came too late for it) */
   if (world->has_speciation)
-    species_order_repair (world);
+    {
+      species_order_repair (world);
+      splitcv_start_repair (world);   /* splitstd-cv: S inside [cmin D, cmax D] */
+    }
   // replaced with more informative reporting in burnin_bayes(). 
   //if (world->options->progress)
   //  print_menu_locus (stdout, world, locus);
@@ -2210,7 +2213,7 @@ run_replicate (long locus,
         long w;
         species_order_check (EARTH);
         for (w = 0; w < nw; w++)
-          if (species_order_repair (universe[w]))
+          if (species_order_repair (universe[w]) | splitcv_start_repair (universe[w]))
             precalc_world (universe[w]);
       }
     type = 's';
