@@ -5727,6 +5727,90 @@ void calc_hpd_credibility(world_fmt *world,long locus, long numpop2, long numpar
 }
 //
 // combines over loci
+/* log kernel density of one locus histogram (masses per bin, n bins) on its
+   own bins, for the All row (product of the per-locus marginals): Gaussian
+   kernel in bin units (log x for log bins), reflected at both bounds,
+   Silverman bandwidth from nsamples. Log-sum-exp keeps the tails finite, so
+   a bin a locus left empty still gets that locus' (small) density instead of
+   being skipped. Beyond 8 bandwidths only the nearest filled bins count. */
+static void all_log_kde(const double *m, long n, long nsamples, double *out)
+{
+  long i, j, first = -1, last = -1;
+  double sum = 0.0, mean = 0.0, var = 0.0, cum = 0.0, q25 = -1.0, q75 = -1.0, sigma, h;
+  for (i = 0; i < n; i++)
+    if (m[i] > 0.0)
+      {
+        sum += m[i];
+        mean += m[i] * (double) i;
+        if (first < 0)
+          first = i;
+        last = i;
+      }
+  if (sum <= 0.0)
+    {
+      for (i = 0; i < n; i++)
+        out[i] = (double) -HUGE;
+      return;
+    }
+  mean /= sum;
+  for (i = 0; i < n; i++)
+    {
+      var += m[i] * ((double) i - mean) * ((double) i - mean);
+      cum += m[i] / sum;
+      if (q25 < 0.0 && cum >= 0.25)
+        q25 = (double) i;
+      if (q75 < 0.0 && cum >= 0.75)
+        q75 = (double) i;
+    }
+  sigma = sqrt(var / sum);
+  if (q75 > q25 && (q75 - q25) / 1.34 < sigma)
+    sigma = (q75 - q25) / 1.34;
+  h = 1.06 * sigma * pow((double) (nsamples > 1 ? nsamples : 2), -0.2);
+  if (h < 1.0)
+    h = 1.0;
+  const double win = 8.0 * h, c = -log(h * sqrt(2.0 * PI) * sum);
+  for (i = 0; i < n; i++)
+    {
+      const double x = (double) i;
+      double mx = (double) -HUGE, acc = 0.0;
+      long lo = (long) floor(x - win), hi = (long) ceil(x + win);
+      int pass;
+      for (pass = 0; pass < 2; pass++)   /* pass 0: max of the log terms, pass 1: sum */
+        for (j = first; j <= last; j++)
+          {
+            if (m[j] <= 0.0)
+              continue;
+            const double cj[3] = { (double) j, -1.0 - (double) j, 2.0 * (double) n - 1.0 - (double) j };
+            int r;
+            for (r = 0; r < 3; r++)
+              {
+                const double d = (x - cj[r]) / h;
+                if (cj[r] < (double) lo || cj[r] > (double) hi)
+                  continue;
+                const double t = log(m[j]) - 0.5 * d * d;
+                if (pass == 0)
+                  {
+                    if (t > mx)
+                      mx = t;
+                  }
+                else
+                  acc += exp(t - mx);
+              }
+          }
+      if (mx > (double) -HUGE)
+        out[i] = mx + log(acc) + c;
+      else
+        {   /* far from every filled bin: the nearest filled bins dominate */
+          long jn = x < (double) first ? first : last, k;
+          for (k = first; k <= last; k++)
+            if (m[k] > 0.0 && fabs(x - (double) k) < fabs(x - (double) jn))
+              jn = k;
+          const double d = (x - (double) jn) / h;
+          out[i] = log(m[jn]) - 0.5 * d * d + c;
+        }
+    }
+}
+
 void bayes_combine_loci(world_fmt * world)
 {
   const long loci    = world->loci;
@@ -5858,36 +5942,20 @@ void bayes_combine_loci(world_fmt * world)
 #ifdef DEBUG
 	      printf("@#$ %li $$ %li %li $$ ",locus, source->bins[pa], tts);
 #endif
-	      for(sourcebin=sourcesumbin; sourcebin < sourcebins; tts++, sourcebin++)
-                {
-		  //if (locus>20)
-		  //  continue;
-		  if(source->results2[sourcebin] > 0.0)
-                    {
-		      // frequencies are normalized per locus
-		      //count = (double) source->results2[sourcebin];
-		      count = source->results2[sourcebin];
-		      //v = tts * w + w/2;
-		      //priors
-		      //double pbin = scaling_prior(world,pa,v); //calculate log prior for parameter
-		      //if (log(count) < -9 || locus > 20)
-		      //continue;
-		      double logcount = log(count); // - kahan_c[tts];
-		      touched[tts] = '1';
-		      //results[tts] += /*(float)*/ log(count);//- pbin ; //5.
-		      double t = results[tts] + logcount;
-		      //kahan_c[tts] = (t - results[tts]) - logcount;
-		      results[tts] = t;
-		      
-		      if (results[tts] > maxvala[pa])
-			{
-			  maxvala[pa] = results[tts];
-			  maxvalaloc[pa] = sourcebin;
-			}
-		      counts[tts] += (long) locusweight[locus];//1.
-		      //	      countsum += count;
-                    } /**if sourcebin is not zero**/
-                }/**over all sourcebins**/
+	      {
+		double *lk = (double *) mycalloc((size_t) (source->bins[pa] + 1), sizeof(double));
+		all_log_kde(source->results2 + sourcesumbin, source->bins[pa], world->options->lsteps, lk);
+		for(sourcebin=sourcesumbin; sourcebin < sourcebins; tts++, sourcebin++)
+		  {
+		    const double logcount = lk[sourcebin - sourcesumbin];
+		    if (logcount <= (double) -HUGE)
+		      continue;   /* a locus without samples for this parameter */
+		    touched[tts] = '1';
+		    results[tts] += logcount;
+		    counts[tts] += 1;
+		  }
+		myfree(lk);
+	      }
                 sourcesumbin += source->bins[pa];
                 targetsumbin += target->bins[pa];
             }/**source!=null**/
@@ -5933,8 +6001,7 @@ void bayes_combine_loci(world_fmt * world)
 	  {
 	    if(touched[bin]=='1')
 	    {
-	      if (priors[bin] > -11.0)  //this arbitrary cutoff seems to work, but
-		// does not correct some results[bin], new experiment with setting
+	      if (priors[bin] > (double) -HUGE && isfinite(priors[bin]))   /* outside the prior support: no mass */
 		{
 		  //if (counts[bin] != loci)
 		  ///if (counts[bin] < loci/10)
