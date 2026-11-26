@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 25  Migrate 6.1.109 splitstd=0 (or SHARP): every lineage crosses at its split time;
+             the Joint integrates each split time over the window of its crossings (port of the
+             codex crossing-time integration).
+             Fix: with divergence-order the Joint used the ordered marginal as D prior
+             (since 7.0.132/6.1.108). Split draws far past D, far-tail split density,
+             parmfile writer (split start values, small prior values). Note on Joint S.
 November 25  Migrate 6.1.108 divergence-order: the All row divided each locus by the unordered
              split-time prior, which pushed later splits toward 0; it now uses the exact
              ordered marginal. splitstd-cv: the outfile reports c = S/D, and the prior menu

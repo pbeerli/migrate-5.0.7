@@ -493,6 +493,16 @@ MYREAL lower_bound_erf_approx(double x);
 // 1-erf(-large) - (1-erf(x)) = 1+1-1+erf(x) = 1 + erf(x)
 MYREAL lower_bound_erf_approx(double x)
 {
+  /* log(1 + erf(x)) = log erfc(-x). Callers use it once the difference of
+     erf values has underflowed (x below about -5.7). The quadratic fit
+     (fitted on -20..0) drifts from the true value further out (x = -1e5
+     with a tiny S: -0.016 x^2 too low, 2026-11-25); there the asymptotic
+     series of erfc is exact to rounding */
+  if (x < -5.0)
+    {
+      const double z = -x, iz2 = 1.0 / (z * z);
+      return -z * z - log (z) - 0.5 * log (M_PI) + log1p (-0.5 * iz2 + 0.75 * iz2 * iz2);
+    }
   return -0.3926792277130407 + 0.4220596907084323 * x - 0.9839405393215818 *  x * x;
 }
 
@@ -647,7 +657,11 @@ MYREAL log_point_prob_speciate_normalorig(MYREAL t1, MYREAL mu, MYREAL sigma, sp
 #endif
   MYREAL prob =  -(mut2/(2.0 * var)) + HALFLOG2DIVPI - log(sigma) - logm;//+ ERF(-mub*qsd));
   if (isnan(prob) || isinf(prob))
-    error("failed in log_point_prob_normalorig\n");
+    {
+      fprintf (stderr, "log_point_prob_normalorig: t1=%g mu=%g sigma=%g b1=%g m=%g logm=%g\n",
+               (double) t1, (double) mu, (double) sigma, (double) b1, m, logm);
+      error("failed in log_point_prob_normalorig\n");
+    }
   return prob;
 }
 
@@ -1110,7 +1124,18 @@ MYREAL time_to_speciate_normalorig(world_fmt *world, long pop, MYREAL t0, char *
       double eb1 = ERF((mu-tmax) * qsd); 
       double eb0 = ERF((mu - t0) * qsd);
       double cdfval = r*eb0 + (1.0-r)*eb1;
-      if (cdfval <= -1.0)
+      if (cdfval <= -1.0 && t0 > mu)
+	{
+	  /* t0 far above the mean (more than about 8 sigma): both erf are -1 in
+	     double and the lineage never split (a start genealogy with a tiny
+	     S got stuck, 2026-11-25). The normal tail beyond t0 is then
+	     exponential with rate (t0 - mu) / sigma^2 (Mills ratio) */
+	  tnew = t0 - sigma * sigma / (t0 - mu) * log (r > 0.0 ? r : DBL_MIN);
+	  if (tnew > tmax)
+	    tnew = tmax;
+	  tnew = time_above (tnew, t0);
+	}
+      else if (cdfval <= -1.0)
 	{
 	  tnew = (double) HUGE;
 	}

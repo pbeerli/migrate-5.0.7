@@ -1896,6 +1896,26 @@ void check_bayes_priors(option_fmt *options, data_fmt *data, world_fmt *world)
 #undef PRIOR_USE
   prior_check_used (options, used, looked);
   note_default_priors (defcount, kindcount, defprior);
+  if (options->splitstd_zero && options->has_speciation)
+    {   /* splitstd=0: sharp splits. S keeps a tiny uniform range (the sampler
+           needs S > 0; the joint treats it as S = 0, joint_combine.c) */
+      long k;
+      if (options->splitstd_cv)
+        usererror ("splitstd=0 (sharp splits) and splitstd-cv=YES exclude each other\n");
+      for (k = 0; k < world->species_model_size; k++)
+        {
+          const long zd = numpop2 + has_mu + 2 * k, zs = zd + 1;
+          prior_fmt *s = &plist[zs];
+          const double smax = 1e-7 * plist[zd].max;
+          s->kind = UNIFORMPRIOR;
+          s->min = 0.0;
+          s->max = smax;
+          s->mean = 0.5 * smax;
+          s->std = 0.25 * smax;
+          s->delta = 0.25 * smax;
+        }
+      option_note ("splitstd=0: sharp splits, every lineage crosses at its split time D (S kept within [0, 1e-7 x the D maximum])");
+    }
   if (options->splitstd_cv && options->has_speciation)
     {
       splitcv_convert (options, plist, np, numpop2 + has_mu, world->species_model_size);
