@@ -570,6 +570,7 @@ void init_options (option_fmt * options)
     options->joint_samples = 0.0;   /* AUTO */
     options->divergence_order = DIVORDER_TREE;
     options->splitstd_cv = FALSE;
+    options->splitstd_zero = FALSE;
     options->splitcv_prior = NULL;
     options->divergence_rank = NULL;
     options->divergence_ranksize = 0;
@@ -893,6 +894,20 @@ void show_pretty_datamodel(int datamodel, char *buffer)
 }
 
 ///
+/// a number for the parmfile: "%f" as before, but values below 1e-4 (split
+/// spreads, small priors) with all their digits; "%f" wrote 1e-8 as 0.000000,
+/// and MPI workers, which read the options back from this text, then ran
+/// with S = 0 (2026-11-25)
+static char * parm_number (char *tmp, double x, const char *sep)
+{
+  if (x != 0.0 && fabs (x) < 1e-4)
+    mysnprintf (tmp, LINESIZE, "%.10g%s", x, sep);
+  else
+    mysnprintf (tmp, LINESIZE, "%f%s", x, sep);
+  return tmp;
+}
+
+///
 /// prints the value of minimum value of the prior distribution
 char * show_priormin(char *tmp, prior_fmt *prior)
 {
@@ -900,7 +915,7 @@ char * show_priormin(char *tmp, prior_fmt *prior)
     error("showpriormin got a null pointer");
   else
     {
-      mysnprintf(tmp,LINESIZE, "%f ", prior->min);
+      parm_number(tmp, prior->min, " ");
     }
   return tmp;
 }
@@ -910,21 +925,21 @@ char * show_priormin(char *tmp, prior_fmt *prior)
 /// or for the gamma proposal the alpha value, and the ,multipler proposal the multiplicator
 char * show_priormean(char *tmp, prior_fmt *prior)
 {
-  mysnprintf(tmp,LINESIZE, "%f ", prior->mean);
+  parm_number(tmp, prior->mean, " ");
   return tmp;
 }
 
 /// prints the value of maximum value of the prior distribution
 char * show_priormax(char *tmp, prior_fmt *prior)
 {
-  mysnprintf(tmp,LINESIZE, "%f ", prior->max);
+  parm_number(tmp, prior->max, " ");
   return tmp;
 }
 
 /// prints the alpha value of the gamma prior distribution
 char * show_prioralpha(char *tmp, prior_fmt *prior)
 {
-  mysnprintf(tmp,LINESIZE, "%f ", prior->alpha);
+  parm_number(tmp, prior->alpha, " ");
   return tmp;
 }
 
@@ -945,7 +960,7 @@ char * show_priordelta(char *tmp, prior_fmt *prior)
       mysnprintf(tmp,LINESIZE, "(a=%1.3f)",prior->alpha);
       break;
     default:
-      mysnprintf(tmp,LINESIZE, "%f", prior->delta);
+      parm_number(tmp, prior->delta, "");
       break;
     }
   return tmp;
@@ -3592,84 +3607,41 @@ void print_parm_m(long *bufsize, char **buffer, long *allocbufsize, option_fmt *
 }
 
 /// print split starting parameters to the parmfile buffer
-void print_parm_split(long *bufsize, char **buffer, long *allocbufsize, option_fmt * options)
+/* split= / splitstd= with Own start values: the values read (startparam,
+   one per split in the order of the custom-migration matrix). The writer used
+   options->splitg/numsplitg, which nothing fills, and so always wrote
+   PRIOR:10: Own start values of D and S were lost in the written parmfile and
+   on MPI workers (2026-11-25) */
+static void print_parm_splitvalues(long *bufsize, char **buffer, long *allocbufsize,
+                                   const char *name, const float *v, long n)
 {
-    char fp[LINESIZE];
-    long i, j, z, num;
-    switch (options->numsplitg)
+  char fp[LINESIZE], num[LINESIZE];
+  long i;
+  if (n <= 0 || v == NULL)
     {
-        case 0:
-            mysnprintf(fp,LINESIZE, "split=PRIOR:10\n");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            break;
-        case 1:
-            mysnprintf(fp,LINESIZE, "split=Own:%f\n", options->splitg[0]);
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            break;
-        default:
-            mysnprintf(fp,LINESIZE, "split=Own:{ ");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            z = 0;
-            num = (long) (1. + sqrt (4. * (MYREAL) options->numsplitg + 1.) / 2.);
-            for (i = 0; i < num; i++)
-            {
-                for (j = 0; j < num; j++)
-		  {
-		    if ((uppercase(options->custm[i*num + j])!='D') && (uppercase(options->custm[i*num + j])!='T'))
-                    {
-                        mysnprintf(fp,LINESIZE, "- ");
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                    else
-                    {
-                        mysnprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                }
-            }
-	    mysnprintf(fp,LINESIZE, "}\n");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
+      mysnprintf(fp,LINESIZE, "%s=PRIOR:10\n", name);
+      add_to_buffer(fp,bufsize,buffer, allocbufsize);
+      return;
+    }
+  mysnprintf(fp,LINESIZE, "%s=Own:{", name);
+  add_to_buffer(fp,bufsize,buffer, allocbufsize);
+  for (i = 0; i < n; i++)
+    {
+      parm_number(num, (double) v[i], i < n - 1 ? " " : "}\n");
+      add_to_buffer(num,bufsize,buffer, allocbufsize);
     }
 }
-/// print split starting parameters to the parmfile buffer
+
+void print_parm_split(long *bufsize, char **buffer, long *allocbufsize, option_fmt * options)
+{
+  print_parm_splitvalues(bufsize, buffer, allocbufsize, "split",
+                         options->startparam.split, options->startparam.numsplit);
+}
+
 void print_parm_splitstd(long *bufsize, char **buffer, long *allocbufsize, option_fmt * options)
 {
-    char fp[LINESIZE];
-    long i, j, z, num;
-    switch (options->numsplitg)
-    {
-        case 0:
-            mysnprintf(fp,LINESIZE, "splitstd=PRIOR:10\n");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            break;
-        case 1:
-            mysnprintf(fp,LINESIZE, "splitstd=Own:%f\n", options->splitg[0]);
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            break;
-        default:
-            mysnprintf(fp,LINESIZE, "splitstd=Own:{ ");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-            z = 0;
-            num = (long) (1. + sqrt (4. * (MYREAL) options->numsplitg + 1.) / 2.);
-            for (i = 0; i < num; i++)
-            {
-                for (j = 0; j < num; j++)
-                {
-		  if ((uppercase(options->custm[i*num + j])!='D') && (uppercase(options->custm[i*num + j])!='T'))
-                    {
-                        mysnprintf(fp,LINESIZE, "- ");
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                    else
-                    {
-                        mysnprintf(fp,LINESIZE, "%f ", options->splitg[z++]);
-                        add_to_buffer(fp,bufsize,buffer, allocbufsize);
-                    }
-                }
-            }
-	    mysnprintf(fp,LINESIZE, "}\n");
-            add_to_buffer(fp,bufsize,buffer, allocbufsize);
-    }
+  print_parm_splitvalues(bufsize, buffer, allocbufsize, "splitstd",
+                         options->startparam.splitstd, options->startparam.numsplitstd);
 }
 
 void print_parm_heating(long *bufsize, char **buffer, long *allocbufsize, option_fmt *options)
@@ -4609,6 +4581,9 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
 	break;
       }
     // split std
+    if (options->splitstd_zero)
+      print_parm(&bufsize, buffer, allocbufsize,"splitstd=0");
+    else
     switch(options->startguess[4][0])
       {
       case PRIOR:
@@ -4733,6 +4708,9 @@ print_parm_comment(&bufsize, buffer, allocbufsize, "Report M (=migration rate/mu
     print_parm_comment(&bufsize, buffer, allocbufsize, "              bayes-priors= SPLITSTD * * EXPPRIOR: 0.0 0.1 0.5");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "#default: splitstd-cv=NO");
     print_parm_mutable(&bufsize, buffer, allocbufsize, "splitstd-cv=%s", options->splitstd_cv ? "YES" : "NO");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "Sharp splits: splitstd=0 (with the start values above) makes every lineage");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "cross at its split time D (S = 0); the joint multi-locus combination then");
+    print_parm_comment(&bufsize, buffer, allocbufsize, "integrates the common crossing time of each genealogy exactly");
     print_parm_br(&bufsize, buffer, allocbufsize);
     print_parm_smalldelimiter(&bufsize, buffer, allocbufsize);
     print_parm_br(&bufsize, buffer, allocbufsize);
@@ -7970,6 +7948,16 @@ void read_mig (option_fmt * options, char *parmvar, char * varvalue, char **buff
 /// called through read_options_master() and also equivalent to read worker
 void read_startparameter (long parampos, option_fmt * options, char *parmvar, char *varvalue, char **buffer)
 {
+  if (parampos == 4)
+    {   /* splitstd=0 (or SHARP): sharp splits, S = 0 (see priors.c) */
+      char *endp = NULL;
+      const double sv = strtod (varvalue, &endp);
+      options->splitstd_zero = (endp != varvalue && sv == 0.0
+                                && (*endp == '\0' || isspace ((unsigned char) *endp)))
+                               || !strncasecmp (varvalue, "SHARP", 5);
+      if (options->splitstd_zero)
+        return;
+    }
   (void) parmvar;
    long start = -1;
    long stop = -1;

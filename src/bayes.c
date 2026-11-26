@@ -2139,6 +2139,20 @@ boolean splitcv_start_repair (world_fmt *world)
 }
 
 //
+// the prior of one parameter as the joint multi-locus combination needs it:
+// a split mean D under divergence-order with its own prior density (the
+// joint applies the order constraint itself; the ordered marginal of
+// scaling_prior() times that constraint was not the ordered prior,
+// 7.0.132 / 6.1.108)
+MYREAL scaling_prior_joint(world_fmt *world, long numparam, MYREAL val)
+{
+    long pm;
+    if (splitcv_is_s (world, numparam, &pm))
+      return splitcv_marginal (world, numparam, pm, val);
+    return (*log_prior_1[numparam])(world,numparam,val);
+}
+
+//
 // scaling prior used for multiple loci posterior
 MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val)
 {

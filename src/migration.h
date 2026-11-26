@@ -1047,6 +1047,7 @@ typedef struct _option
   MYREAL joint_samples; // joint combination: genealogies used per locus (0: AUTO, <=1: fraction of the recorded ones, >1: number)
   int divergence_order; // divergence-order: DIVORDER_NONE/TREE/RANK (TREE: a split is younger than the split that created its ancestor)
   boolean splitstd_cv; // splitstd-cv=YES: the SPLITSTD prior is on c = S/D, p(S|D) = p_c(S/D)/D
+  boolean splitstd_zero; // splitstd=0: sharp splits, every lineage crosses at D (S prior [0, 1e-7 x D max])
   prior_fmt *splitcv_prior; // splitstd-cv: the user's c prior per parameter index (NULL until check_bayes_priors)
   long *divergence_rank; // divergence-order=RANK: (from,to) pairs, 0-based, oldest split first (forward in time)
   long divergence_ranksize; // number of splits in divergence_rank
@@ -1361,6 +1362,7 @@ typedef struct _worldoption
     MYREAL joint_samples;
     int divergence_order;
     boolean splitstd_cv;
+    boolean splitstd_zero;      /* splitstd=0: sharp splits */
     prior_fmt *splitcv_prior;   /* shared with option_fmt, not freed here */
     long *divergence_rank;      /* shared with option_fmt, not freed here */
     long divergence_ranksize;

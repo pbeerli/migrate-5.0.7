@@ -70,6 +70,7 @@ extern MYREAL log_prior_ratio_uni(MYREAL newparam,
 extern MYREAL log_prior_ratio_all(world_fmt *world, MYREAL *newvals);
 extern MYREAL calculate_prior(world_fmt *world);
 extern MYREAL scaling_prior(world_fmt *world, long numparam, MYREAL val);
+extern MYREAL scaling_prior_joint(world_fmt *world, long numparam, MYREAL val);
 extern boolean splitcv_is_s (world_fmt *world, long i, long *pm);
 extern MYREAL splitcv_logprior (world_fmt *world, long ps, MYREAL S, MYREAL D);
 extern MYREAL splitcv_sum (world_fmt *world);

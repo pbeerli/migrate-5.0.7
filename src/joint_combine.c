@@ -1,7 +1,7 @@
 /*------------------------------------------------------------------------
   Joint multi-locus combination of Bayesian posteriors (2026-10-01; ported
   from migrate-codex-7 7.0.67 to migrate 5.0.7 6.1.42 (skyline=PARAM
-  multipliers added 6.1.71): without log-scale histogram bins, the markdown report and the
+  multipliers added 6.1.71, crossing-time integration and sharp splits 6.1.109): without log-scale histogram bins, the markdown report and the
   numbers-of-migrants (S/M) models, which keep the product of the
   per-locus marginals here).
 
@@ -215,7 +215,33 @@ typedef struct
   long *off_G;             /* per matrix entry: offset of [last event age, S on the grid] */
   double *gate_b, *gate_c; /* per matrix entry: upper bound and log density of its
                               uniform M prior (Z(G) integrates M in closed form) */
+  /* integrated crossing time (MIGRATE_JC_RB, docs/joint_split_rb_design.md):
+     one crossing lineage per genealogy is integrated over its segment */
+  boolean rb;
+  long off_R;               /* the block: split (-1 none), a, b, pieces, then per
+                               piece its start, 2 k_d / inh, 2 k_a / inh */
+  long *split_to, *split_from; /* per split: daughter and ancestor population */
+  double *split_b1;         /* per split: upper bound of the split time (s->max) */
+  boolean *rb_ok;           /* per split: its crossings can be integrated */
+  boolean sharp;            /* sharp splits (S = 0): all crossings of a split move
+                               together, integrated over their common window */
+  long *sharp_par;          /* sharp: per split the split that created its ancestor, -1 */
+  long rbw;                 /* width of the off_R block */
+  boolean *mzero;           /* per matrix entry: no migration term ('0', 'd', 't') */
 } jc_layout;
+
+#define JC_RBMAXP 24         /* pieces of a crossing segment at most */
+#define JC_RBMAXSKY 32       /* skyline=PARAM: free entries at most */
+#define JC_RBW (5 + 3 * JC_RBMAXP)
+#define JC_RBN(R) ((R)[4 + 3 * JC_RBMAXP])   /* crossings that move (1 without sharp) */
+#define JC_SHARPMAXN 128     /* sharp split: crossing lineages at most */
+#define JC_SHARP_REL 1e-5    /* sharp split: the S prior maximum below this x the D maximum */
+#define JC_SHARPMAXI 96      /* sharp splits: intervals of a row's count timeline at most */
+/* sharp row block: status (0 ok, -1 no crossing, -2 unusable), intervals,
+   start, inheritance scalar; per split A, B, n, c0, chain; then per interval
+   its end and the lineage count of every population */
+#define JC_SH_SPLIT(k) (4 + 5 * (k))
+#define JC_SH_TL(ly) (4 + 5 * (ly)->nsplit)
 
 /* phi index of tau_s (s >= 1) of free entry j */
 #define JC_TAU(ly, j, s) ((ly)->np + (j) * ((ly)->nseg - 1) + (s) - 1)
@@ -260,6 +286,23 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->off_G);
   myfree (ly->gate_b);
   myfree (ly->gate_c);
+  myfree (ly->split_to);
+  myfree (ly->split_from);
+  myfree (ly->split_b1);
+  myfree (ly->rb_ok);
+  myfree (ly->sharp_par);
+  myfree (ly->mzero);
+}
+
+static boolean jc_nodiv = FALSE;   /* jc_log_normalizer() without the divergence blocks (sharp splits) */
+static boolean jc_rb_normal = TRUE;   /* integrated crossing: normal split times (else exponential) */
+
+/* experimental: integrate the crossing time (MIGRATE_JC_RB=1) */
+static boolean
+jc_rb_mode (void)
+{
+  const char *e = getenv ("MIGRATE_JC_RB");
+  return e != NULL && atol (e) != 0;
 }
 
 /* mutation=ESTIMATE estimates one rate for all loci. The joint treats it as
@@ -468,7 +511,7 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
             ly->off_G[p] = ly->nrow;
             ly->nrow += 1 + JC_NGATE;
             ly->gate_b[p] = world->bayes->maxparam[r];
-            ly->gate_c[p] = scaling_prior (world, r, 0.5 * world->bayes->maxparam[r]);
+            ly->gate_c[p] = scaling_prior_joint (world, r, 0.5 * world->bayes->maxparam[r]);
             ly->ngate++;
             break;
           }
@@ -558,6 +601,78 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       ly->off_lc = ly->nrow;
       ly->nrow += 1;
       ly->mlscale = world->options->mlscale;
+    }
+  /* integrated crossing time: normal or exponential split times, no growth,
+     skyline segments or Mittag-Leffler; an ancestor that is itself a
+     daughter is excluded (its own split terms would depend on the crossing) */
+  ly->split_to = (long *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (long));
+  ly->split_from = (long *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (long));
+  ly->split_b1 = (double *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (double));
+  ly->rb_ok = (boolean *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (boolean));
+  ly->mzero = (boolean *) mycalloc ((size_t) world->numpop2, sizeof (boolean));
+  for (p = 0; p < world->numpop2; p++)
+    ly->mzero[p] = p < numpop || strchr ("0dt", world->options->custm2[p]) != NULL;
+  for (s = 0; s < ly->nsplit; s++)
+    {
+      const species_fmt *sp = &world->species_model[ly->split_model[s]];
+      ly->split_to[s] = sp->to;
+      ly->split_from[s] = sp->from;
+      ly->split_b1[s] = sp->max;
+    }
+  if (jc_rb_mode () && ly->nsplit > 0 && !ly->ml && ly->nslot == 0 && ly->nfree <= JC_RBMAXSKY
+      && (world->species_model_dist == NORMAL_DIST || world->species_model_dist == EXP_DIST))
+    {
+      long q;
+      for (s = 0; s < ly->nsplit; s++)
+        {
+          ly->rb_ok[s] = ly->mhi[s] > ly->mlo[s];   /* not for a fixed D */
+          for (q = 0; q < ly->nsplit; q++)
+            if (ly->split_to[q] == ly->split_from[s])
+              ly->rb_ok[s] = FALSE;
+          if (ly->rb_ok[s])
+            ly->rb = TRUE;
+        }
+    }
+  /* sharp splits (docs/joint_split_rb_design.md, "Sharp splits"): S fixed at
+     or bounded near 0 (splitstd=0), every lineage crosses at D. A
+     genealogy's split terms are then point masses; all crossings of a split
+     slide together within their common window without changing the
+     topology, so the joint integrates one time per split (exact). Every
+     split must be sharp; no growth, skyline segments, Mittag-Leffler, gated
+     migration or tied splits. MIGRATE_JC_SHARP=0 turns it off. */
+  ly->sharp_par = (long *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (long));
+  for (s = 0; s < ly->nsplit; s++)
+    {
+      long q;
+      ly->sharp_par[s] = -1;
+      for (q = 0; q < ly->nsplit; q++)
+        if (q != s && ly->split_to[q] == ly->split_from[s])
+          ly->sharp_par[s] = q;
+    }
+  if (!ly->rb && ly->nsplit >= 1 && !ly->ml && ly->nslot == 0 && ly->nseg == 1 && ly->ngate == 0
+      && !(getenv ("MIGRATE_JC_SHARP") != NULL && atol (getenv ("MIGRATE_JC_SHARP")) == 0))
+    {
+      boolean all = TRUE;
+      for (s = 0; s < ly->nsplit; s++)
+        {
+          const double smax = ly->split_psig[s] >= 0 ? world->bayes->maxparam[ly->split_psig[s]] : ly->split_sfix[s];
+          if (!(smax <= JC_SHARP_REL * ly->mhi[s]) || !(ly->mhi[s] > ly->mlo[s]) || ly->split_rep[s] != s)
+            all = FALSE;
+        }
+      if (all)
+        {
+          ly->sharp = TRUE;
+          ly->rb = TRUE;
+          for (s = 0; s < ly->nsplit; s++)
+            ly->rb_ok[s] = TRUE;
+        }
+    }
+  if (ly->rb)
+    {
+      jc_rb_normal = world->species_model_dist == NORMAL_DIST;
+      ly->off_R = ly->nrow;
+      ly->rbw = ly->sharp ? JC_SH_TL (ly) + JC_SHARPMAXI * (1 + numpop) : JC_RBW;
+      ly->nrow += ly->rbw;
     }
   ly->off_mu = ly->nrow;
   ly->nrow += 1;
@@ -1103,6 +1218,399 @@ jc_logadd (double a, double b)
   return a > b ? a + log1p (exp (b - a)) : b + log1p (exp (a - b));
 }
 
+/* integrated crossing time, while a genealogy is recorded: the crossing
+   lineage of split k sits in the ancestor on all of its segment (a, b) in
+   the row ("base row"); jc_rb_count() gives the lineage counts of interval
+   i of the time list accordingly, jc_div_exact() leaves out the lineage's
+   split terms (the unit JC_U_SPLITRB carries them, integrated over c) */
+typedef struct
+{
+  long k;          /* split, -1: none */
+  long ie;         /* time-list index of its 'd' event */
+  double a, c0, b; /* segment and the sampled crossing time */
+  long d, an;      /* daughter, ancestor */
+  long n;          /* crossings that move (sharp split: all of the split) */
+  double cross[JC_SHARPMAXN]; /* their sampled crossing times */
+} jc_rbcur_t;
+static jc_rbcur_t jc_rbc = { -1, -1, 0.0, 0.0, 0.0, -1, -1, 0, { 0.0 } };
+
+static long
+jc_rb_count (vtlist *tl, long i, long pop)
+{
+  const long k = tl[i].lineages[pop];
+  long j, m = 0;
+  if (jc_rbc.k < 0 || tl[i - 1].age < jc_rbc.a || (pop != jc_rbc.d && pop != jc_rbc.an))
+    return k;
+  for (j = 0; j < jc_rbc.n; j++)   /* moving lineages still in the daughter here */
+    if (tl[i].age <= jc_rbc.cross[j])
+      m++;
+  return pop == jc_rbc.d ? k - m : k + m;
+}
+
+/* finds the crossing to integrate (the first split with exactly one
+   crossing whose segment has at most JC_RBMAXP pieces) and fills the row's
+   block: per piece of (a, b) its start and the slopes 2 k_d / inh and
+   2 k_a / inh of the other lineages' counts (sets jc_rbc) */
+static void
+jc_rb_find (world_fmt *world, const jc_layout *ly, double *st, double inh)
+{
+  const long T = world->treetimes->T;
+  vtlist *tl = world->treetimes->tl;
+  double *R = st + ly->off_R;
+  long k, i;
+  jc_rbc.k = -1;
+  R[0] = -1.0;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      if (!ly->rb_ok[k])
+        continue;
+      species_fmt *sp = &world->species_model[ly->split_model[k]];
+      long n = 0, ie = -1;
+      for (i = 1; i < T - 1; i++)
+        if (tl[i].eventnode->type == 'd'
+            && get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
+                                        world->species_model, world->species_model_size) == sp)
+          {
+            n++;
+            ie = i;
+          }
+      if (n != 1)
+        continue;
+      node *E = tl[ie].eventnode, *n1 = E->back, *n2 = E->next->back;
+
+
+      if (n1 == NULL || n2 == NULL)
+        continue;
+      node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
+      const double c0 = tl[ie].age, a = dn->tyme;
+      double b = up->tyme;
+      if (up->type == 'r' || !(a <= c0 && c0 <= b))
+        continue;
+      if (world->species_model_dist == NORMAL_DIST && b > ly->split_b1[k])
+        b = ly->split_b1[k];
+      if (!(b > a))
+        continue;
+      const long d = ly->split_to[k], an = ly->split_from[k];
+      long np = 0;
+      boolean ok = TRUE;
+      for (i = 1; i < T && ok; i++)
+        {
+          const double t0 = tl[i - 1].age, t1 = tl[i].age;
+          const double u0 = t0 > a ? t0 : a, v = t1 < b ? t1 : b;
+          if (!(v > u0))
+            continue;
+          const long kd = tl[i].lineages[d] - (t1 <= c0 ? 1 : 0);
+          const long ka = tl[i].lineages[an] - (t0 >= c0 ? 1 : 0);
+          if (kd < 0 || ka < 0)
+            {
+              ok = FALSE;
+              break;
+            }
+          const double cd = 2.0 * (double) kd / inh, ca = 2.0 * (double) ka / inh;
+          /* skyline=PARAM: a piece lies inside one segment */
+          long sg = jc_seg (ly, u0);
+          double u = u0;
+          while (u < v)
+            {
+              const double ve = (sg + 1 < ly->nseg && ly->segt[sg + 1] < v) ? ly->segt[sg + 1] : v;
+              if (!(np > 0 && R[4 + 3 * (np - 1) + 1] == cd && R[4 + 3 * (np - 1) + 2] == ca
+                    && jc_seg (ly, R[4 + 3 * (np - 1)]) == sg))
+                {   /* else: same counts and segment, one piece */
+                  if (np == JC_RBMAXP)
+                    {
+                      ok = FALSE;
+                      break;
+                    }
+                  R[4 + 3 * np] = u;
+                  R[4 + 3 * np + 1] = cd;
+                  R[4 + 3 * np + 2] = ca;
+                  np++;
+                }
+              u = ve;
+              sg++;
+            }
+        }
+      if (!ok || np == 0)
+        continue;
+      R[0] = (double) k;
+      R[1] = a;
+      R[2] = b;
+      R[3] = (double) np;
+      jc_rbc.k = k;
+      jc_rbc.ie = ie;
+      jc_rbc.a = a;
+      jc_rbc.c0 = c0;
+      jc_rbc.n = 1;
+      jc_rbc.cross[0] = c0;
+      JC_RBN (R) = 1.0;
+      jc_rbc.b = b;
+      jc_rbc.d = d;
+      jc_rbc.an = an;
+      return;
+    }
+}
+
+/* sharp splits: per split its crossing lineages (n), their mean crossing
+   time c0 (the sampled genealogy is the base row) and the window (A, B):
+   above every crossing lineage's lower event, below every upper one; a
+   neighbour that is itself a crossing of another split moves too and gives
+   instead the order c(child) <= c(parent) ("chain"). Then the lineage
+   counts of every population on the time range that the crossings can
+   cover */
+static void
+jc_sharp_find (world_fmt *world, const jc_layout *ly, double *st)
+{
+  const long T = world->treetimes->T, P = ly->numpop, K = ly->nsplit;
+  vtlist *tl = world->treetimes->tl;
+  double *R = st + ly->off_R;
+  double tlo = HUGE_VAL, thi = -HUGE_VAL;
+  long i, k, p, ni = 0;
+  boolean any = FALSE;
+  R[0] = -1.0;
+  R[1] = 0.0;
+  R[3] = world->options->inheritance_scalars[world->locus];
+  for (k = 0; k < K; k++)
+    {
+      double *Sk = R + JC_SH_SPLIT (k);
+      Sk[0] = -1e300;
+      Sk[1] = 1e300;
+      Sk[2] = 0.0;
+      Sk[3] = 0.0;
+      Sk[4] = 0.0;
+    }
+  for (i = 1; i < T - 1; i++)
+    if (tl[i].eventnode->type == 'd')
+      {
+        species_fmt *sp = get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
+                                                   world->species_model, world->species_model_size);
+        node *E = tl[i].eventnode, *n1 = E->back, *n2 = E->next->back;
+        for (k = 0; k < K && &world->species_model[ly->split_model[k]] != sp; k++)
+          ;
+        if (k == K || n1 == NULL || n2 == NULL)
+          continue;
+        double *Sk = R + JC_SH_SPLIT (k);
+        node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
+        if (dn->type != 'd' && dn->tyme > Sk[0])
+          Sk[0] = dn->tyme;
+        if (up->type == 'd')
+          Sk[4] = 1.0;
+        else if (up->tyme < Sk[1])
+          Sk[1] = up->tyme;
+        Sk[2] += 1.0;
+        Sk[3] += tl[i].age;
+      }
+  for (k = 0; k < K; k++)
+    {
+      double *Sk = R + JC_SH_SPLIT (k);
+      if (Sk[2] == 0.0)
+        continue;
+      any = TRUE;
+      Sk[3] /= Sk[2];
+      const double lo = Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k], hi = Sk[1] < ly->mhi[k] ? Sk[1] : ly->mhi[k];
+      if (lo < tlo) tlo = lo;
+      if (Sk[3] < tlo) tlo = Sk[3];
+      if (hi > thi) thi = hi;
+      if (Sk[3] > thi) thi = Sk[3];
+    }
+  if (!any)
+    return;
+  R[2] = tlo;
+  double *tlr = R + JC_SH_TL (ly);
+  for (i = 1; i < T; i++)
+    {
+      const double t0 = tl[i - 1].age, t1 = tl[i].age;
+      if (t1 <= tlo || t0 >= thi)
+        continue;
+      const double v = t1 < thi ? t1 : thi;
+      boolean same = ni > 0;
+      for (p = 0; p < P && same; p++)
+        same = tlr[(ni - 1) * (1 + P) + 1 + p] == (double) tl[i].lineages[p];
+      if (same)
+        {
+          tlr[(ni - 1) * (1 + P)] = v;
+          continue;
+        }
+      if (ni == JC_SHARPMAXI)
+        {
+          R[0] = -2.0;
+          return;
+        }
+      tlr[ni * (1 + P)] = v;
+      for (p = 0; p < P; p++)
+        tlr[ni * (1 + P) + 1 + p] = (double) tl[i].lineages[p];
+      ni++;
+    }
+  R[0] = 0.0;
+  R[1] = (double) ni;
+}
+
+/* the D blocks of sharp splits: empty (no split event, flat); the split
+   terms are in the unit JC_U_SPLITRB */
+static void
+jc_sharp_clear (const jc_layout *ly, double *st)
+{
+  long j, k;
+  if (!ly->sharp)
+    return;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      st[ly->off_D[k]] = 0.0;
+      st[ly->off_D[k] + 1] = 0.0;
+      for (j = 0; j < ly->split_ns[k] * JC_NM; j++)
+        st[ly->off_D[k] + 2 + j] = 0.0;
+    }
+}
+
+/* sharp splits: are the crossing times c inside this row's windows and in
+   the order its chains require? */
+static boolean
+jc_sharp_ok (const jc_layout *ly, const double *R, const double *c)
+{
+  long k;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      const double *Sk = R + JC_SH_SPLIT (k);
+      if (Sk[2] == 0.0)
+        continue;
+      if (c[k] < Sk[0] || c[k] > Sk[1])
+        return FALSE;
+      if (Sk[4] > 0.0 && ly->sharp_par[k] >= 0 && c[k] > c[ly->sharp_par[k]])
+        return FALSE;
+    }
+  return TRUE;
+}
+
+/* sharp splits: the changes of the coalescence integrals K (divided by the
+   inheritance scalar) and lineage times S of every population when the
+   crossings of each split move from c0 to c */
+static void
+jc_sharp_delta (const jc_layout *ly, const double *R, const double *c, double *dK, double *dS)
+{
+  const long P = ly->numpop, K = ly->nsplit, ni = (long) R[1];
+  const double *tlr = R + JC_SH_TL (ly);
+  long i, k, p, q, nc;
+  double u = R[2], cut[64];
+  for (p = 0; p < P; p++)
+    dK[p] = dS[p] = 0.0;
+  for (i = 0; i < ni; i++)
+    {
+      const double v = tlr[i * (1 + P)];
+      const double *cnt = tlr + i * (1 + P) + 1;
+      nc = 0;
+      for (k = 0; k < K && nc < 62; k++)
+        {
+          const double *Sk = R + JC_SH_SPLIT (k);
+          if (Sk[2] == 0.0)
+            continue;
+          if (Sk[3] > u && Sk[3] < v) cut[nc++] = Sk[3];
+          if (c[k] > u && c[k] < v) cut[nc++] = c[k];
+        }
+      for (q = 1; q < nc; q++)
+        {
+          long j;
+          for (j = q; j > 0 && cut[j - 1] > cut[j]; j--)
+            {
+              const double t = cut[j];
+              cut[j] = cut[j - 1];
+              cut[j - 1] = t;
+            }
+        }
+      cut[nc++] = v;
+      double a = u;
+      for (q = 0; q < nc; q++)
+        {
+          const double b = cut[q], len = b - a, m = 0.5 * (a + b);
+          if (len > 0.0)
+            {
+              double add[64];
+              for (p = 0; p < P; p++)
+                add[p] = 0.0;
+              for (k = 0; k < K; k++)
+                {
+                  const double *Sk = R + JC_SH_SPLIT (k);
+                  double sgn = 0.0;
+                  if (Sk[2] == 0.0)
+                    continue;
+                  if (Sk[3] <= m && m < c[k])
+                    sgn = 1.0;
+                  else if (c[k] <= m && m < Sk[3])
+                    sgn = -1.0;
+                  add[ly->split_to[k]] += Sk[2] * sgn;
+                  add[ly->split_from[k]] -= Sk[2] * sgn;
+                }
+              for (p = 0; p < P; p++)
+                if (add[p] != 0.0)
+                  {
+                    const double n0 = cnt[p], n1 = cnt[p] + add[p];
+                    dK[p] += len * (n1 * (n1 - 1.0) - n0 * (n0 - 1.0));
+                    dS[p] += len * add[p];
+                  }
+            }
+          a = b;
+        }
+      u = v;
+    }
+  for (p = 0; p < P; p++)
+    dK[p] /= R[3];
+}
+
+static double jc_value (const jc_layout *ly, const double *phi, long e);
+static double jc_rate (const jc_layout *ly, const double *phi, long e);
+
+/* the log-term change of dK, dS at phi: every population and entry (mode
+   0), or only the fixed or inactive ones (mode 2, the terms the normalizer
+   does not integrate) */
+static double
+jc_sharp_lin (const jc_layout *ly, const boolean *active, const double *phi, const double *dK,
+              const double *dS, double mu, int mode)
+{
+  long p, e, from, to;
+  double v = 0.0;
+  for (p = 0; p < ly->numpop; p++)
+    if (dK[p] != 0.0)
+      {
+        if (mode == 2 && ly->rep[p] >= 0 && active[ly->rep[p]])
+          continue;
+        const double th = jc_value (ly, phi, p);
+        if (!(th > 0.0))
+          return -HUGE_VAL;
+        v -= dK[p] / (mu * th);
+      }
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    {
+      if (ly->mzero[e])
+        continue;
+      m2mm (e, ly->numpop, &from, &to);
+      if (dS[to] == 0.0 || (mode == 2 && ly->rep[e] >= 0 && active[ly->rep[e]]))
+        continue;
+      const double x = jc_rate (ly, phi, e);
+      if (x > 0.0)
+        v -= x * dS[to] / mu;
+    }
+  return v;
+}
+
+/* sharp splits (unit JC_U_SPLITRB): the row with every split's crossings at
+   its D, relative to the sampled row; zero outside the windows */
+static double
+jc_sharp_term (const jc_layout *ly, const double *st, const double *phi, double mu)
+{
+  const double *R = st + ly->off_R;
+  double c[64], dK[64], dS[64];
+  long k;
+  if (R[0] == -1.0)
+    return 0.0;
+  if (R[0] < 0.0)
+    return JC_DOUT;
+  for (k = 0; k < ly->nsplit; k++)
+    c[k] = phi[ly->split_pmu[k]];
+  if (!jc_sharp_ok (ly, R, c))
+    return JC_DOUT;
+  jc_sharp_delta (ly, R, c, dK, dS);
+  const double v = jc_sharp_lin (ly, NULL, phi, dK, dS, mu, 0);
+  return v > JC_DOUT ? v : JC_DOUT;
+}
+
 /* window of the local mean grid of split k, std row b: the genealogy's
    split-event centre +- JC_DZ std, clipped to the prior range (the whole
    range when the genealogy has no split event for it) */
@@ -1144,9 +1652,11 @@ jc_div_exact (world_fmt *world, long sm, double mu, double sigma)
     {
       const double t0 = tl[i - 1].age, t1 = tl[i].age;
       /* an interval ending at a (dated) tip has waiting terms only */
-      const long kto = tl[i].lineages[sp->to];
+      const long kto = jc_rb_count (tl, i, sp->to);
       if (kto > 0)
         D += (double) kto * (*log_prob_wait_speciate) (t0, t1, mu, sigma, sp);
+      if (i == jc_rbc.ie && jc_rbc.k >= 0)
+        continue;   /* the integrated crossing */
       if (tl[i].eventnode->type == 'd'
           && get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
                                       world->species_model, world->species_model_size) == sp)
@@ -1169,7 +1679,7 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
       species_fmt *sp = &world->species_model[ly->split_model[k]];
       double sum = 0.0, n = 0.0;
       for (i = 1; i < T - 1; i++)
-        if (tl[i].eventnode->type == 'd'
+        if (tl[i].eventnode->type == 'd' && !(i == jc_rbc.ie && jc_rbc.k >= 0)
             && get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
                                         world->species_model, world->species_model_size) == sp)
           {
@@ -1180,7 +1690,7 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
         {   /* no split event: centre on the last time a lineage is in the
                derived population (the term falls off below it, is flat above) */
           for (i = 1; i < T - 1; i++)
-            if (tl[i].lineages[sp->to] > 0 && tl[i].age > sum)
+            if (jc_rb_count (tl, i, sp->to) > 0 && tl[i].age > sum)
               sum = tl[i].age;
           st[ly->off_D[k]] = sum;
         }
@@ -1200,6 +1710,8 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
         }
     }
 }
+
+static void jc_rb_check (world_fmt *world, const jc_layout *ly, const double *st);
 
 /// Per-genealogy statistics of the current cold-chain genealogy (called
 /// right after bayes_save()).
@@ -1275,7 +1787,7 @@ jc_record_rate (world_fmt *world, const jc_layout *ly, double *st)
     for (k = 0; k < n; k++)
       {
         const double u = (double) k / JC_RATESUB, lr = ly->rlo + u * h, r = exp (lr);
-        v[k] = jc_rate_interp (x, K, u) + scaling_prior (world, ly->rate_p, r) + lr;
+        v[k] = jc_rate_interp (x, K, u) + scaling_prior_joint (world, ly->rate_p, r) + lr;
         if (v[k] > m)
           m = v[k];
       }
@@ -1332,12 +1844,51 @@ jc_record_sample (world_fmt *world)
           for (g = 0; g < ly.nseg * JC_NG; g++)
             st[ly.off_sA[pop] + g] = -HUGE_VAL;
       }
+  long *kadj = (long *) mycalloc ((size_t) numpop, sizeof (long));
+  jc_rbc.k = -1;
+  if (ly.rb)
+    {
+      if (ly.sharp)
+        jc_sharp_find (world, &ly, st);
+      else
+        jc_rb_find (world, &ly, st, world->options->inheritance_scalars[world->locus]);
+    }
+  if (getenv ("MIGRATE_JC_WINDOW") != NULL)
+    {   /* diagnostics (S = 0 design): per split, the window in which all its
+           crossings could slide together without changing the topology:
+           above every crossing lineage's lower event, below every upper one */
+      long k;
+      for (k = 0; k < ly.nsplit; k++)
+        {
+          species_fmt *sp = &world->species_model[ly.split_model[k]];
+          long n = 0;
+          double amax = -1.0, bmin = HUGE_VAL, cmin = HUGE_VAL, cmax = -1.0;
+          for (i = 1; i < T - 1; i++)
+            if (tl[i].eventnode->type == 'd'
+                && get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
+                                            world->species_model, world->species_model_size) == sp)
+              {
+                node *E = tl[i].eventnode, *n1 = E->back, *n2 = E->next->back;
+                if (n1 == NULL || n2 == NULL)
+                  continue;
+                node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
+                n++;
+                if (dn->tyme > amax) amax = dn->tyme;
+                if (up->tyme < bmin) bmin = up->tyme;
+                if (tl[i].age < cmin) cmin = tl[i].age;
+                if (tl[i].age > cmax) cmax = tl[i].age;
+              }
+          fprintf (stderr, "JCWIN %ld %ld %ld %.6g %.6g %.6g %.6g\n", world->locus + 1, k, n, amax, bmin, cmin, cmax);
+        }
+    }
   for (i = 1; i < T - 1; i++)
     {
       const double t0 = tl[i - 1].age, t1 = tl[i].age;
       const double dt = t1 - t0;
-      const long *k = tl[i].lineages;
+      const long *k = kadj;
       const char type = tl[i].eventnode->type;
+      for (pop = 0; pop < numpop; pop++)
+        kadj[pop] = jc_rb_count (tl, i, pop);
       /* intervals ending at a tip count (dated tips): waiting terms only */
       if (ly.nseg > 1)
         {   /* skyline=PARAM: the waiting terms per segment */
@@ -1419,7 +1970,7 @@ jc_record_sample (world_fmt *world)
                 const double t0 = tl[i - 1].age, t1 = tl[i].age;
                 if (t0 >= x)
                   break;
-                v += (double) tl[i].lineages[to] * ((t1 < x ? t1 : x) - t0);
+                v += (double) jc_rb_count (tl, i, to) * ((t1 < x ? t1 : x) - t0);
               }
             S[g] = v;
           }
@@ -1517,10 +2068,13 @@ jc_record_sample (world_fmt *world)
       if ((jc_file_count++ % fstride) != 0)
         {
           myfree (st);
+          myfree (kadj);
+          jc_rbc.k = -1;
           jc_layout_free (&ly);
           return;
         }
       jc_record_divergence (world, &ly, st);
+      jc_sharp_clear (&ly, st);
       jc_record_rate (world, &ly, st);   /* last: it rescales the tree (tl) */
       if (jc_file == NULL || jc_file_locus != world->locus || jc_file_rep != world->rep)
         {
@@ -1552,6 +2106,9 @@ jc_record_sample (world_fmt *world)
         {
           b->seen = 0;
           jc_record_divergence (world, &ly, st);   /* only for kept rows */
+          jc_sharp_clear (&ly, st);
+          if (getenv ("MIGRATE_JC_RBCHECK") != NULL && ly.rb && st[ly.off_R] >= 0.0)
+            jc_rb_check (world, &ly, st);
           if (getenv ("MIGRATE_JC_GATECHECK") != NULL && !ly.ml)
             {   /* the joint's term at the sampler's parameters against
                    probg_treetimes(): the difference must not depend on G */
@@ -1630,6 +2187,8 @@ jc_record_sample (world_fmt *world)
         }
     }
   myfree (st);
+  myfree (kadj);
+  jc_rbc.k = -1;
   jc_layout_free (&ly);
 }
 
@@ -2052,6 +2611,217 @@ jc_rate (const jc_layout *ly, const double *phi, long e)
   return jc_value (ly, phi, e) / jc_value (ly, phi, to);
 }
 
+/* ------------------------------------- integrated crossing time (RB) */
+
+/* log of the upper normal tail Q(z) = 1 - Phi(z), also far in the tail */
+static double
+jc_logQ (double z)
+{
+  if (z < 30.0)
+    return log (0.5 * erfc (z / M_SQRT2));
+  const double z2 = 1.0 / (z * z);
+  return -0.5 * z * z - log (z) - 0.5 * log (2.0 * M_PI) + log1p (-z2 + 3.0 * z2 * z2 - 15.0 * z2 * z2 * z2);
+}
+
+/* log(Phi(z2) - Phi(z1)) for z1 < z2 */
+static double
+jc_logphidiff (double z1, double z2)
+{
+  if (!(z2 > z1))
+    return -HUGE_VAL;
+  if (z1 > 0.0)
+    {
+      const double q1 = jc_logQ (z1), q2 = jc_logQ (z2);
+      return q1 + log1p (-exp (q2 - q1));
+    }
+  if (z2 < 0.0)
+    {
+      const double q1 = jc_logQ (-z2), q2 = jc_logQ (-z1);
+      return q1 + log1p (-exp (q2 - q1));
+    }
+  return log1p (-(exp (jc_logQ (-z1)) + exp (jc_logQ (z2))));
+}
+
+/* slope of log p(G_c | phi) in c on a piece with slopes cd = 2 k_d / inh,
+   ca = 2 k_a / inh of the other lineages, at c (gated migration counts
+   below its split mean only). mode 0: every term; 2: only the terms that
+   jc_full_term() leaves out (fixed or inactive parameters: they depend on
+   c and enter numerator and normalizer alike) */
+/* skyline=PARAM: the multiplier of matrix entry e in segment sg (1 without) */
+static double
+jc_rb_tau (const jc_layout *ly, const double *phi, long e, long sg)
+{
+  return (sg > 0 && ly->sky_j[e] >= 0) ? phi[JC_TAU (ly, ly->sky_j[e], sg)] : 1.0;
+}
+
+static double
+jc_rb_slope (const jc_layout *ly, const boolean *active, const double *phi, long k,
+             double cd, double ca, double c, double mu, int mode, double nmov)
+{
+  const long d = ly->split_to[k], an = ly->split_from[k];
+  /* the multipliers are coordinates of phi, not of the parameter vector
+     that mode 2 gets (free skyline entries have active parameters) */
+  const long sg = mode == 2 ? 0 : jc_seg (ly, c);
+  double lam = 0.0;
+  long e, from, to, w;
+  for (w = 0; w < 2; w++)
+    {
+      const long pop = w ? an : d;
+      const boolean act = ly->rep[pop] >= 0 && active != NULL && active[ly->rep[pop]];
+      if (mode == 2 && act)
+        continue;
+      const double th = jc_value (ly, phi, pop) * jc_rb_tau (ly, phi, pop, sg);
+      if (!(th > 0.0))
+        return -HUGE_VAL;
+      lam += (w ? ca : -cd) / (mu * th);
+    }
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    {
+      if (ly->mzero[e])
+        continue;
+      m2mm (e, ly->numpop, &from, &to);
+      if (to != d && to != an)
+        continue;
+      const boolean act = ly->rep[e] >= 0 && active != NULL && active[ly->rep[e]];
+      if (mode == 2 && act)
+        continue;
+      if (ly->gate_k[e] >= 0 && mode != 2 && !(c < phi[ly->split_pmu[ly->gate_k[e]]]))
+        continue;
+      const double x = jc_rate (ly, phi, e) * jc_rb_tau (ly, phi, e, sg);
+      if (x > 0.0)
+        lam += nmov * (to == d ? -x : x) / mu;
+    }
+  return lam;
+}
+
+/* log int_u^v f(c) e^{lam (c - u)} dc of the split density f of split k
+   (normal: N(c; D, S), without the 1/S'(a) of the survival; exponential:
+   e^{-(c - a)/D} / D) */
+static double
+jc_rb_piece (const jc_layout *ly, const double *phi, long k, double a, double u, double v, double lam,
+             boolean normal)
+{
+  const double D = phi[ly->split_pmu[k]];
+  if (!(D > 0.0) || !(v > u))
+    return -HUGE_VAL;
+  if (normal)
+    {
+      const double S = ly->split_psig[k] >= 0 ? phi[ly->split_psig[k]] : ly->split_sfix[k];
+      if (!(S > 0.0))
+        return -HUGE_VAL;
+      const double m = D + lam * S * S;
+      return lam * (D - u) + 0.5 * lam * lam * S * S + jc_logphidiff ((u - m) / S, (v - m) / S);
+    }
+  return -log (D) - (u - a) / D + jc_log_growth_dt (lam - 1.0 / D, 0.0, v - u);
+}
+
+/* the cut points of piece (u, v) where a gated entry into d or the
+   ancestor stops (its split mean); returns their number, sorted */
+static long
+jc_rb_cuts (const jc_layout *ly, const double *phi, long k, double u, double v, double *cut)
+{
+  const long d = ly->split_to[k], an = ly->split_from[k];
+  long e, from, to, n = 0, i, j;
+  for (e = ly->numpop; e < ly->numpop2 && n < 8; e++)
+    if (ly->gate_k[e] >= 0 && !ly->mzero[e])
+      {
+        m2mm (e, ly->numpop, &from, &to);
+        const double g = phi[ly->split_pmu[ly->gate_k[e]]];
+        if ((to == d || to == an) && g > u && g < v)
+          cut[n++] = g;
+      }
+  for (i = 1; i < n; i++)
+    for (j = i; j > 0 && cut[j - 1] > cut[j]; j--)
+      {
+        const double t = cut[j];
+        cut[j] = cut[j - 1];
+        cut[j - 1] = t;
+      }
+  return n;
+}
+
+/* the integrated crossing (unit JC_U_SPLITRB): log of
+   int_a^b p(G_c | phi) / p(G_a | phi) f(c) dc over the crossing lineage's
+   split terms (its waiting terms from a and its split event at c) */
+static double
+jc_rb_term (const jc_layout *ly, const double *st, const double *phi, double mu)
+{
+  if (!ly->rb)
+    return 0.0;
+  if (ly->sharp)
+    return jc_sharp_term (ly, st, phi, mu);
+  const double *R = st + ly->off_R;
+  const long k = (long) R[0];
+  if (k < 0)
+    return 0.0;
+  const double a = R[1], b = R[2];
+  const long np = (long) R[3];
+  const long d = ly->split_to[k], an = ly->split_from[k];
+  double acc = -HUGE_VAL, L = 0.0, cut[10];
+  long j, q;
+  /* the slope's parts, once per call (jc_rb_slope() with mode 0) */
+  const double thd = jc_value (ly, phi, d), tha = jc_value (ly, phi, an);
+  if (!(thd > 0.0) || !(tha > 0.0))
+    return JC_DOUT;
+  const double wd = 1.0 / (mu * thd), wa = 1.0 / (mu * tha);
+  double r0 = 0.0, gD[8], gv[8], sv[JC_RBMAXSKY];
+  long ng = 0, ns = 0, se[JC_RBMAXSKY], e, from, to;
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    {
+      if (ly->mzero[e])
+        continue;
+      m2mm (e, ly->numpop, &from, &to);
+      if (to != d && to != an)
+        continue;
+      const double x = jc_rate (ly, phi, e);
+      if (!(x > 0.0))
+        continue;
+      const double r = (to == d ? -x : x) / mu;
+      if (ly->gate_k[e] >= 0 && ng < 8)
+        {
+          gD[ng] = phi[ly->split_pmu[ly->gate_k[e]]];
+          gv[ng++] = r;
+        }
+      else if (ly->nseg > 1 && ly->sky_j[e] >= 0)
+        {   /* skyline=PARAM: times its multiplier in the piece's segment */
+          se[ns] = e;
+          sv[ns++] = r;
+        }
+      else
+        r0 += r;
+    }
+  for (j = 0; j < np; j++)
+    {
+      const double u = R[4 + 3 * j], v = j + 1 < np ? R[4 + 3 * (j + 1)] : b;
+      const long nc = jc_rb_cuts (ly, phi, k, u, v, cut);
+      const long sg = ly->nseg > 1 ? jc_seg (ly, u) : 0;
+      double lam0 = -R[4 + 3 * j + 1] * wd / jc_rb_tau (ly, phi, d, sg)
+        + R[4 + 3 * j + 2] * wa / jc_rb_tau (ly, phi, an, sg) + r0;
+      for (e = 0; e < ns; e++)
+        lam0 += sv[e] * jc_rb_tau (ly, phi, se[e], sg);
+      double s0 = u;
+      for (q = 0; q <= nc; q++)
+        {
+          const double s1 = q < nc ? cut[q] : v;
+          const double mid = 0.5 * (s0 + s1);
+          double lam = lam0;
+          for (e = 0; e < ng; e++)
+            if (mid < gD[e])
+              lam += gv[e];
+          acc = jc_logadd (acc, L + jc_rb_piece (ly, phi, k, a, s0, s1, lam, jc_rb_normal));
+          L += lam * (s1 - s0);
+          s0 = s1;
+        }
+    }
+  if (jc_rb_normal)
+    {   /* the survival to a: S'(a) = Phi((b1 - D)/S) - Phi((a - D)/S) */
+      const double D = phi[ly->split_pmu[k]];
+      const double S = ly->split_psig[k] >= 0 ? phi[ly->split_psig[k]] : ly->split_sfix[k];
+      acc -= jc_logphidiff ((a - D) / S, (ly->split_b1[k] - D) / S);
+    }
+  return acc > JC_DOUT ? acc : JC_DOUT;
+}
+
 /* log of the trapezoid integral of exp(v) over x */
 static double
 jc_logtrapz (const double *v, const double *x, long n)
@@ -2226,7 +2996,7 @@ jc_divquad_make (world_fmt *world, const jc_layout *ly, jc_divquad *q)
         }
       for (g = 0; g < q->ns; g++)
         q->ps_s[k * q->ns + g] = q->sw[k * q->ns + g] > 0.0
-          ? (q->cv != NULL && q->cv[k * JC_CVN] > -2.0 ? 0.0 : scaling_prior (world, ps, q->sv[k * q->ns + g]))
+          ? (q->cv != NULL && q->cv[k * JC_CVN] > -2.0 ? 0.0 : scaling_prior_joint (world, ps, q->sv[k * q->ns + g]))
           : -HUGE_VAL;
     }
 }
@@ -2324,7 +3094,7 @@ jc_div_mu_integral (const jc_divquad *q, const jc_layout *ly, const double *st, 
         x[g] = lo;
       if (x[g] > hi)
         x[g] = hi;
-      v[g] = scaling_prior (q->world, pm, x[g]) + jc_div_cv (q, k, sigma, x[g]);
+      v[g] = scaling_prior_joint (q->world, pm, x[g]) + jc_div_cv (q, k, sigma, x[g]);
       if (ly->ngate > 0)
         v[g] += jc_gate_group (ly, st, k, x[g]);
       for (m = 0; m < ly->nsplit; m++)
@@ -2422,7 +3192,7 @@ jc_div_order_grid (const jc_divquad *q, const jc_layout *ly, const double *st, l
       if (x[g] > hi)
         x[g] = hi;
       /* a fixed D (one point, n = 1 below) has no prior density */
-      const double pr = (hi > lo ? scaling_prior (q->world, pm, x[g]) : 0.0)
+      const double pr = (hi > lo ? scaling_prior_joint (q->world, pm, x[g]) : 0.0)
         + (ly->ngate > 0 ? jc_gate_group (ly, st, k, x[g]) : 0.0);
       if (ly->split_psig[k] < 0)
         {
@@ -2886,10 +3656,420 @@ jc_log_normalizer (const jc_layout *ly, const boolean *active,
         }
       lz += jc_logtrapz (wg, xg, ng);
     }
+  if (jc_nodiv)   /* sharp splits: the divergence part is integrated outside */
+    return lz;
   if (ly->ngate > 0)   /* the gated M integrals, used inside the divergence integrals */
     jc_gate_table (ly, st, mu);
   lz += jc_div_normalizer (ly, st, dq);
   return lz;
+}
+
+/* integrated crossing: the row of the genealogy with the crossing at c
+   (from the base row, where it is at a): K and S of daughter and ancestor,
+   the gated lineage times, and the divergence grid of the split with the
+   lineage's waiting terms from a and its split event at c */
+static void
+jc_rb_move (world_fmt *world, const jc_layout *ly, const double *base, double c, double *out)
+{
+  const double *R = base + ly->off_R;
+  const long k = (long) R[0], np = (long) R[3];
+  const double a = R[1], b = R[2];
+  const long d = ly->split_to[k], an = ly->split_from[k];
+  long j, e, g, from, to;
+  memcpy (out, base, sizeof (double) * (size_t) ly->nrow);
+  for (j = 0; j < np; j++)
+    {
+      const double u = R[4 + 3 * j], v = j + 1 < np ? R[4 + 3 * (j + 1)] : b;
+      const double len = (v < c ? v : c) - u;
+      if (len <= 0.0)
+        break;
+      out[ly->off_K + d] += R[4 + 3 * j + 1] * len;
+      out[ly->off_K + an] -= R[4 + 3 * j + 2] * len;
+      if (ly->nseg > 1)
+        {   /* skyline=PARAM: the piece's segment */
+          const long sg = jc_seg (ly, u);
+          out[ly->off_sK + sg * ly->numpop + d] += R[4 + 3 * j + 1] * len;
+          out[ly->off_sK + sg * ly->numpop + an] -= R[4 + 3 * j + 2] * len;
+          out[ly->off_sS + sg * ly->numpop + d] += len;
+          out[ly->off_sS + sg * ly->numpop + an] -= len;
+        }
+    }
+  out[ly->off_S + d] += c - a;
+  out[ly->off_S + an] -= c - a;
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->gate_k[e] >= 0)
+      {
+        m2mm (e, ly->numpop, &from, &to);
+        if (to != d && to != an)
+          continue;
+        for (g = 0; g < JC_NGATE; g++)
+          {
+            const double x = jc_gate_x (ly, e, g);
+            const double ov = (c < x ? c : x) - a;
+            if (ov > 0.0)
+              out[ly->off_G[e] + 1 + g] += to == d ? ov : -ov;
+          }
+      }
+  species_fmt *sp = &world->species_model[ly->split_model[k]];
+  out[ly->off_D[k]] = c;
+  out[ly->off_D[k] + 1] = base[ly->off_D[k] + 1] + 1.0;
+  for (j = 0; j < ly->split_ns[k]; j++)
+    {
+      double L, U;
+      const double sig = ly->sgrid[k * JC_NS + j];
+      double *Dv = out + ly->off_D[k] + 2 + j * JC_NM;
+      jc_row_window (ly, out, k, j, &L, &U);
+      for (g = 0; g < JC_NM; g++)
+        {
+          const double m = L + (U - L) * (double) g / (JC_NM - 1);
+          const double rest = jc_row_value (ly, base, k, j, m);
+          Dv[g] = rest <= JC_DOUT ? JC_DOUT
+            : rest + (*log_prob_wait_speciate) (a, c, m, sig, sp) + (*log_point_prob_speciate) (c, m, sig, sp);
+          if (!(Dv[g] > JC_DOUT))
+            Dv[g] = JC_DOUT;
+        }
+    }
+  out[ly->off_R] = -1.0;
+}
+
+static void jc_gl_nodes (long n, double *x, double *w);
+
+/* sharp splits: log of the S prior masses (the empty D blocks integrate
+   them in the other rows' normalizers) */
+static double
+jc_sharp_logmS (world_fmt *world, const jc_layout *ly)
+{
+  double lm = 0.0;
+  long k, i;
+  for (k = 0; k < ly->nsplit; k++)
+    {
+      const long ps = ly->split_psig[k];
+      if (ps < 0)
+        continue;
+      const double lo = world->bayes->minparam[ps], hi = world->bayes->maxparam[ps];
+      if (!(hi > lo))
+        continue;
+      const long N = 201;
+      double v[201], x[201];
+      for (i = 0; i < N; i++)
+        {
+          x[i] = lo + (hi - lo) * (double) i / (double) (N - 1);
+          v[i] = scaling_prior_joint (world, ps, x[i]);
+        }
+      lm += jc_logtrapz (v, x, N);
+    }
+  return lm;
+}
+
+typedef struct
+{
+  world_fmt *world;
+  const jc_layout *ly;
+  const boolean *active;
+  const double *st;
+  double mu;
+  const double *tgrid, *tpri, *tgrid_s, *tpri_s, *gpri;
+  const jc_divquad *dq;
+  long order[64];
+  double c[64];
+  double *mv;
+  long Q;
+  double x[64], w[64];
+} jc_sharpq;
+
+/* nested Gauss-Legendre over the splits in order (parents first): a
+   child's range ends at its parent's time when they are ordered (chain or
+   divergence-order) */
+static double
+jc_sharp_nest (jc_sharpq *z, long level)
+{
+  const jc_layout *ly = z->ly;
+  const double *R = z->st + ly->off_R;
+  if (level == ly->nsplit)
+    {
+      double dK[64], dS[64], v = 0.0;
+      long k, p;
+      jc_sharp_delta (ly, R, z->c, dK, dS);
+      memcpy (z->mv, z->st, sizeof (double) * (size_t) ly->nrow);
+      for (p = 0; p < ly->numpop; p++)
+        {
+          z->mv[ly->off_K + p] += dK[p];
+          z->mv[ly->off_S + p] += dS[p];
+        }
+      for (k = 0; k < ly->nsplit; k++)
+        v += scaling_prior_joint (z->world, ly->split_pmu[k], z->c[k]);
+      v += jc_sharp_lin (ly, z->active, z->world->param0, dK, dS, z->mu, 2);
+      jc_nodiv = TRUE;
+      v += jc_log_normalizer (ly, z->active, z->mv, z->mu, z->tgrid, z->tpri, z->tgrid_s, z->tpri_s, z->gpri, z->dq);
+      jc_nodiv = FALSE;
+      return v;
+    }
+  const long k = z->order[level];
+  const double *Sk = R + JC_SH_SPLIT (k);
+  double lo = Sk[2] > 0.0 && Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k];
+  double hi = Sk[2] > 0.0 && Sk[1] < ly->mhi[k] ? Sk[1] : ly->mhi[k];
+  const long par = ly->sharp_par[k];
+  if (par >= 0 && (ly->split_par[k] >= 0 || Sk[4] > 0.0) && z->c[par] < hi)
+    hi = z->c[par];
+  if (!(hi > lo))
+    return -HUGE_VAL;
+  /* one split: Gauss-Legendre per piece between the row's breakpoints */
+  double cuts[JC_SHARPMAXI + 2];
+  long nc = 0, i, q;
+  cuts[nc++] = lo;
+  if (ly->nsplit == 1)
+    {
+      const double *tlr = R + JC_SH_TL (ly);
+      for (i = 0; i < (long) R[1]; i++)
+        {
+          const double t = tlr[i * (1 + ly->numpop)];
+          if (t > lo && t < hi)
+            cuts[nc++] = t;
+        }
+    }
+  cuts[nc++] = hi;
+  double acc = -HUGE_VAL;
+  for (i = 0; i + 1 < nc; i++)
+    {
+      const double u = cuts[i], v = cuts[i + 1];
+      if (!(v > u))
+        continue;
+      for (q = 0; q < z->Q; q++)
+        {
+          z->c[k] = 0.5 * (u + v) + 0.5 * (v - u) * z->x[q];
+          acc = jc_logadd (acc, log (0.5 * (v - u) * z->w[q]) + jc_sharp_nest (z, level + 1));
+        }
+    }
+  return acc;
+}
+
+/* sharp splits: log int p(D = c) Z(G_c) e^{F(c)} dc over the splits'
+   windows (F: the fixed parameters' terms), times the S prior masses; a row
+   without crossings has the usual normalizer */
+static double
+jc_sharp_lognorm (world_fmt *world, const jc_layout *ly, const boolean *active,
+                  const double *st, double mu, const double *tgrid, const double *tpri,
+                  const double *tgrid_s, const double *tpri_s, const double *gpri,
+                  const jc_divquad *dq)
+{
+  const double *R = st + ly->off_R;
+  jc_sharpq z;
+  long k, n = 0;
+  if (R[0] == -1.0)
+    return jc_log_normalizer (ly, active, st, mu, tgrid, tpri, tgrid_s, tpri_s, gpri, dq);
+  if (R[0] < 0.0)
+    return 0.0;
+  memset (&z, 0, sizeof (z));
+  z.world = world;
+  z.ly = ly;
+  z.active = active;
+  z.st = st;
+  z.mu = mu;
+  z.tgrid = tgrid; z.tpri = tpri; z.tgrid_s = tgrid_s; z.tpri_s = tpri_s; z.gpri = gpri;
+  z.dq = dq;
+  z.Q = getenv ("MIGRATE_JC_SHARPQ") ? atol (getenv ("MIGRATE_JC_SHARPQ")) : 8;
+  if (z.Q < 2) z.Q = 2;
+  if (z.Q > 64) z.Q = 64;
+  jc_gl_nodes (z.Q, z.x, z.w);
+  /* parents first */
+  boolean *done = (boolean *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (boolean));
+  while (n < ly->nsplit)
+    {
+      const long n0 = n;
+      for (k = 0; k < ly->nsplit; k++)
+        if (!done[k] && (ly->sharp_par[k] < 0 || done[ly->sharp_par[k]]))
+          {
+            z.order[n++] = k;
+            done[k] = TRUE;
+          }
+      if (n == n0)
+        break;
+    }
+  myfree (done);
+  z.mv = (double *) mycalloc ((size_t) ly->nrow, sizeof (double));
+  const double acc = n == ly->nsplit ? jc_sharp_nest (&z, 0) : -HUGE_VAL;
+  myfree (z.mv);
+  return acc > -HUGE_VAL ? acc + jc_sharp_logmS (world, ly) : 0.0;
+}
+
+/* Gauss-Legendre nodes and weights on [-1, 1] */
+static void
+jc_gl_nodes (long n, double *x, double *w)
+{
+  long i, j;
+  for (i = 0; i < (n + 1) / 2; i++)
+    {
+      double z = cos (M_PI * ((double) i + 0.75) / ((double) n + 0.5)), pp = 1.0, z1;
+      do
+        {
+          double p1 = 1.0, p2 = 0.0;
+          for (j = 0; j < n; j++)
+            {
+              const double p3 = p2;
+              p2 = p1;
+              p1 = ((2.0 * (double) j + 1.0) * z * p2 - (double) j * p3) / ((double) j + 1.0);
+            }
+          pp = (double) n * (z * p1 - p2) / (z * z - 1.0);
+          z1 = z;
+          z = z1 - p1 / pp;
+        }
+      while (fabs (z - z1) > 1e-15);
+      x[i] = -z;
+      x[n - 1 - i] = z;
+      w[i] = w[n - 1 - i] = 2.0 / ((1.0 - z * z) * pp * pp);
+    }
+}
+
+/* Gauss-Legendre nodes of the crossing's normalizer over the whole segment
+   (MIGRATE_JC_RBQ; 16 nodes: log Z within 0.007 of 64 nodes, median 2e-5,
+   twopop-div-sbc 2026-11-18; MIGRATE_JC_RBPIECES=1: per piece) */
+static long
+jc_rb_q (void)
+{
+  const char *e = getenv ("MIGRATE_JC_RBQ");
+  long q = e != NULL ? atol (e) : 16;
+  return q < 2 ? 2 : (q > 64 ? 64 : q);
+}
+
+/* integrated crossing: log int_a^b Z(G_c) e^{F(c)} dc, Gauss-Legendre over
+   (a, b) cut at the prior bounds of the split mean (Z(G_c) is smooth, with
+   kinks at the piece ends); F(c)
+   are the terms of the fixed parameters, relative to c = a */
+static double
+jc_rb_lognorm (world_fmt *world, const jc_layout *ly, const boolean *active,
+               const double *st, double mu, const double *tgrid, const double *tpri,
+               const double *tgrid_s, const double *tpri_s, const double *gpri,
+               const jc_divquad *dq)
+{
+  const double *R = st + ly->off_R;
+  const long k = (long) R[0], np = (long) R[3];
+  const double a = R[1], b = R[2];
+  const long Q = jc_rb_q ();
+  double x[64], w[64], cuts[2 * JC_RBMAXP + 4];
+  double *mv = (double *) mycalloc ((size_t) ly->nrow, sizeof (double));
+  const double *phi0 = world->param0;
+  long j, q, n = 0, i;
+  double acc = -HUGE_VAL;
+  jc_gl_nodes (Q, x, w);
+  for (j = 0; j < np; j++)
+    if (j == 0 || getenv ("MIGRATE_JC_RBPIECES") != NULL)
+      cuts[n++] = R[4 + 3 * j];
+  if (ly->mlo[k] > a && ly->mlo[k] < b)
+    cuts[n++] = ly->mlo[k];
+  if (ly->mhi[k] > a && ly->mhi[k] < b)
+    cuts[n++] = ly->mhi[k];
+  cuts[n++] = b;
+  for (i = 1; i < n; i++)
+    for (j = i; j > 0 && cuts[j - 1] > cuts[j]; j--)
+      {
+        const double t = cuts[j];
+        cuts[j] = cuts[j - 1];
+        cuts[j - 1] = t;
+      }
+  for (i = 0; i + 1 < n; i++)
+    {
+      const double u = cuts[i], v = cuts[i + 1];
+      if (!(v > u))
+        continue;
+      for (q = 0; q < Q; q++)
+        {
+          const double c = 0.5 * (u + v) + 0.5 * (v - u) * x[q];
+          double F = 0.0;
+          for (j = 0; j < np; j++)
+            {   /* fixed-parameter terms from a to c */
+              const double pu = R[4 + 3 * j], pv = j + 1 < np ? R[4 + 3 * (j + 1)] : b;
+              const double len = (pv < c ? pv : c) - pu;
+              if (len <= 0.0)
+                break;
+              F += len * jc_rb_slope (ly, active, phi0, k, R[4 + 3 * j + 1], R[4 + 3 * j + 2],
+                                      pu + 0.5 * len, mu, 2, 1.0);
+            }
+          jc_rb_move (world, ly, st, c, mv);
+          acc = jc_logadd (acc, log (0.5 * (v - u) * w[q]) + F
+                           + jc_log_normalizer (ly, active, mv, mu, tgrid, tpri, tgrid_s, tpri_s, gpri, dq));
+        }
+    }
+  myfree (mv);
+  return acc;
+}
+
+/* MIGRATE_JC_RBCHECK: the closed form of the integrated crossing against a
+   numerical integral over c of the rows moved to c (the coalescence and
+   migration terms of every population and entry, at the sampler's
+   parameters) plus the sampler's own split terms */
+static double
+jc_rb_check_terms (const jc_layout *ly, const double *st, const double *phi, double mu)
+{
+  double v = 0.0;
+  long pop, e, sg;
+  for (pop = 0; pop < ly->numpop; pop++)
+    if (ly->nseg > 1 && ly->sky_j[pop] >= 0)
+      for (sg = 0; sg < ly->nseg; sg++)
+        v += jc_pop_seg_term (ly, st, pop, sg, jc_value (ly, phi, pop) * jc_rb_tau (ly, phi, pop, sg), 0.0, mu);
+    else
+      v += jc_pop_term (ly, st, pop, jc_value (ly, phi, pop), 0.0, mu, NAN);
+  for (e = ly->numpop; e < ly->numpop2; e++)
+    if (ly->nseg > 1 && ly->sky_j[e] >= 0)
+      for (sg = 0; sg < ly->nseg; sg++)
+        v += jc_mig_seg_term (ly, st, e, sg, jc_rate (ly, phi, e) * jc_rb_tau (ly, phi, e, sg), mu);
+    else if (!ly->mzero[e] && jc_rate (ly, phi, e) > 0.0)
+      v += ly->gate_k[e] >= 0
+        ? jc_gate_term (ly, st, e, jc_rate (ly, phi, e), phi[ly->split_pmu[ly->gate_k[e]]], mu)
+        : jc_mig_term (ly, st, e, jc_rate (ly, phi, e), mu);
+  return v;
+}
+
+static void
+jc_rb_check (world_fmt *world, const jc_layout *ly, const double *st)
+{
+  const double *R = st + ly->off_R;
+  const long k = (long) R[0];
+  const double a = R[1], b = R[2], mu = st[ly->off_mu];
+  double *phi = (double *) mycalloc ((size_t) ly->nphi, sizeof (double));
+  long jj, sg2;
+  memcpy (phi, world->param0, sizeof (double) * (size_t) ly->np);
+  for (jj = 0; jj < ly->nfree; jj++)   /* the sampler's skyline multipliers */
+    for (sg2 = 1; sg2 < ly->nseg; sg2++)
+      phi[JC_TAU (ly, jj, sg2)] = world->timek[sg2 * world->numpop2 + ly->sky_k[jj]];
+  const double D = phi[ly->split_pmu[k]];
+  const double S = ly->split_psig[k] >= 0 ? phi[ly->split_psig[k]] : ly->split_sfix[k];
+  species_fmt *sp = &world->species_model[ly->split_model[k]];
+  const long n1 = 4000, n2 = 4000;
+  double *x = (double *) mycalloc ((size_t) (n1 + n2 + 2), sizeof (double));
+  double *f = (double *) mycalloc ((size_t) (n1 + n2 + 2), sizeof (double));
+  double *mv = (double *) mycalloc ((size_t) ly->nrow, sizeof (double));
+  long n = 0, i, j;
+  for (i = 0; i <= n1; i++)
+    x[n++] = a + (b - a) * (double) i / n1;
+  for (i = 0; i <= n2 && jc_rb_normal; i++)
+    {
+      const double y = D - 12.0 * S + 24.0 * S * (double) i / n2;
+      if (y > a && y < b)
+        x[n++] = y;
+    }
+  for (i = 1; i < n; i++)
+    for (j = i; j > 0 && x[j - 1] > x[j]; j--)
+      {
+        const double t = x[j];
+        x[j] = x[j - 1];
+        x[j - 1] = t;
+      }
+  const double t0 = jc_rb_check_terms (ly, st, phi, mu);
+  for (i = 0; i < n; i++)
+    {
+      jc_rb_move (world, ly, st, x[i], mv);
+      f[i] = jc_rb_check_terms (ly, mv, phi, mu) - t0
+        + (x[i] > a ? (*log_prob_wait_speciate) (a, x[i], D, S, sp) : 0.0)
+        + (*log_point_prob_speciate) (x[i], D, S, sp);
+    }
+  const double num = jc_logtrapz (f, x, n);
+  const double cf = jc_rb_term (ly, st, phi, mu);
+  fprintf (stderr, "JC_RBCHECK locus %ld split %ld a %g b %g c0 %g pieces %ld D %g S %g: closed %.6f numeric %.6f diff %.2e\n",
+           world->locus + 1, k, a, b, jc_rbc.c0, (long) R[3], D, S, cf, num, cf - num);
+  myfree (x);
+  myfree (f);
+  myfree (mv);
+  myfree (phi);
 }
 
 /* the genealogies a combination uses: 0 all, k = 1..JC_NBLOCK the k-th
@@ -3193,7 +4373,7 @@ static double
 jc_ml_logprior (void *ctx, double x)
 {
   const jc_mlprior *c = (const jc_mlprior *) ctx;
-  return scaling_prior (c->world, c->p, x);
+  return scaling_prior_joint (c->world, c->p, x);
 }
 
 static double
@@ -3256,7 +4436,7 @@ jc_ml_lognorm (world_fmt *world, const jc_layout *ly, const double *st, const do
       for (j = 0; j < JML_NALPHA; j++)
         {
           const long k = slot * JML_NALPHA + order[j];
-          double v = log (nodew[k]) + scaling_prior (world, p, nodex[k]);
+          double v = log (nodew[k]) + scaling_prior_joint (world, p, nodex[k]);
           for (q = pop; q < numpop; q++)
             if (ly->apar[q] == p)
               v += jml_inner_log (sp + 2 * off[q], off[q + 1] - off[q], numpop, q, st[ly->off_mu],
@@ -3312,6 +4492,8 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
   for (e = 0; e < ly->nsplit; e++)
     v += jc_div_term (ly, st, e, phi[ly->split_pmu[e]],
                       ly->split_psig[e] >= 0 ? phi[ly->split_psig[e]] : ly->split_sfix[e]);
+  if (ly->rb)
+    v += jc_rb_term (ly, st, phi, mu);
   if (ly->rate && active[ly->rate_p])
     v += jc_rate_term (ly, st, phi[ly->rate_p]);
   return v;
@@ -3323,7 +4505,7 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
    and sums all units again in the same order, so the sum is the same
    number jc_full_term() gives (no old + new - old updates: a divergence
    term at JC_DOUT would swallow the others) */
-enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT, JC_U_ML, JC_U_RATE };
+enum { JC_U_POP, JC_U_POPSEG, JC_U_MIG, JC_U_MIGSEG, JC_U_SPLIT, JC_U_ML, JC_U_SPLITRB, JC_U_RATE };
 typedef struct
 {
   long n;
@@ -3397,6 +4579,8 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
       }
   for (e = 0; e < ly->nsplit; e++)
     jc_units_add (U, JC_U_SPLIT, e, 0);
+  if (ly->rb)
+    jc_units_add (U, JC_U_SPLITRB, 0, 0);
   if (ly->rate && active[ly->rate_p])
     jc_units_add (U, JC_U_RATE, 0, 0);
   U->ndep = (long *) mycalloc ((size_t) ly->nphi, sizeof (long));
@@ -3436,6 +4620,45 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
           break;
         case JC_U_RATE:
           jc_units_dep (U, ly->nphi, ly->rate_p, u);
+          break;
+        case JC_U_SPLITRB:
+          {   /* any split's crossing: its D, S, the Theta of daughter and
+                 ancestor, the rates into them (and their gates) */
+            long k, f, from, to;
+            boolean *dep = (boolean *) mycalloc ((size_t) ly->nphi, sizeof (boolean));
+            for (k = 0; k < ly->nsplit; k++)
+              if (ly->rb_ok[k])
+                {
+                  const long d = ly->split_to[k], an = ly->split_from[k];
+                  if (ly->split_pmu[k] >= 0) dep[ly->split_pmu[k]] = TRUE;
+                  if (ly->split_psig[k] >= 0) dep[ly->split_psig[k]] = TRUE;
+                  if (ly->rep[d] >= 0) dep[ly->rep[d]] = TRUE;
+                  if (ly->rep[an] >= 0) dep[ly->rep[an]] = TRUE;
+                  for (f = 0; f < ly->numpop2; f++)
+                    {   /* skyline multipliers of d, the ancestor, the entries into them */
+                      long sg;
+                      if (ly->sky_j[f] < 0)
+                        continue;
+                      m2mm (f, ly->numpop, &from, &to);
+                      if (f < ly->numpop ? (f != d && f != an) : (to != d && to != an))
+                        continue;
+                      for (sg = 1; sg < ly->nseg; sg++)
+                        dep[JC_TAU (ly, ly->sky_j[f], sg)] = TRUE;
+                    }
+                  for (f = ly->numpop; f < ly->numpop2; f++)
+                    {
+                      m2mm (f, ly->numpop, &from, &to);
+                      if (ly->mzero[f] || (to != d && to != an))
+                        continue;
+                      if (ly->rep[f] >= 0) dep[ly->rep[f]] = TRUE;
+                      if (ly->gate_k[f] >= 0) dep[ly->split_pmu[ly->gate_k[f]]] = TRUE;
+                    }
+                }
+            for (k = 0; k < ly->nphi; k++)
+              if (dep[k])
+                jc_units_dep (U, ly->nphi, k, u);
+            myfree (dep);
+          }
           break;
         }
     }
@@ -3479,6 +4702,8 @@ jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, 
       return jc_mig_term (ly, st, i, jc_rate (ly, phi, i), mu);
     case JC_U_MIGSEG:
       return jc_mig_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0), mu);
+    case JC_U_SPLITRB:
+      return jc_rb_term (ly, st, phi, mu);
     case JC_U_RATE:
       return jc_rate_term (ly, st, phi[ly->rate_p]);
     default:
@@ -3698,18 +4923,18 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
              error up to 0.04 that depended on the genealogy) */
           tgrid[p * JC_GRID + g] = g == 0 ? lo : (g == JC_GRID - 1 ? hi
             : exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_GRID - 1)));
-          tpri[p * JC_GRID + g] = scaling_prior (world, p, tgrid[p * JC_GRID + g]);
+          tpri[p * JC_GRID + g] = scaling_prior_joint (world, p, tgrid[p * JC_GRID + g]);
         }
       for (g = 0; g < JC_TGRID; g++)
           {
             tgrid_s[p * JC_TGRID + g] = g == 0 ? lo : (g == JC_TGRID - 1 ? hi
               : exp (log (lo) + (log (hi) - log (lo)) * (double) g / (JC_TGRID - 1)));
-            tpri_s[p * JC_TGRID + g] = scaling_prior (world, p, tgrid_s[p * JC_TGRID + g]);
+            tpri_s[p * JC_TGRID + g] = scaling_prior_joint (world, p, tgrid_s[p * JC_TGRID + g]);
           }
     }
   for (s = 0; s < ly->nslot; s++)
     for (g = 0; g < JC_NG; g++)
-      gpri[s * JC_NG + g] = scaling_prior (world, ly->slot_param[s], ly->ggrid[s * JC_NG + g]);
+      gpri[s * JC_NG + g] = scaling_prior_joint (world, ly->slot_param[s], ly->ggrid[s * JC_NG + g]);
   jc_divquad dq;
   jc_divquad_make (world, ly, &dq);
   /* Mittag-Leffler: the function table and the inner integrals' settings */
@@ -3757,7 +4982,8 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
   const long nu = J->U.n;
   for (l = 0; l < J->nl; l++)
     {
-      long sidx, u;
+      long sidx, u, nrb = 0, nrbp = 0;
+      const double t0rb = jc_now ();
       jc_locus *Ll = &J->L[l];
       jc_hcur = Ll->h;
       Ll->cur = (double *) mycalloc ((size_t) Ll->n, sizeof (double));
@@ -3774,6 +5000,9 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
           else
             {
               Ll->logz[sidx] = ly->ml ? jc_ml_lognorm (world, ly, st, JC_SP (Ll, sidx), mlI)
+                : (ly->rb && st[ly->off_R] >= 0.0)
+                ? (ly->sharp ? jc_sharp_lognorm (world, ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq)
+                   : jc_rb_lognorm (world, ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq))
                 : jc_log_normalizer (ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
               if (zc != NULL)
                 *zc = Ll->logz[sidx];
@@ -3784,7 +5013,36 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
               v += un[u];
             }
           Ll->cur[sidx] = v - Ll->logz[sidx];
+          if (ly->rb && st[ly->off_R] >= 0.0)
+            {
+              nrb++;
+              nrbp += (long) st[ly->off_R + 3];
+              if (getenv ("MIGRATE_JC_RBQCHECK") != NULL && nrb <= 20)
+                {   /* the normalizer's quadrature: these nodes against 2x and 4x */
+                  char buf[32], *old = getenv ("MIGRATE_JC_RBQ") ? strdup (getenv ("MIGRATE_JC_RBQ")) : NULL;
+                  const long q0 = jc_rb_q ();
+                  double z2, z4;
+                  snprintf (buf, sizeof buf, "%ld", 2 * q0);
+                  setenv ("MIGRATE_JC_RBQ", buf, 1);
+                  z2 = jc_rb_lognorm (world, ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
+                  snprintf (buf, sizeof buf, "%ld", 4 * q0);
+                  setenv ("MIGRATE_JC_RBQ", buf, 1);
+                  z4 = jc_rb_lognorm (world, ly, J->active, st, st[ly->off_mu], tgrid, tpri, tgrid_s, tpri_s, gpri, &dq);
+                  if (old != NULL)
+                    {
+                      setenv ("MIGRATE_JC_RBQ", old, 1);
+                      free (old);
+                    }
+                  else
+                    unsetenv ("MIGRATE_JC_RBQ");
+                  fprintf (stderr, "JC_RBQ locus %ld row %ld pieces %ld: Q %ld %.6f, 2Q %+.2e, 4Q %+.2e\n", Ll->locus + 1, sidx,
+                           (long) st[ly->off_R + 3], q0, Ll->logz[sidx], z2 - Ll->logz[sidx], z4 - Ll->logz[sidx]);
+                }
+            }
         }
+      if (ly->rb && getenv ("MIGRATE_JC_RBDEBUG") != NULL)
+        fprintf (stderr, "JC_RB locus %ld: %ld rows, %ld with an integrated crossing (%.1f pieces), setup %.1f s\n",
+                 Ll->locus + 1, Ll->n, nrb, nrb ? (double) nrbp / (double) nrb : 0.0, jc_now () - t0rb);
       J->lterm[l] = jc_lterm_floor (jc_logsumexp (Ll->cur, Ll->n));
       total += J->lterm[l];
       if (Ll->n > J->maxn)
@@ -3846,7 +5104,7 @@ jc_local_setup (world_fmt *world, jc_local *J, const long *loci, long nloci, con
             double x[JML_NALPHA], w[JML_NALPHA], v[JML_NALPHA];
             jml_alpha_nodes (world->bayes->minparam[p], world->bayes->maxparam[p], x, w);
             for (j = 0; j < JML_NALPHA; j++)
-              v[j] = log (w[j]) + scaling_prior (world, p, x[j]);
+              v[j] = log (w[j]) + scaling_prior_joint (world, p, x[j]);
             J->lognz += jc_logsumexp (v, JML_NALPHA);
           }
       }
@@ -4385,6 +5643,53 @@ jc_eval_start (world_fmt *world, jc_eval *E, const double *phi, long part)
     E->lognz = E->local.nl > 0 ? (double) E->local.nl * E->local.lognz : 0.0;
     E->tmin = E->local.tmin;
     E->tmax = E->local.tmax;
+    if (getenv ("MIGRATE_JC_PROFILE") != NULL)
+      {   /* diagnostics: sweep parameter MIGRATE_JC_PROFILE over its range (others
+             at phi) and print per locus log f_l + log Z0 (0 under NODATA) and the
+             importance-sampling ESS of its genealogies; then stop */
+        jc_local *J = &E->local;
+        const long p = atol (getenv ("MIGRATE_JC_PROFILE"));
+        const long K = 41;
+        double *ph = (double *) mycalloc ((size_t) J->ly.nphi, sizeof (double));
+        long k, q;
+        memcpy (ph, phi, sizeof (double) * (size_t) J->ly.nphi);
+        fprintf (stderr, "JCPROFILE phi0:");
+        for (q = 0; q < J->ly.nphi; q++)
+          fprintf (stderr, " %g", phi[q]);
+        fprintf (stderr, "\nJCPROFILE param %ld lognz %g\n", p, J->lognz);
+        const double hi = world->bayes->maxparam[p];
+        const double lo = world->bayes->minparam[p] > hi * 1e-4 ? world->bayes->minparam[p] : hi * 1e-4;
+        for (k = 0; k < K; k++)
+          {
+            const double x = exp (log (lo) + (log (hi) - log (lo)) * (double) k / (K - 1));
+            double sum = 0.0;
+            jc_local_propose (J, ph, p, x);
+            fprintf (stderr, "JCPROFILE x %.6g", x);
+            for (l = 0; l < J->nl; l++)
+              {
+                const double *nc = J->newcur + l * J->maxn;
+                const long n = J->L[l].n;
+                double mx = -HUGE_VAL, s1 = 0.0, s2 = 0.0;
+                long s;
+                for (s = 0; s < n; s++)
+                  if (nc[s] > mx)
+                    mx = nc[s];
+                for (s = 0; s < n; s++)
+                  {
+                    const double w = exp (nc[s] - mx);
+                    s1 += w;
+                    s2 += w * w;
+                  }
+                const double lf = J->newlterm[l] - log ((double) n) + J->lognz;
+                sum += lf;
+                fprintf (stderr, " %.3f:%.0f", lf, s2 > 0.0 ? s1 * s1 / s2 : 0.0);
+              }
+            fprintf (stderr, " SUM %.3f\n", sum);
+            J->pending = -1;
+          }
+        myfree (ph);
+        exit (0);
+      }
   }
 }
 
@@ -4687,7 +5992,7 @@ jc_target_prior (world_fmt *world, long p, double x)
 {
   if (splitcv_is_s (world, p, NULL))
     return 0.0;
-  return scaling_prior (world, p, x);
+  return scaling_prior_joint (world, p, x);
 }
 
 static long
@@ -5841,6 +7146,23 @@ jc_print_note (world_fmt *world, FILE *out)
              js->nloci_used, js->tmin, js->tmax, jc_maxsamples (world, js->nrow));
   if (js != NULL && js->done)
     {
+      /* the split-time spread S: a stored genealogy's split term is a product
+         of spikes of width S, one per crossing lineage, so few genealogies fit
+         a small S and the product over loci drifts to larger S (2026-11-25:
+         NODATA, 20 loci, Joint S 2-4x the prior). All is no alternative: one
+         locus barely informs S, and the product of near-flat marginals was
+         far off (02-divergence two.txt: truth 0.001, Joint 0.0037, All 0.11) */
+      long k;
+      boolean hass = FALSE;
+      for (k = 0; k < world->species_model_size && world->has_speciation && !world->options->splitstd_zero; k++)
+        if (world->species_model[k].paramindex_sigma >= 0
+            && world->bayes->maxparam[world->species_model[k].paramindex_sigma]
+               > world->bayes->minparam[world->species_model[k].paramindex_sigma])
+          hass = TRUE;
+      if (hass)
+        FPRINTF (out, "        S (spread of the split times): the Joint value tends to be too large\n"
+                      "        (few stored genealogies fit a small S); the per-locus and All rows of\n"
+                      "        S are mostly the prior, read S as an upper estimate\n");
       if (js->has_mcerr)
         jc_print_mcerr (world, js, out);
     }
