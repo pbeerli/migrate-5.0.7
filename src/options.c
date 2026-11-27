@@ -8942,6 +8942,18 @@ check_force_move (option_fmt * options, boolean on, int kind, MYREAL *freq,
 /// default if unset or 0), an inactive one weight 0. Call on the master
 /// after the options are final and before they are sent to the workers.
 void
+resolve_split_options (option_fmt * options)
+{
+  /* splitstd=0 (sharp splits) is S = 0, so c = S/D = 0 too: the c prior of
+     splitstd-cv has nothing left to describe */
+  if (options->splitstd_zero && options->splitstd_cv)
+    {
+      options->splitstd_cv = FALSE;
+      option_note ("splitstd=0 with splitstd-cv=YES: sharp splits (S = 0, so c = S/D = 0); the c prior is not used");
+    }
+}
+
+void
 check_force_moves (option_fmt * options)
 {
   check_force_move (options, options->has_unassigned, ASSIGNMENTUPDATE,
