@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 27  Migrate 6.1.112 No compiler warnings with gcc 13 or clang: allocations check their size
+             (a negative or overflowing count stops with file and line). Vendored libharu
+             now synced from libharu-pdfua 0.9.2 (tools/sync_libharu_pdfua.sh): fixes a
+             one-byte buffer overrun in the font encoder and two type issues.
 November 27  Migrate 6.1.111 Sharp splits (splitstd=0, or an S prior below 1e-6 of D): every D
              move now slides the crossings. Moves that left them at the old D were never
              accepted, so auto-tune shrank the D window to its floor and D stayed where
