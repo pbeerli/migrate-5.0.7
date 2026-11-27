@@ -12,6 +12,10 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 27  Migrate 6.1.111 Sharp splits (splitstd=0, or an S prior below 1e-6 of D): every D
+             move now slides the crossings. Moves that left them at the old D were never
+             accepted, so auto-tune shrank the D window to its floor and D stayed where
+             burn-in left it (11b: Joint D_1->2 4-11% low, per-locus coverage 87-91%).
 November 26  Migrate 6.1.110 splitstd=0 with migration after the split: genealogies whose
              daughter lineages all left by migration before the split had no crossing and
              gave flat support down to D=0 (Joint D 2-3x too young). Joint split windows
