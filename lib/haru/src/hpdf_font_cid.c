@@ -63,7 +63,7 @@ static HPDF_Dict
 CreateCMap  (HPDF_Encoder   encoder,
              HPDF_Xref      xref);
 
-/* Migrate-codex-7 local fix: a real /ToUnicode CMap (bfrange/bfchar), as
+/* Fix: a real /ToUnicode CMap (bfrange/bfchar), as
    distinct from CreateCMap()'s /Encoding-style CMap (cidrange/cidchar).
    The two operator sets are not interchangeable -- a /ToUnicode stream
    using cidrange is not spec-valid (PDF32000-1:2008 9.10.3) and real

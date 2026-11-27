@@ -2,8 +2,13 @@
 # Syncs the PDF/UA-1 tagging module (hpdf_ua_context.c/hpdf_ua_metadata.c/
 # hpdf_ua_docmeta.c/hpdf_ua_structure.c/hpdf_ua_stack.c/hpdf_ua.h/hpdf_ua_private.h) from the
 # public libharu-pdfua project (https://github.com/pbeerli/libharu-pdfua)
-# into src/, and (optionally) libharu's own hpdf_font_cid.c ToUnicode fix in
-# the other direction, into lib/haru/.
+# into src/, and the C sources and headers of libharu-pdfua's vendored
+# libharu (vendor/libharu/src, vendor/libharu/include) into lib/haru/.
+# libharu-pdfua carries small, marked fixes to libharu (ToUnicode CMap,
+# encoder buffer bound, PDF/A enum, deflate buffer size; see its NOTICE.md);
+# migrate's lib/haru keeps the rest of the libharu tree (build files,
+# bindings, demos), which this script does not touch. The libharu files
+# are copied byte for byte; lib/haru/SYNCED_FROM records the commit.
 #
 # Why this exists: this module isn't part of libharu itself (see
 # hpdf_ua_context.c's own file comment -- it only calls libharu's public
@@ -78,6 +83,12 @@ sync_file src/ua/hpdf_ua_private.h   src/hpdf_ua_private.h \
     's|#include "hpdf_ua/hpdf_ua.h"|#include "hpdf_ua.h"|'
 sync_file include/hpdf_ua/hpdf_ua.h  src/hpdf_ua.h
 
+# vendored libharu: every .c/.h that libharu-pdfua keeps, byte for byte
+for f in $(cd "$SRC/vendor/libharu" && ls src/*.c src/*.h include/*.h); do
+    cp "$SRC/vendor/libharu/$f" "lib/haru/$f"
+done
+echo "lib/haru/src and lib/haru/include: libharu sources from libharu-pdfua commit $SRC_COMMIT (vendor/libharu), via tools/sync_libharu_pdfua.sh$SRC_DIRTY" > lib/haru/SYNCED_FROM
+
 echo "Synced from libharu-pdfua commit $SRC_COMMIT$SRC_DIRTY."
-echo "Review with: git diff -- src/hpdf_ua_context.c src/hpdf_ua_metadata.c src/hpdf_ua_docmeta.c src/hpdf_ua_structure.c src/hpdf_ua_stack.c src/hpdf_ua.h src/hpdf_ua_private.h"
+echo "Review with: git diff -- src/hpdf_ua_context.c src/hpdf_ua_metadata.c src/hpdf_ua_docmeta.c src/hpdf_ua_structure.c src/hpdf_ua_stack.c src/hpdf_ua.h src/hpdf_ua_private.h lib/haru"
 echo "Then rebuild and re-run the full verification pass (CTest, sanitizer build, veraPDF on real examples) before committing."
