@@ -2323,6 +2323,20 @@ static boolean dslide_on (void)
   return on == 1;
 }
 
+/* probability that a D move slides its crossings: 1 for a sharp split
+   (splitstd=0, or an S prior bound below 1e-6 of the D bound): a D move
+   that leaves the crossings at the old D is never accepted there, and
+   auto-tune then shrank the D window to its floor (11b: D stuck where
+   burn-in left it, Joint D_1->2 7% low). The value depends only on the
+   priors, so each kernel stays reversible. */
+static MYREAL dslide_prob (world_fmt *world, long specid)
+{
+  const species_fmt *s = &world->species_model[specid];
+  if (world->options->splitstd_zero || s->sigmamax <= 1e-6 * s->max)
+    return 1.0;
+  return 0.5;
+}
+
 static boolean dslide_check (void)
 {
   static int chk = -1;
@@ -2606,7 +2620,7 @@ MYREAL uniform_proposal(long which, world_fmt * world, MYREAL *oldparam, boolean
          the split that created its ancestor */
       if (is_mu && !species_order_ok(world, world->param0))
         hastingsratio = -HUGE;
-      else if (is_mu && dslide_on() && UNIF_RANDUM() < 0.5)
+      else if (is_mu && dslide_on() && UNIF_RANDUM() < dslide_prob(world, specid))
         {
           slid = TRUE;
           if (!dslide_apply(world, specid, newparam - oldparam[which]))
