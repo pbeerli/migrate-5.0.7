@@ -11,6 +11,8 @@ SUBDIRS = src
 # already use) covers every platform variant, not just the one this
 # machine happens to need.
 EXTRA_DIST = \
+  tools/check_libhpdf_tounicode.c \
+  lib/haru/SYNCED_FROM \
   lib/SFMT-src-1.5.1/*.c \
   lib/SFMT-src-1.5.1/*.h \
   lib/SFMT-src-1.5.1/LICENSE.txt \
