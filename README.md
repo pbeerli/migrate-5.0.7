@@ -32,8 +32,11 @@ Content
 Quick installation (source code)
 --------------------------------
 Requirements: a C compiler, autoconf, automake and pkg-config; optional
-OpenMPI (for migrate-n-mpi). zlib and libharu (PDF output) are bundled and
-used when no system version is found.
+OpenMPI (for migrate-n-mpi). zlib is bundled and used when no system version
+is found. libharu (PDF output) is bundled as the copy kept in libharu-pdfua
+(https://github.com/pbeerli/libharu-pdfua), which fixes the Unicode mapping
+that the tagged (PDF/UA-1) reports need; ./configure --with-system-libhpdf
+links a system libharu instead, after checking that it has this fix.
 
     git clone https://github.com/pbeerli/migrate-5.0.7.git
     cd migrate-5.0.7
