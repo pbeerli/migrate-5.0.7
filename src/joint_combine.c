@@ -649,7 +649,10 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
         if (q != s && ly->split_to[q] == ly->split_from[s])
           ly->sharp_par[s] = q;
     }
+  /* normal split times only: the exponential split model has no spread (S is
+     fixed at 0 there) and its crossings are never all at D */
   if (!ly->rb && ly->nsplit >= 1 && !ly->ml && ly->nslot == 0 && ly->nseg == 1 && ly->ngate == 0
+      && world->species_model_dist == NORMAL_DIST
       && !(getenv ("MIGRATE_JC_SHARP") != NULL && atol (getenv ("MIGRATE_JC_SHARP")) == 0))
     {
       boolean all = TRUE;
@@ -895,18 +898,15 @@ jc_supported (world_fmt *world)
     return FALSE;
   if (world->has_mlalpha)
     return jc_ml_supported (world);
-  /* skyline=PARAM: free ('*') Theta and M multipliers without growth and
-     without xNm parameters; divergence as the per-population density of
-     mlf_hastings.c covers it (normal split times, untied splits) */
+  /* skyline=PARAM: free ('*') Theta and M multipliers and growth restarted
+     per segment, without xNm parameters. Splits (normal or exponential,
+     tied or not) use the same split terms as without segments; the
+     per-population density of mlf_hastings.c covers them (checked with
+     MIGRATE_JC_GATECHECK) */
   if (world->timeelements > 2)
     {
       if (!world->options->skyline_param || world->skymodel2 == NULL)
         return FALSE;
-      if (world->has_speciation && world->species_model_dist != NORMAL_DIST)
-        return FALSE;
-      for (i = 0; i < world->species_model_size && world->has_speciation; i++)
-        if (world->species_model[i].type != 'd')
-          return FALSE;
       for (i = 0; i < world->numpop2; i++)
         {
           if (!strchr ("*cg", world->skymodel2[i]))

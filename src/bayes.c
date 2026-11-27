@@ -2332,7 +2332,9 @@ static boolean dslide_on (void)
 static MYREAL dslide_prob (world_fmt *world, long specid)
 {
   const species_fmt *s = &world->species_model[specid];
-  if (world->options->splitstd_zero || s->sigmamax <= 1e-6 * s->max)
+  /* the exponential split model has no spread: its crossings do not sit at D */
+  if (world->species_model_dist == NORMAL_DIST
+      && (world->options->splitstd_zero || s->sigmamax <= 1e-6 * s->max))
     return 1.0;
   return 0.5;
 }
@@ -4509,6 +4511,22 @@ void bayes_stat(world_fmt *world, data_fmt *data)
 		  else
 		    record_warnings(world,"Param %li (Locus %i): Upper prior boundary seems too low! ", j+1,locus+1);
 		}
+	    }
+	  /* a split-time spread whose posterior sits against S = 0 on the final
+	     multi-locus row (Joint, else All, else the single locus): the sharp
+	     split model (splitstd=0) is the S = 0 limit and may describe the
+	     data; only a separate run and its marginal likelihood can say */
+	  if (world->has_speciation && !world->options->splitstd_zero && is_divergence_sigma (world, j)
+	      && locus == lozi + (bayes->jointrow && lozi > 0 ? 1 : 0))
+	    {
+	      const MYREAL lo = bayes->minparam[j], hi = bayes->maxparam[j];
+	      const MYREAL ref = bayes->meanparam[j] > lo ? bayes->meanparam[j] : 0.5 * (lo + hi);
+	      if (hi > lo && lo <= 0.0 && hist->cred95l[j] <= lo + 1e-3 * (hi - lo)
+		  && hist->medians[j] < 0.25 * ref)
+		record_warnings (world, "%s: the posterior sits against 0 (median %g, prior mean %g). "
+				 "A sharp split (splitstd=0) is the S = 0 limit of this model; run it and "
+				 "compare the marginal likelihoods of the two runs (cookbook 05-model-selection)",
+				 stemp, hist->medians[j], ref);
 	    }
 	}
 	if(bayes->mu)

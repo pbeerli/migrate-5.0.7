@@ -79,6 +79,7 @@ extern char * getpriortype(int kind);
 #define DEFAULT_TIMEPARAM_UPDATEFREQ 0.2
 #define DEFAULT_ASSIGNMENT_UPDATEFREQ 0.2
 #define DEFAULT_SEQERROR_UPDATEFREQ 0.1
+extern void resolve_split_options (option_fmt * options);
 extern void check_force_moves (option_fmt * options);
 extern void record_option_notes (world_fmt * world, option_fmt * options);
 extern void check_mutation_estimate_dates (world_fmt * world, option_fmt * options, data_fmt * data);
