@@ -82,9 +82,32 @@ extern void *MIGRATE_realloc (void *ptr, size_t,
 #define mycalloc(b,a) MIGRATE_calloc((size_t) b, (size_t) a,__FILE__,(const long)__LINE__)
 #define myrealloc(c,a) MIGRATE_realloc(c, (size_t) a,__FILE__,(const long) __LINE__)
 #else
-#define mymalloc(a) malloc((size_t) a)
-#define mycalloc(b,a) calloc((size_t) b, (size_t) a)
-#define myrealloc(c,a) realloc(c, (size_t) a)
+#include <stdlib.h>
+#include <stdint.h>
+/* a negative count cast to size_t, or an overflowing product, stops with the
+   caller's file and line instead of asking malloc for 2^64 bytes (gcc
+   -Walloc-size-larger-than flagged every allocation with a long count) */
+static inline void *migrate_malloc_chk (size_t n, const char file[], long line)
+{
+  if (n > (size_t) PTRDIFF_MAX)
+    sig_error ("allocation size negative or too large", (char *) file, line);
+  return malloc (n);
+}
+static inline void *migrate_calloc_chk (size_t n, size_t s, const char file[], long line)
+{
+  if (n > (size_t) PTRDIFF_MAX || (s > 0 && n > (size_t) PTRDIFF_MAX / s))
+    sig_error ("allocation size negative or too large", (char *) file, line);
+  return calloc (n, s);
+}
+static inline void *migrate_realloc_chk (void *p, size_t n, const char file[], long line)
+{
+  if (n > (size_t) PTRDIFF_MAX)
+    sig_error ("allocation size negative or too large", (char *) file, line);
+  return realloc (p, n);
+}
+#define mymalloc(a) migrate_malloc_chk((size_t) (a), __FILE__, (long) __LINE__)
+#define mycalloc(b,a) migrate_calloc_chk((size_t) (b), (size_t) (a), __FILE__, (long) __LINE__)
+#define myrealloc(c,a) migrate_realloc_chk(c, (size_t) (a), __FILE__, (long) __LINE__)
 #endif
 #ifdef MPI
 #ifdef DEBUG_MPI
