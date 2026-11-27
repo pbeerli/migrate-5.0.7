@@ -323,7 +323,7 @@ void usererror (char string[], ...)
     exit (EXIT_FAILURE);
 }
 
-#ifndef WINDOWS
+#if defined(__clang__) && !defined(WINDOWS)
 __attribute((analyzer_noreturn))
 #endif
 void sig_error (char string[], char filename[], long line)
