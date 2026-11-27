@@ -2357,7 +2357,7 @@ my_random_tree_force (world_fmt * world, node ** nodelist, long *lineages,
         {
           j = cand[RANDINT (0, n - 1)];
           origin = add_migration (world, nodelist[i], 'm', nodelist[j]->pop, nodelist[i]->pop, 0.0);
-          origin->tyme = age;
+          origin->tyme = origin->next->tyme = age;
           lineages[origin->actualpop] -= 1;
           lineages[origin->pop] += 1;
           nodelist[i] = origin;
@@ -2506,7 +2506,7 @@ my_random_tree (world_fmt * world, long tips)
 	  break;
 	case 'm':
 	  origin = add_migration(world,origin,'m',from, to,shortt);
-	  origin->tyme = age;   /* as for 'd': the event is at the current age, not at the lineage's last node + shortt */
+	  origin->tyme = origin->next->tyme = age;   /* as for 'd': the event is at the current age, not at the lineage's last node + shortt */
 	  lineages[origin->actualpop] -= 1;
 	  lineages[origin->pop] += 1;
 	  nodelist[shorti] = origin;
@@ -2515,7 +2515,7 @@ my_random_tree (world_fmt * world, long tips)
 	  break;
 	case 'd':
 	  origin = add_migration(world,origin,'d',from, to,shortt);
-	  origin->tyme = age;
+	  origin->tyme = origin->next->tyme = age;
 	  lineages[origin->actualpop] -= 1;
 	  lineages[origin->pop] += 1;
 	  nodelist[shorti] = origin;
@@ -5287,7 +5287,7 @@ add_migration (world_fmt *world, node * p, char event, long from, long to, MYREA
     p->back = tmp->next;
     tmp->length = p->length - utime;
     p->length = utime;
-    tmp->tyme = p->tyme + utime;
+    tmp->tyme = tmp->next->tyme = p->tyme + utime;   /* both halves */
     tmp->pop = tmp->next->pop = from;
     tmp->actualpop = tmp->next->actualpop = to;
     //if (event == 'd')

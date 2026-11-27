@@ -1247,6 +1247,14 @@ jc_rb_count (vtlist *tl, long i, long pop)
   return pop == jc_rbc.d ? k - m : k + m;
 }
 
+/* the time of a neighbour node: the half records of a migration or split
+   node can disagree (one half kept an old time), the top half is right */
+static double
+jc_ntime (node *n)
+{
+  return showtop (n)->tyme;
+}
+
 /* finds the crossing to integrate (the first split with exactly one
    crossing whose segment has at most JC_RBMAXP pieces) and fills the row's
    block: per piece of (a, b) its start and the slopes 2 k_d / inh and
@@ -1281,9 +1289,10 @@ jc_rb_find (world_fmt *world, const jc_layout *ly, double *st, double inh)
 
       if (n1 == NULL || n2 == NULL)
         continue;
-      node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
-      const double c0 = tl[ie].age, a = dn->tyme;
-      double b = up->tyme;
+      const double t1 = jc_ntime (n1), t2 = jc_ntime (n2);
+      node *up = t1 > t2 ? n1 : n2;
+      const double c0 = tl[ie].age, a = t1 > t2 ? t2 : t1;
+      double b = t1 > t2 ? t1 : t2;
       if (up->type == 'r' || !(a <= c0 && c0 <= b))
         continue;
       if (world->species_model_dist == NORMAL_DIST && b > ly->split_b1[k])
@@ -1389,16 +1398,33 @@ jc_sharp_find (world_fmt *world, const jc_layout *ly, double *st)
         if (k == K || n1 == NULL || n2 == NULL)
           continue;
         double *Sk = R + JC_SH_SPLIT (k);
-        node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
-        if (dn->type != 'd' && dn->tyme > Sk[0])
-          Sk[0] = dn->tyme;
+        const double t1 = jc_ntime (n1), t2 = jc_ntime (n2);
+        node *up = t1 > t2 ? n1 : n2, *dn = t1 > t2 ? n2 : n1;
+        const double tup = t1 > t2 ? t1 : t2, tdn = t1 > t2 ? t2 : t1;
+        if (dn->type != 'd' && tdn > Sk[0])
+          Sk[0] = tdn;
         if (up->type == 'd')
           Sk[4] = 1.0;
-        else if (up->tyme < Sk[1])
-          Sk[1] = up->tyme;
+        else if (tup < Sk[1])
+          Sk[1] = tup;
         Sk[2] += 1.0;
         Sk[3] += tl[i].age;
       }
+  /* every other event in a daughter population (a migration out of it, a
+     coalescence, with migration after the split) keeps the split above it:
+     the daughter holds no lineage past its split */
+  for (i = 1; i < T - 1; i++)
+    {
+      const node *E = tl[i].eventnode;
+      if (E->type == 'd')
+        continue;
+      for (k = 0; k < K; k++)
+        {
+          double *Sk = R + JC_SH_SPLIT (k);
+          if ((E->pop == ly->split_to[k] || E->actualpop == ly->split_to[k]) && tl[i].age > Sk[0])
+            Sk[0] = tl[i].age;
+        }
+    }
   for (k = 0; k < K; k++)
     {
       double *Sk = R + JC_SH_SPLIT (k);
@@ -1413,7 +1439,19 @@ jc_sharp_find (world_fmt *world, const jc_layout *ly, double *st)
       if (Sk[3] > thi) thi = Sk[3];
     }
   if (!any)
-    return;
+    {   /* no crossing (with migration after the split every lineage can
+           leave the daughter before it): D only has to lie above the
+           daughter's events */
+      for (k = 0; k < K; k++)
+        if (R[JC_SH_SPLIT (k)] > ly->mlo[k])
+          {
+            R[0] = 0.0;
+            R[1] = 0.0;
+            R[2] = 0.0;
+            return;
+          }
+      return;
+    }
   R[2] = tlo;
   double *tlr = R + JC_SH_TL (ly);
   for (i = 1; i < T; i++)
@@ -1470,9 +1508,11 @@ jc_sharp_ok (const jc_layout *ly, const double *R, const double *c)
   for (k = 0; k < ly->nsplit; k++)
     {
       const double *Sk = R + JC_SH_SPLIT (k);
+      if (c[k] < Sk[0])   /* also without crossings: above the daughter's events */
+        return FALSE;
       if (Sk[2] == 0.0)
         continue;
-      if (c[k] < Sk[0] || c[k] > Sk[1])
+      if (c[k] > Sk[1])
         return FALSE;
       if (Sk[4] > 0.0 && ly->sharp_par[k] >= 0 && c[k] > c[ly->sharp_par[k]])
         return FALSE;
@@ -1871,10 +1911,10 @@ jc_record_sample (world_fmt *world)
                 node *E = tl[i].eventnode, *n1 = E->back, *n2 = E->next->back;
                 if (n1 == NULL || n2 == NULL)
                   continue;
-                node *up = n1->tyme > n2->tyme ? n1 : n2, *dn = n1->tyme > n2->tyme ? n2 : n1;
+                const double t1 = jc_ntime (n1), t2 = jc_ntime (n2);
                 n++;
-                if (dn->tyme > amax) amax = dn->tyme;
-                if (up->tyme < bmin) bmin = up->tyme;
+                if ((t1 < t2 ? t1 : t2) > amax) amax = t1 < t2 ? t1 : t2;
+                if ((t1 > t2 ? t1 : t2) < bmin) bmin = t1 > t2 ? t1 : t2;
                 if (tl[i].age < cmin) cmin = tl[i].age;
                 if (tl[i].age > cmax) cmax = tl[i].age;
               }
@@ -3806,7 +3846,7 @@ jc_sharp_nest (jc_sharpq *z, long level)
     }
   const long k = z->order[level];
   const double *Sk = R + JC_SH_SPLIT (k);
-  double lo = Sk[2] > 0.0 && Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k];
+  double lo = Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k];
   double hi = Sk[2] > 0.0 && Sk[1] < ly->mhi[k] ? Sk[1] : ly->mhi[k];
   const long par = ly->sharp_par[k];
   if (par >= 0 && (ly->split_par[k] >= 0 || Sk[4] > 0.0) && z->c[par] < hi)
@@ -3814,7 +3854,7 @@ jc_sharp_nest (jc_sharpq *z, long level)
   if (!(hi > lo))
     return -HUGE_VAL;
   /* one split: Gauss-Legendre per piece between the row's breakpoints */
-  double cuts[JC_SHARPMAXI + 2];
+  double cuts[JC_SHARPMAXI + 10];
   long nc = 0, i, q;
   cuts[nc++] = lo;
   if (ly->nsplit == 1)
@@ -3827,6 +3867,9 @@ jc_sharp_nest (jc_sharpq *z, long level)
             cuts[nc++] = t;
         }
     }
+  if (Sk[2] == 0.0 && lo > 0.0)
+    for (i = 1; i < 8; i++)   /* no crossing: the prior alone, over a wide range */
+      cuts[nc++] = lo * pow (hi / lo, (double) i / 8.0);
   cuts[nc++] = hi;
   double acc = -HUGE_VAL;
   for (i = 0; i + 1 < nc; i++)

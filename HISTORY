@@ -12,6 +12,11 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 26  Migrate 6.1.110 splitstd=0 with migration after the split: genealogies whose
+             daughter lineages all left by migration before the split had no crossing and
+             gave flat support down to D=0 (Joint D 2-3x too young). Joint split windows
+             read a stale node time in ~0.2% of crossings (also S>0); new migration nodes
+             set the time on both halves.
 November 25  Migrate 6.1.109 splitstd=0 (or SHARP): every lineage crosses at its split time;
              the Joint integrates each split time over the window of its crossings (port of the
              codex crossing-time integration).
