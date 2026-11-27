@@ -1,4 +1,4 @@
-/* Synced from libharu-pdfua commit b952f3f3a657 via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
+/* Synced from libharu-pdfua commit 2536cfaeb7cd via tools/sync_libharu_pdfua.sh -- do not hand-edit; edit upstream (https://github.com/pbeerli/libharu-pdfua) and re-run that script. */
 /*
  * hpdf_ua_metadata.c -- Milestone 4: XMP metadata stream (/Metadata).
  *

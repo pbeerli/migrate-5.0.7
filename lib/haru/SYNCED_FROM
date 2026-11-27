@@ -1,0 +1,1 @@
+lib/haru/src and lib/haru/include: libharu sources from libharu-pdfua commit 2536cfaeb7cd (vendor/libharu), via tools/sync_libharu_pdfua.sh
