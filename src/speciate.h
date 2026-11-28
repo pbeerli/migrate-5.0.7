@@ -48,6 +48,7 @@ extern long propose_new_spec_mu(world_fmt * world, long which, boolean *is_mu, M
 extern long species_order_partner(world_fmt * world, long c);
 extern void species_order_check(world_fmt * world);
 extern boolean species_order_ok(world_fmt * world, const MYREAL *param);
+extern boolean species_tie_sync(world_fmt * world);
 extern boolean species_order_repair(world_fmt * world);
 extern boolean species_order_bounds(world_fmt * world, long which, MYREAL *lo, MYREAL *hi);
 extern double species_mig_gate(world_fmt * world, long pop);

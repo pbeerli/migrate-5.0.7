@@ -223,6 +223,9 @@ typedef struct
   long *split_to, *split_from; /* per split: daughter and ancestor population */
   double *split_b1;         /* per split: upper bound of the split time (s->max) */
   boolean *rb_ok;           /* per split: its crossings can be integrated */
+  boolean *sharp_pu;        /* sharp splits: a daughter or ancestor with its own
+                               population unit, evaluated on the moved row
+                               (set by jc_active) */
   boolean sharp;            /* sharp splits (S = 0): all crossings of a split move
                                together, integrated over their common window */
   long *sharp_par;          /* sharp: per split the split that created its ancestor, -1 */
@@ -290,6 +293,7 @@ jc_layout_free (jc_layout *ly)
   myfree (ly->split_from);
   myfree (ly->split_b1);
   myfree (ly->rb_ok);
+  myfree (ly->sharp_pu);
   myfree (ly->sharp_par);
   myfree (ly->mzero);
 }
@@ -609,6 +613,7 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
   ly->split_from = (long *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (long));
   ly->split_b1 = (double *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (double));
   ly->rb_ok = (boolean *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (boolean));
+  ly->sharp_pu = (boolean *) mycalloc ((size_t) (ly->numpop + 1), sizeof (boolean));
   ly->mzero = (boolean *) mycalloc ((size_t) world->numpop2, sizeof (boolean));
   for (p = 0; p < world->numpop2; p++)
     ly->mzero[p] = p < numpop || strchr ("0dt", world->options->custm2[p]) != NULL;
@@ -638,8 +643,12 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
      genealogy's split terms are then point masses; all crossings of a split
      slide together within their common window without changing the
      topology, so the joint integrates one time per split (exact). Every
-     split must be sharp; no growth, skyline segments, Mittag-Leffler, gated
-     migration or tied splits. MIGRATE_JC_SHARP=0 turns it off. */
+     split must be sharp (normal split model); tied splits share one time,
+     growth moves the growth-weighted integrals, and gated migration into a
+     daughter of the same split time is an ordinary entry (below). Not with
+     skyline segments, Mittag-Leffler or other gated entries.
+     MIGRATE_JC_SHARP=0 turns it off; MIGRATE_JC_SHARPCHECK=1 checks the
+     terms against the sampler's p(G|params). */
   ly->sharp_par = (long *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (long));
   for (s = 0; s < ly->nsplit; s++)
     {
@@ -651,7 +660,26 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
     }
   /* normal split times only: the exponential split model has no spread (S is
      fixed at 0 there) and its crossings are never all at D */
-  if (!ly->rb && ly->nsplit >= 1 && !ly->ml && ly->nslot == 0 && ly->nseg == 1 && ly->ngate == 0
+  /* gated migration (out of a daughter, forward in time, only after its
+     split): with every crossing at D a daughter holds no lineage above D, so
+     an entry whose receiving population is a daughter of the same split time
+     (the gating split's tied group) is exposed over all of that
+     population's lineage time: an ordinary migration entry. Other gated
+     entries keep the sharp terms off */
+  boolean gates_ok = TRUE;
+  for (p = 0; p < world->numpop2 && ly->ngate > 0; p++)
+    if (ly->gate_k[p] >= 0)
+      {
+        long from, to, q;
+        boolean same = FALSE;
+        m2mm (p, numpop, &from, &to);
+        for (q = 0; q < ly->nsplit; q++)
+          if (ly->split_to[q] == to && ly->split_rep[q] == ly->split_rep[ly->gate_k[p]])
+            same = TRUE;
+        if (!same)
+          gates_ok = FALSE;
+      }
+  if (!ly->rb && ly->nsplit >= 1 && !ly->ml && ly->nseg == 1 && gates_ok
       && world->species_model_dist == NORMAL_DIST
       && !(getenv ("MIGRATE_JC_SHARP") != NULL && atol (getenv ("MIGRATE_JC_SHARP")) == 0))
     {
@@ -659,7 +687,7 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
       for (s = 0; s < ly->nsplit; s++)
         {
           const double smax = ly->split_psig[s] >= 0 ? world->bayes->maxparam[ly->split_psig[s]] : ly->split_sfix[s];
-          if (!(smax <= JC_SHARP_REL * ly->mhi[s]) || !(ly->mhi[s] > ly->mlo[s]) || ly->split_rep[s] != s)
+          if (!(smax <= JC_SHARP_REL * ly->mhi[s]) || !(ly->mhi[s] > ly->mlo[s]))
             all = FALSE;
         }
       if (all)
@@ -668,6 +696,12 @@ jc_layout_make (world_fmt *world, jc_layout *ly)
           ly->rb = TRUE;
           for (s = 0; s < ly->nsplit; s++)
             ly->rb_ok[s] = TRUE;
+          for (p = 0; p < world->numpop2; p++)   /* the gates become ordinary entries */
+            if (ly->gate_k[p] >= 0)
+              {
+                ly->gate_k[p] = -1;
+                ly->ngate--;
+              }
         }
     }
   if (ly->rb)
@@ -1522,9 +1556,12 @@ jc_sharp_ok (const jc_layout *ly, const double *R, const double *c)
 
 /* sharp splits: the changes of the coalescence integrals K (divided by the
    inheritance scalar) and lineage times S of every population when the
-   crossings of each split move from c0 to c */
+   crossings of each split move from c0 to c. With growth (gp: the growth rate
+   of every population, NULL without) a piece (a, b) of a growing population
+   adds its count change times (e^{gb} - e^{ga}) / g, the growth-weighted
+   integral of int k(k-1) e^{gt} dt */
 static void
-jc_sharp_delta (const jc_layout *ly, const double *R, const double *c, double *dK, double *dS)
+jc_sharp_delta (const jc_layout *ly, const double *R, const double *c, const double *gp, double *dK, double *dS)
 {
   const long P = ly->numpop, K = ly->nsplit, ni = (long) R[1];
   const double *tlr = R + JC_SH_TL (ly);
@@ -1582,7 +1619,9 @@ jc_sharp_delta (const jc_layout *ly, const double *R, const double *c, double *d
                 if (add[p] != 0.0)
                   {
                     const double n0 = cnt[p], n1 = cnt[p] + add[p];
-                    dK[p] += len * (n1 * (n1 - 1.0) - n0 * (n0 - 1.0));
+                    const double g = gp != NULL ? gp[p] : 0.0;
+                    const double w = g != 0.0 ? exp (g * a) * expm1 (g * len) / g : len;
+                    dK[p] += w * (n1 * (n1 - 1.0) - n0 * (n0 - 1.0));
                     dS[p] += len * add[p];
                   }
             }
@@ -1630,6 +1669,43 @@ jc_sharp_lin (const jc_layout *ly, const boolean *active, const double *phi, con
   return v;
 }
 
+/* sharp splits: the row st with every split's crossings moved to c, into
+   mv (the normalizer's input): coalescence integrals K, lineage times S and,
+   with growth, the growth integrals on every point of the growth grid,
+   log(e^A + delta) (the moved total stays positive). dK, dS: the plain
+   changes */
+static void
+jc_sharp_move_row (const jc_layout *ly, const double *st, const double *c, double *mv, double *dK, double *dS)
+{
+  const double *R = st + ly->off_R;
+  long p;
+  jc_sharp_delta (ly, R, c, NULL, dK, dS);
+  memcpy (mv, st, sizeof (double) * (size_t) ly->nrow);
+  for (p = 0; p < ly->numpop; p++)
+    {
+      mv[ly->off_K + p] += dK[p];
+      mv[ly->off_S + p] += dS[p];
+    }
+  if (ly->nslot > 0)
+    {
+      double gp[64], dKg[64], dSg[64];
+      long j;
+      for (j = 0; j < JC_NG; j++)
+        {
+          for (p = 0; p < ly->numpop; p++)
+            gp[p] = ly->pop_slot[p] >= 0 ? ly->ggrid[ly->pop_slot[p] * JC_NG + j] : 0.0;
+          jc_sharp_delta (ly, R, c, gp, dKg, dSg);
+          for (p = 0; p < ly->numpop; p++)
+            if (ly->pop_slot[p] >= 0 && dKg[p] != 0.0)
+              {
+                double *A = mv + ly->off_A[p] + j;
+                const double tot = exp (*A) + dKg[p];
+                *A = tot > 0.0 ? log (tot) : -HUGE_VAL;
+              }
+        }
+    }
+}
+
 /* sharp splits (unit JC_U_SPLITRB): the row with every split's crossings at
    its D, relative to the sampled row; zero outside the windows */
 static double
@@ -1646,7 +1722,14 @@ jc_sharp_term (const jc_layout *ly, const double *st, const double *phi, double 
     c[k] = phi[ly->split_pmu[k]];
   if (!jc_sharp_ok (ly, R, c))
     return JC_DOUT;
-  jc_sharp_delta (ly, R, c, dK, dS);
+  double gp[64];
+  long p;
+  for (p = 0; p < ly->numpop; p++)
+    gp[p] = ly->pop_slot[p] >= 0 ? phi[ly->slot_param[ly->pop_slot[p]]] : 0.0;
+  jc_sharp_delta (ly, R, c, gp, dK, dS);
+  for (p = 0; p < ly->numpop; p++)
+    if (ly->sharp_pu[p])
+      dK[p] = 0.0;   /* in the population's own unit (jc_pop_term_phi) */
   const double v = jc_sharp_lin (ly, NULL, phi, dK, dS, mu, 0);
   return v > JC_DOUT ? v : JC_DOUT;
 }
@@ -1752,6 +1835,154 @@ jc_record_divergence (world_fmt *world, const jc_layout *ly, double *st)
 }
 
 static void jc_rb_check (world_fmt *world, const jc_layout *ly, const double *st);
+
+extern void construct_tymelist (world_fmt * world, timelist_fmt * timevector);
+
+/* MIGRATE_JC_SHARPCHECK: the sharp terms against the sampler. The crossings
+   of every split of the cold-chain genealogy are moved to the sampler's D0
+   and to a c' inside the row's window (D set to c'); the difference of
+   probg_treetimes() between the two must equal the joint's full term at
+   D = c' minus D = D0 (the split-event spikes are the same in both, every
+   crossing exactly at its D). docs/joint_split_rb_design.md, "Sharp splits
+   with tied splits, growth and gated migration" */
+static void
+jc_sharp_check (world_fmt *world, const jc_layout *ly, const double *st)
+{
+  static double worst = 0.0;
+  static long nchk = 0;
+  const double *R = st + ly->off_R;
+  const long K = ly->nsplit, T = world->treetimes->T;
+  vtlist *tl = world->treetimes->tl;
+  node **nd;
+  double *old, cnew[64], d0[64];
+  long nn = 0, i, k, j;
+  if (!ly->sharp || R[0] != 0.0 || K > 64)
+    return;
+  nd = (node **) mycalloc ((size_t) T, sizeof (node *));
+  old = (double *) mycalloc ((size_t) T, sizeof (double));
+  long *ks = (long *) mycalloc ((size_t) T, sizeof (long));
+  for (i = 1; i < T - 1; i++)
+    if (tl[i].eventnode->type == 'd')
+      {
+        species_fmt *sp = get_fixed_species_model (tl[i].eventnode->pop, tl[i].eventnode->actualpop,
+                                                   world->species_model, world->species_model_size);
+        for (k = 0; k < K && &world->species_model[ly->split_model[k]] != sp; k++)
+          ;
+        if (k == K)
+          continue;
+        nd[nn] = showtop (tl[i].eventnode);
+        old[nn] = nd[nn]->tyme;
+        ks[nn] = k;
+        nn++;
+      }
+  /* c' per split group: uniform in the window (parents first via min) */
+  for (k = 0; k < K; k++)
+    {
+      const double *Sk = R + JC_SH_SPLIT (k);
+      d0[k] = world->param0[ly->split_pmu[k]];
+      const double lo = Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k];
+      const double hi = Sk[2] > 0.0 && Sk[1] < ly->mhi[k] ? Sk[1] : ly->mhi[k];
+      /* its own generator: the check must not change the chain */
+      static unsigned long long xs = 88172645463325252ULL;
+      xs ^= xs << 13; xs ^= xs >> 7; xs ^= xs << 17;
+      cnew[k] = ly->split_rep[k] == k ? lo + (hi - lo) * ((double) (xs >> 11) / 9007199254740992.0) : cnew[ly->split_rep[k]];
+    }
+  for (k = 0; k < K; k++)
+    if (ly->split_rep[k] != k)
+      cnew[k] = cnew[ly->split_rep[k]];
+  if (!jc_sharp_ok (ly, R, cnew) || !jc_sharp_ok (ly, R, d0))
+    goto done;
+  double p[2], jt[2];
+  boolean *act = (boolean *) mycalloc ((size_t) ly->nphi, sizeof (boolean));
+  double *phi = (double *) mycalloc ((size_t) ly->nphi, sizeof (double));
+  for (j = 0; j < ly->nphi; j++)
+    act[j] = TRUE;
+  if (ly->rate)
+    act[ly->rate_p] = FALSE;
+  long side;
+  for (side = 0; side < 2; side++)
+    {
+      const double *c = side == 0 ? d0 : cnew;
+      for (j = 0; j < nn; j++)
+        adjust_time_all (nd[j], c[ks[j]]);
+      for (k = 0; k < K; k++)
+        {   /* a tied partner keeps its own copy of D (speciate.c) */
+          world->param0[ly->split_pmu[k]] = c[k];
+          world->param0[world->species_model[ly->split_model[k]].paramindex_mu] = c[k];
+          world->species_model[ly->split_model[k]].mu = c[k];
+        }
+      construct_tymelist (world, &world->treetimes[0]);
+      p[side] = probg_treetimes (world);
+      memcpy (phi, world->param0, sizeof (double) * (size_t) ly->np);
+      jt[side] = jc_full_term (ly, act, st, NULL, phi, st[ly->off_mu]);
+      if (side == 1)
+        {   /* the normalizer's moved row against the moved genealogy's own
+               statistics (K, S, growth integrals) */
+          static double wK = 0.0, wA = 0.0;
+          double *mv = (double *) mycalloc ((size_t) ly->nrow, sizeof (double));
+          double dK[64], dS[64], Kd[64], Sd[64];
+          const double inh = R[3];
+          vtlist *tl2 = world->treetimes->tl;
+          const long T2 = world->treetimes->T;
+          long pp, ii, jj;
+          jc_sharp_move_row (ly, st, cnew, mv, dK, dS);
+          for (pp = 0; pp < ly->numpop; pp++)
+            Kd[pp] = Sd[pp] = 0.0;
+          for (ii = 1; ii < T2 - 1; ii++)
+            for (pp = 0; pp < ly->numpop; pp++)
+              {
+                const double k = (double) jc_rb_count (tl2, ii, pp), dt = tl2[ii].age - tl2[ii - 1].age;
+                Kd[pp] += k * (k - 1.0) * dt / inh;
+                Sd[pp] += k * dt;
+              }
+          for (pp = 0; pp < ly->numpop; pp++)
+            {
+              const double eK = fabs (mv[ly->off_K + pp] - Kd[pp]) + fabs (mv[ly->off_S + pp] - Sd[pp]);
+              if (eK > wK) wK = eK;
+              if (ly->pop_slot[pp] >= 0)
+                for (jj = 0; jj < JC_NG; jj += 16)
+                  {
+                    const double gg = ly->ggrid[ly->pop_slot[pp] * JC_NG + jj];
+                    double a = -HUGE_VAL;
+                    for (ii = 1; ii < T2 - 1; ii++)
+                      {
+                        const double k = (double) jc_rb_count (tl2, ii, pp);
+                        if (k > 1.0 && tl2[ii].age > tl2[ii - 1].age)
+                          a = jc_logadd (a, log (k * (k - 1.0)) + jc_log_growth_dt (gg, tl2[ii - 1].age, tl2[ii].age));
+                      }
+                    a -= log (inh);
+                    const double eA = fabs (mv[ly->off_A[pp] + jj] - a);
+                    if (eA > wA) wA = eA;
+                  }
+            }
+          fprintf (stderr, "JC_SHARPROW worst |K|+|S| %.3g, worst log growth integral %.3g\n", wK, wA);
+          myfree (mv);
+        }
+    }
+  for (j = 0; j < nn; j++)
+    adjust_time_all (nd[j], old[j]);
+  for (k = 0; k < K; k++)
+    {
+      world->param0[ly->split_pmu[k]] = d0[k];
+      world->param0[world->species_model[ly->split_model[k]].paramindex_mu] = d0[k];
+      world->species_model[ly->split_model[k]].mu = d0[k];
+    }
+  construct_tymelist (world, &world->treetimes[0]);
+  {
+    const double diff = (p[1] - p[0]) - (jt[1] - jt[0]);
+    nchk++;
+    if (fabs (diff) > worst)
+      worst = fabs (diff);
+    fprintf (stderr, "JC_SHARPCHECK locus %ld: sampler %.6f joint %.6f diff %.3g (worst %.3g, %ld checks)\n",
+             world->locus + 1, p[1] - p[0], jt[1] - jt[0], diff, worst, nchk);
+  }
+  myfree (phi);
+  myfree (act);
+ done:
+  myfree (nd);
+  myfree (old);
+  myfree (ks);
+}
 
 /// Per-genealogy statistics of the current cold-chain genealogy (called
 /// right after bayes_save()).
@@ -2149,6 +2380,8 @@ jc_record_sample (world_fmt *world)
           jc_sharp_clear (&ly, st);
           if (getenv ("MIGRATE_JC_RBCHECK") != NULL && ly.rb && st[ly.off_R] >= 0.0)
             jc_rb_check (world, &ly, st);
+          if (getenv ("MIGRATE_JC_SHARPCHECK") != NULL)
+            jc_sharp_check (world, &ly, st);
           if (getenv ("MIGRATE_JC_GATECHECK") != NULL && !ly.ml)
             {   /* the joint's term at the sampler's parameters against
                    probg_treetimes(): the difference must not depend on G */
@@ -2459,10 +2692,12 @@ jc_log_memo (double x, double *lastx, double *lastlog)
 }
 
 /* log term of population pop with size theta and growth g (ignored when the
-   population does not grow); logA is log A_i(g), NAN means: look it up */
+   population does not grow); logA is log A_i(g), NAN means: look it up; dA
+   is added to the coalescence integral A (sharp splits: the crossings moved
+   to D; the moved integral is never negative) */
 static double
-jc_pop_term (const jc_layout *ly, const double *st, long pop, double theta, double g,
-             double mu, double logA)
+jc_pop_term_dA (const jc_layout *ly, const double *st, long pop, double theta, double g,
+                double mu, double logA, double dA)
 {
   static double lx = -1.0, ll = 0.0;
   if (theta <= 0.0)
@@ -2474,7 +2709,46 @@ jc_pop_term (const jc_layout *ly, const double *st, long pop, double theta, doub
       A = exp (isnan (logA) ? jc_logA (ly, st, pop, g) : logA);   /* inf: zero density */
       tg = g * st[ly->off_t[pop]];
     }
+  if (dA != 0.0)
+    {
+      A += dA;
+      if (!(A > 0.0))
+        A = 0.0;
+    }
   return c * (LOG2 - jc_log_memo (mu * theta, &lx, &ll)) - A / (mu * theta) + tg;
+}
+
+static double
+jc_pop_term (const jc_layout *ly, const double *st, long pop, double theta, double g,
+             double mu, double logA)
+{
+  return jc_pop_term_dA (ly, st, pop, theta, g, mu, logA, 0.0);
+}
+
+/* the population term of the joint (full term and units): with sharp
+   splits a daughter or ancestor (sharp_pu) is evaluated on the row with
+   the crossings at D, in one piece; as base term plus a separate change
+   (unit JC_U_SPLITRB) the two cancel to round-off garbage where the
+   growth-weighted integrals are huge (stepping-stone rungs near the prior,
+   2026-11-27) */
+static double
+jc_pop_term_phi (const jc_layout *ly, const double *st, long pop, const double *phi, double mu)
+{
+  const long s = ly->pop_slot[pop];
+  const double g = s >= 0 ? phi[ly->slot_param[s]] : 0.0;
+  double dA = 0.0;
+  if (ly->sharp && ly->sharp_pu[pop] && st[ly->off_R] == 0.0)
+    {
+      double c[64], gp[64], dK[64], dS[64];
+      long k, p;
+      for (k = 0; k < ly->nsplit; k++)
+        c[k] = phi[ly->split_pmu[k]];
+      for (p = 0; p < ly->numpop; p++)
+        gp[p] = ly->pop_slot[p] >= 0 ? phi[ly->slot_param[ly->pop_slot[p]]] : 0.0;
+      jc_sharp_delta (ly, st + ly->off_R, c, gp, dK, dS);
+      dA = dK[pop];
+    }
+  return jc_pop_term_dA (ly, st, pop, phi[ly->rep[pop]], g, mu, NAN, dA);
 }
 
 /* migration term of matrix entry e at rate x (the rate, M) */
@@ -3784,7 +4058,7 @@ jc_sharp_logmS (world_fmt *world, const jc_layout *ly)
   for (k = 0; k < ly->nsplit; k++)
     {
       const long ps = ly->split_psig[k];
-      if (ps < 0)
+      if (ps < 0 || ly->split_rep[k] != k)   /* a tied group shares one S */
         continue;
       const double lo = world->bayes->minparam[ps], hi = world->bayes->maxparam[ps];
       if (!(hi > lo))
@@ -3811,6 +4085,7 @@ typedef struct
   const double *tgrid, *tpri, *tgrid_s, *tpri_s, *gpri;
   const jc_divquad *dq;
   long order[64];
+  long nlev;          /* integration levels: one per tied group */
   double c[64];
   double *mv;
   long Q;
@@ -3825,19 +4100,15 @@ jc_sharp_nest (jc_sharpq *z, long level)
 {
   const jc_layout *ly = z->ly;
   const double *R = z->st + ly->off_R;
-  if (level == ly->nsplit)
+  if (level == z->nlev)
     {
       double dK[64], dS[64], v = 0.0;
       long k, p;
-      jc_sharp_delta (ly, R, z->c, dK, dS);
-      memcpy (z->mv, z->st, sizeof (double) * (size_t) ly->nrow);
-      for (p = 0; p < ly->numpop; p++)
-        {
-          z->mv[ly->off_K + p] += dK[p];
-          z->mv[ly->off_S + p] += dS[p];
-        }
+      jc_sharp_move_row (ly, z->st, z->c, z->mv, dK, dS);
+      (void) p;
       for (k = 0; k < ly->nsplit; k++)
-        v += scaling_prior_joint (z->world, ly->split_pmu[k], z->c[k]);
+        if (ly->split_rep[k] == k)   /* a tied group shares one D */
+          v += scaling_prior_joint (z->world, ly->split_pmu[k], z->c[k]);
       v += jc_sharp_lin (ly, z->active, z->world->param0, dK, dS, z->mu, 2);
       jc_nodiv = TRUE;
       v += jc_log_normalizer (ly, z->active, z->mv, z->mu, z->tgrid, z->tpri, z->tgrid_s, z->tpri_s, z->gpri, z->dq);
@@ -3846,11 +4117,26 @@ jc_sharp_nest (jc_sharpq *z, long level)
     }
   const long k = z->order[level];
   const double *Sk = R + JC_SH_SPLIT (k);
-  double lo = Sk[0] > ly->mlo[k] ? Sk[0] : ly->mlo[k];
-  double hi = Sk[2] > 0.0 && Sk[1] < ly->mhi[k] ? Sk[1] : ly->mhi[k];
-  const long par = ly->sharp_par[k];
-  if (par >= 0 && (ly->split_par[k] >= 0 || Sk[4] > 0.0) && z->c[par] < hi)
-    hi = z->c[par];
+  double lo = -HUGE_VAL, hi = HUGE_VAL;
+  long m;
+  boolean anyx = FALSE;
+  /* a tied group (t): one time for all its splits, inside every member's
+     window and below every member's parent */
+  for (m = 0; m < ly->nsplit; m++)
+    {
+      if (ly->split_rep[m] != k)
+        continue;
+      const double *Sm = R + JC_SH_SPLIT (m);
+      const double l = Sm[0] > ly->mlo[m] ? Sm[0] : ly->mlo[m];
+      const double h = Sm[2] > 0.0 && Sm[1] < ly->mhi[m] ? Sm[1] : ly->mhi[m];
+      const long par = ly->sharp_par[m];
+      if (l > lo) lo = l;
+      if (h < hi) hi = h;
+      if (par >= 0 && (ly->split_par[m] >= 0 || Sm[4] > 0.0) && z->c[par] < hi)
+        hi = z->c[par];
+      if (Sm[2] > 0.0)
+        anyx = TRUE;
+    }
   if (!(hi > lo))
     return -HUGE_VAL;
   /* one split: Gauss-Legendre per piece between the row's breakpoints */
@@ -3867,7 +4153,8 @@ jc_sharp_nest (jc_sharpq *z, long level)
             cuts[nc++] = t;
         }
     }
-  if (Sk[2] == 0.0 && lo > 0.0)
+  (void) Sk;
+  if (!anyx && lo > 0.0)
     for (i = 1; i < 8; i++)   /* no crossing: the prior alone, over a wide range */
       cuts[nc++] = lo * pow (hi / lo, (double) i / 8.0);
   cuts[nc++] = hi;
@@ -3880,6 +4167,9 @@ jc_sharp_nest (jc_sharpq *z, long level)
       for (q = 0; q < z->Q; q++)
         {
           z->c[k] = 0.5 * (u + v) + 0.5 * (v - u) * z->x[q];
+          for (m = 0; m < ly->nsplit; m++)
+            if (ly->split_rep[m] == k)
+              z->c[m] = z->c[k];
           acc = jc_logadd (acc, log (0.5 * (v - u) * z->w[q]) + jc_sharp_nest (z, level + 1));
         }
     }
@@ -3914,23 +4204,36 @@ jc_sharp_lognorm (world_fmt *world, const jc_layout *ly, const boolean *active,
   if (z.Q < 2) z.Q = 2;
   if (z.Q > 64) z.Q = 64;
   jc_gl_nodes (z.Q, z.x, z.w);
-  /* parents first */
+  /* parents first; one level per tied group (its first split), entered
+     when the groups of all its members' parents are done */
   boolean *done = (boolean *) mycalloc ((size_t) (ly->nsplit + 1), sizeof (boolean));
-  while (n < ly->nsplit)
+  long nrep = 0;
+  for (k = 0; k < ly->nsplit; k++)
+    if (ly->split_rep[k] == k)
+      nrep++;
+  while (n < nrep)
     {
       const long n0 = n;
       for (k = 0; k < ly->nsplit; k++)
-        if (!done[k] && (ly->sharp_par[k] < 0 || done[ly->sharp_par[k]]))
-          {
-            z.order[n++] = k;
-            done[k] = TRUE;
-          }
+        {
+          long m;
+          boolean ready = ly->split_rep[k] == k && !done[k];
+          for (m = 0; m < ly->nsplit && ready; m++)
+            if (ly->split_rep[m] == k && ly->sharp_par[m] >= 0 && !done[ly->split_rep[ly->sharp_par[m]]])
+              ready = FALSE;
+          if (ready)
+            {
+              z.order[n++] = k;
+              done[k] = TRUE;
+            }
+        }
       if (n == n0)
         break;
     }
   myfree (done);
+  z.nlev = n;
   z.mv = (double *) mycalloc ((size_t) ly->nrow, sizeof (double));
-  const double acc = n == ly->nsplit ? jc_sharp_nest (&z, 0) : -HUGE_VAL;
+  const double acc = n == nrep ? jc_sharp_nest (&z, 0) : -HUGE_VAL;
   myfree (z.mv);
   return acc > -HUGE_VAL ? acc + jc_sharp_logmS (world, ly) : 0.0;
 }
@@ -4518,7 +4821,7 @@ jc_full_term (const jc_layout *ly, const boolean *active, const double *st, cons
             v += jc_pop_seg_term (ly, st, pop, sg, phi[ly->rep[pop]] * (sg ? phi[JC_TAU (ly, j, sg)] : 1.0),
                                   s >= 0 ? phi[ly->slot_param[s]] : 0.0, mu);
         else
-          v += jc_pop_term (ly, st, pop, phi[ly->rep[pop]], s >= 0 ? phi[ly->slot_param[s]] : 0.0, mu, NAN);
+          v += jc_pop_term_phi (ly, st, pop, phi, mu);
       }
   for (e = ly->numpop; e < ly->numpop2; e++)
     if (ly->rep[e] >= 0 && active[ly->rep[e]])
@@ -4637,6 +4940,13 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
           jc_units_dep (U, ly->nphi, ly->rep[i], u);
           if (ly->pop_slot[i] >= 0)
             jc_units_dep (U, ly->nphi, ly->slot_param[ly->pop_slot[i]], u);
+          if (ly->sharp_pu[i])
+            {   /* evaluated on the moved row: also the split times */
+              long k;
+              for (k = 0; k < ly->nsplit; k++)
+                if (ly->split_to[k] == i || ly->split_from[k] == i)
+                  jc_units_dep (U, ly->nphi, ly->split_pmu[k], u);
+            }
           break;
         case JC_U_POPSEG:
         case JC_U_MIGSEG:
@@ -4677,6 +4987,10 @@ jc_units_make (const jc_layout *ly, const boolean *active, jc_units *U)
                   if (ly->split_psig[k] >= 0) dep[ly->split_psig[k]] = TRUE;
                   if (ly->rep[d] >= 0) dep[ly->rep[d]] = TRUE;
                   if (ly->rep[an] >= 0) dep[ly->rep[an]] = TRUE;
+                  /* growth of daughter and ancestor (sharp terms move
+                     growth-weighted integrals) */
+                  if (ly->pop_slot[d] >= 0) dep[ly->slot_param[ly->pop_slot[d]]] = TRUE;
+                  if (ly->pop_slot[an] >= 0) dep[ly->slot_param[ly->pop_slot[an]]] = TRUE;
                   for (f = 0; f < ly->numpop2; f++)
                     {   /* skyline multipliers of d, the ancestor, the entries into them */
                       long sg;
@@ -4732,10 +5046,7 @@ jc_unit_term (const jc_layout *ly, const jc_units *U, long u, const double *st, 
     case JC_U_ML:
       return jc_ml_term (ly, st, sp, i, phi);
     case JC_U_POP:
-      {
-        const long s = ly->pop_slot[i];
-        return jc_pop_term (ly, st, i, phi[ly->rep[i]], s >= 0 ? phi[ly->slot_param[s]] : 0.0, mu, NAN);
-      }
+      return jc_pop_term_phi (ly, st, i, phi, mu);
     case JC_U_POPSEG:
       return jc_pop_seg_term (ly, st, i, sg, phi[ly->rep[i]] * (sg ? phi[JC_TAU (ly, ly->sky_j[i], sg)] : 1.0),
                               ly->pop_slot[i] >= 0 ? phi[ly->slot_param[ly->pop_slot[i]]] : 0.0, mu);
@@ -4834,6 +5145,14 @@ jc_active (world_fmt *world, const jc_layout *ly)
     }
   if (ly->rate)
     active[ly->rate_p] = TRUE;
+  for (p = 0; p < ly->numpop; p++)
+    {
+      boolean aff = FALSE;
+      for (s = 0; s < ly->nsplit && ly->sharp; s++)
+        if (ly->split_to[s] == p || ly->split_from[s] == p)
+          aff = TRUE;
+      ly->sharp_pu[p] = aff && ly->rep[p] >= 0 && active[ly->rep[p]] && ly->sky_j[p] < 0;
+    }
   return active;
 }
 
@@ -5463,7 +5782,7 @@ jc_local_boot (jc_local *J, const double *pts, long K, long B, double *D)
         {
           for (s = 0; s < n; s++)
             col[s] = t[s * K + k];
-          orig[k] = jc_logsumexp (col, n) - log ((double) n);
+          orig[k] = jc_lterm_floor (jc_logsumexp (col, n) - log ((double) n));
         }
       for (b = 0; b < B; b++)
         {
@@ -5486,7 +5805,9 @@ jc_local_boot (jc_local *J, const double *pts, long K, long B, double *D)
               for (s = 0; s < n; s++)
                 if (cnt[s] > 0)
                   col[m++] = log ((double) cnt[s]) + t[s * K + k];
-              D[b * K + k] += jc_logsumexp (col, m) - log ((double) total) - orig[k];
+              /* the floor as in the chains: a replicate without a genealogy
+                 compatible with pts (sharp splits: no window holds D) */
+              D[b * K + k] += jc_lterm_floor (jc_logsumexp (col, m) - log ((double) total)) - orig[k];
             }
         }
       myfree (t);
