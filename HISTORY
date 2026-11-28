@@ -12,6 +12,12 @@ Version numbers: 4 major version [addition of forces, big rearrangements]
 -------------------------------------------------------------------------
                                      2026
 -------------------------------------------------------------------------
+November 27  Migrate 6.1.114 Sharp splits (splitstd=0) in the joint combination also with tied
+             splits, growth, and gated migration into a daughter of the same split
+             (cookbook 11a); before, the joint used a narrow spike there and Joint D
+             was wrong. Tied splits start with one shared D and S (each member was
+             drawn on its own and a locus could stay at two split times). The joint
+             marginal likelihood with sharp splits no longer overflows.
 November 27  Migrate 6.1.113 Joint combination with divergence-distrib=E (since 7.0.133 / 6.1.109):
              the sharp-split terms were used for the exponential split model, which
              rated every genealogy impossible; Joint split estimates were wrong. The

@@ -2473,6 +2473,45 @@ static boolean species_mu_fixed(world_fmt * world, long p)
    time never moves: the partner moves up to it instead (it moved the fixed
    child split before, which then stayed at the wrong value); two fixed
    split times out of order stop the run */
+/* tied splits (t/T) share one D and one S: start values drawn per
+   parameter (split=PRIOR, random starts) gave the members of a group
+   different values, and the per-locus chain then stayed stuck at them (every
+   D move puts one member's crossings far from its D). The first split of a
+   group sets the others; TRUE when something changed */
+boolean species_tie_sync(world_fmt * world)
+{
+  long c, f;
+  boolean changed = FALSE;
+  if (!world->has_speciation)
+    return FALSE;
+  for (c = 0; c < world->species_model_size; c++)
+    {
+      species_fmt *sc = &world->species_model[c];
+      if (sc->type != 't')
+        continue;
+      for (f = 0; f < c; f++)
+        {
+          species_fmt *sf = &world->species_model[f];
+          if (sf->type == 't' && sf->from == sc->from)
+            {
+              if (world->param0[sc->paramindex_mu] != world->param0[sf->paramindex_mu])
+                changed = TRUE;
+              world->param0[sc->paramindex_mu] = world->param0[sf->paramindex_mu];
+              sc->mu = sf->mu = world->param0[sf->paramindex_mu];
+              if (sc->paramindex_sigma >= 0 && sf->paramindex_sigma >= 0)
+                {
+                  if (world->param0[sc->paramindex_sigma] != world->param0[sf->paramindex_sigma])
+                    changed = TRUE;
+                  world->param0[sc->paramindex_sigma] = world->param0[sf->paramindex_sigma];
+                  sc->sigma = sf->sigma = world->param0[sf->paramindex_sigma];
+                }
+              break;
+            }
+        }
+    }
+  return changed;
+}
+
 boolean species_order_repair(world_fmt * world)
 {
   long c, q, pass;
